@@ -1,6 +1,96 @@
+import os
+import yaml
+import logging
+from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+PROMPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
+
+def load_yaml_template(relative_path: str) -> str:
+    """Load a YAML template file and return the system_prompt_template."""
+    full_path = os.path.join(PROMPTS_DIR, relative_path)
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"Template not found: {full_path}")
+    
+    with open(full_path, 'r', encoding='utf-8') as f:
+        data = yaml.safe_load(f)
+    
+    return data.get('system_prompt_template', '')
+
+def get_hunter_templates_for_language(language: str) -> Dict[str, Any]:
+    """Get all hunter templates for a specific language."""
+    hunters = {}
+    hunters_dir = os.path.join(PROMPTS_DIR, "hunters", language)
+    
+    if not os.path.exists(hunters_dir):
+        logger.warning(f"No hunters directory for language: {language}")
+        return hunters
+    
+    for filename in os.listdir(hunters_dir):
+        if filename.endswith('.yaml'):
+            template_path = os.path.join("hunters", language, filename)
+            try:
+                full_path = os.path.join(PROMPTS_DIR, template_path)
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+                hunter_name = data.get('role', filename[:-5])
+                hunters[hunter_name] = {
+                    'template': data.get('system_prompt_template', ''),
+                    'cwe_profile': data.get('cwe_profile', ''),
+                    'description': data.get('description', '')
+                }
+            except Exception as e:
+                logger.error(f"Failed to load hunter template {filename}: {e}")
+    
+    return hunters
+
+def load_hunter_registry() -> Dict[str, Any]:
+    """Load the hunter registry configuration."""
+    registry_path = os.path.join(PROMPTS_DIR, "hunters.yaml")
+    if not os.path.exists(registry_path):
+        return {}
+    
+    with open(registry_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+COORDINATOR_PROMPT_TEMPLATE = load_yaml_template("core/coordinator.yaml")
+REVERSE_TRACER_PROMPT_TEMPLATE = load_yaml_template("core/reverse_tracer.yaml")
+LOGIC_AUDITOR_PROMPT_TEMPLATE = load_yaml_template("core/logic_auditor.yaml")
+RED_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/red_validator.yaml")
+BLUE_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/blue_validator.yaml")
+RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
+
+def format_coordinator_prompt(payload_json: str) -> str:
+    return COORDINATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+
+def format_reverse_tracer_prompt(payload_json: str, dynamic_tracing_strategy: str = "") -> str:
+    return REVERSE_TRACER_PROMPT_TEMPLATE.format(
+        payload_json=payload_json,
+        dynamic_tracing_strategy=dynamic_tracing_strategy or "使用标准逆向追踪方法"
+    )
+
+def format_logic_auditor_prompt(payload_json: str) -> str:
+    return LOGIC_AUDITOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+
+def format_red_validator_prompt(payload_json: str) -> str:
+    return RED_VALIDATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+
+def format_blue_validator_prompt(payload_json: str) -> str:
+    return BLUE_VALIDATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+
+def format_hunter_prompt(template: str, hunter_name: str, payload_json: str) -> str:
+    return template.format(hunter_name=hunter_name, payload_json=payload_json)
+
+def format_retry_prompt(error_details: str, raw_output: str) -> str:
+    return RETRY_PROMPT_TEMPLATE.format(
+        error_details=error_details,
+        raw_output=raw_output
+    )
+
 COORDINATOR_PROMPT = """# Role: 首席架构师与全局调度器 (Coordinator)
 你目前运行在目标审计项目的根目录下，拥有完整的 opencode 执行能力。
-你的任务是完成“项目沙盘推演”：探明语言框架、提取所有的 API 路由表，并决定派发哪些底层漏洞猎手。
+你的任务是完成"项目沙盘推演"：探明语言框架、提取所有的 API 路由表，并决定派发哪些底层漏洞猎手。
 
 ## Input
 当前任务指令：提取全量路由并规划猎手矩阵。
@@ -67,7 +157,7 @@ LOGIC_AUDITOR_PROMPT = """# Role: 业务逻辑推演专家 (LogicAuditor)
 API 路由信息 (TaskRequest Payload): {payload_json}
 
 ## Action Guidelines
-你不需要关注底层的 SQL 注入或 XSS，那是其他专家的工作。请将全部注意力放在“权限”与“状态”上。
+你不需要关注底层的 SQL 注入或 XSS，那是其他专家的工作。请将全部注意力放在"权限"与"状态"上。
 1. **代码阅读**：读取 `handler_file` 中对应的处理函数，并顺着逻辑向下读取相关的 Service 层代码。
 2. **审查鉴权模型 (Authentication & IDOR)**：代码是信任了外部传入的 ID 还是从 Token 中获取？更新操作是否有归属权校验？
 3. **审查并发状态机 (Race Condition)**：是否存在 TOCTOU，是否被正确的锁机制包裹？

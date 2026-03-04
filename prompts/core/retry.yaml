@@ -1,0 +1,8 @@
+role: "retry"
+description: "JSON 契约修复重试"
+system_prompt_template: |
+  [系统级致命错误]：你刚才的输出破坏了 A2A 通信协议。
+  解析器返回错误：{error_details}
+  你之前的非法输出内容为：{raw_output}
+
+  【指令】：请立即修复上述 JSON 格式错误（例如移除不可见的控制字符、确保属性名带双引号、移除代码块标记等），并**只**返回修复后的纯 JSON 对象。

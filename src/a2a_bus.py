@@ -5,6 +5,14 @@ import logging
 from typing import Optional, Dict
 
 class A2ABusManager:
+    SUPPORTED_MESSAGE_TYPES = [
+        "TaskRequest",
+        "Coordinator_Output",
+        "VulnCandidate",
+        "ExploitAttempt",
+        "ConfirmedVuln"
+    ]
+    
     def __init__(self, project_root: str):
         self.project_root = os.path.abspath(project_root)
         self.bus_dir = os.path.join(self.project_root, ".a2a_bus")
@@ -21,8 +29,11 @@ class A2ABusManager:
 
     def write_message(self, message_type: str, task_id: str, sender: str, recipient: str, payload: dict, priority: str = "normal") -> str:
         """Atomically write a new A2A message."""
+        if message_type not in self.SUPPORTED_MESSAGE_TYPES:
+            logging.warning(f"Unknown message_type: {message_type}, adding anyway")
+        
         msg = {
-            "a2a_version": "1.0",
+            "a2a_version": "5.0" if message_type == "Coordinator_Output" else "1.0",
             "message_type": message_type,
             "task_id": task_id,
             "sender": sender,
@@ -63,7 +74,6 @@ class A2ABusManager:
                         os.rename(src_path, proc_path)
                         tasks.append(proc_path)
                     except OSError:
-                        # Another coroutine grabbed it or it vanished
                         continue
             except Exception as e:
                 logging.error(f"Error scanning {dir_path}: {e}")

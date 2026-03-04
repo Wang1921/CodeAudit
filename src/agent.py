@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from typing import Optional, Dict, Any
-from src.prompts import RETRY_PROMPT
+from src import prompts
 
 class OpenCodeSubprocess:
     def __init__(self, target_source_dir: str, timeout: int = 1800):
@@ -16,9 +16,9 @@ class OpenCodeSubprocess:
         if sys.platform == "win32":
             cmd = ["opencode.cmd", "run", "--format", "json"]
         if tools:
-            pass # opencode handles tools automatically based on the agent or context, we pass prompt as arg
+            cmd.extend(["--tools", tools])
         
-        logging.debug(f"Executing command: {' '.join(cmd[:3])} [stdin-prompt]")
+        logging.debug(f"Executing command: {' '.join(cmd[:5])} [stdin-prompt]")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -53,8 +53,6 @@ class OpenCodeSubprocess:
             raise
 
     def _extract_json(self, output: str) -> str:
-        # opencode run --format json might output JSON lines
-        # We need to extract the actual text from the parts
         full_text = ""
         for line in output.strip().split('\n'):
             if not line.strip(): continue
@@ -68,7 +66,6 @@ class OpenCodeSubprocess:
         if not full_text:
             full_text = output
 
-        # Simple heuristic to extract JSON if there's markdown or extra text
         start = full_text.find('{')
         end = full_text.rfind('}')
         if start != -1 and end != -1:
@@ -84,9 +81,7 @@ class OpenCodeSubprocess:
             return json.loads(clean_out)
         except json.JSONDecodeError as e:
             logging.warning(f"JSON decode failed on first attempt: {e}")
-            # Retry mechanism
-            retry_prompt = RETRY_PROMPT.format(error_details=str(e), raw_output=clean_out)
-            # Send the retry prompt
+            retry_prompt = prompts.format_retry_prompt(error_details=str(e), raw_output=clean_out)
             _, retry_stdout, _ = await self._run_process(retry_prompt, tools)
             clean_retry = self._extract_json(retry_stdout)
             try:
