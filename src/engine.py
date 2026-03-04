@@ -44,6 +44,8 @@ class AuditEngine:
             return prompts.format_red_validator_prompt(payload_json)
         elif agent_name == "BlueValidator":
             return prompts.format_blue_validator_prompt(payload_json)
+        elif agent_name == "ReportGenerator":
+            return prompts.format_report_generator_prompt(payload_json)
         elif agent_name.startswith("SinkHunter"):
             hunter_name = agent_name.replace("SinkHunter_", "")
             hunters = self._get_language_hunters(self._get_current_language())
