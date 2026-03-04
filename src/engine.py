@@ -67,63 +67,31 @@ class AuditEngine:
         return ""
 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
-        """根据 Coordinator 的输出执行任务裂变（Fan-out），包含强制策略覆盖。"""
+        """根据 Coordinator 的输出执行任务裂变（Fan-out）。"""
         routes = coordinator_output.get("routes", [])
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
-
-        recommended_hunters = coordinator_output.get("hunters_to_dispatch", [])
         
+        # 加载该语言的所有 Hunter
         language_hunters = self._get_language_hunters(language)
-        recommended_hunter_names = set()
+        logging.info(f"为语言 {language} 加载了 {len(language_hunters)} 个 Hunter: {list(language_hunters.keys())}")
         
-        # 如果Coordinator没有输出hunters_to_dispatch，则根据语言自动选择
-        if not recommended_hunters:
-            # 根据语言自动选择默认的 Hunter
-            if language.lower() in ['java', 'kotlin', 'scala']:
-                recommended_hunter_names = {'Injection_Hunter', 'FileIO_Hunter', 'Deserialization_Hunter'}
-            elif language.lower() in ['javascript', 'typescript', 'nodejs']:
-                recommended_hunter_names = {'PrototypePollution_Hunter', 'CodeInjection_Hunter'}
-            elif language.lower() in ['python', 'django', 'flask']:
-                recommended_hunter_names = {'CodeInjection_Hunter', 'TemplateInjection_Hunter'}
-            else:
-                recommended_hunter_names = {'Injection_Hunter'}
-        else:
-            for hunter in recommended_hunters:
-                hunter_name = hunter.get("hunter_name", "")
-                if hunter_name:
-                    recommended_hunter_names.add(hunter_name)
-                # 也支持 cwe_profile 匹配
-                cwe = hunter.get("cwe_profile", "")
-                for name, info in language_hunters.items():
-                    if cwe and cwe.lower() in info.get('cwe_profile', '').lower():
-                        recommended_hunter_names.add(name)
-        
-        universal_hunters = self.hunter_registry.get('universal_hunters', [])
-        for uh in universal_hunters:
-            hunter_name = uh.get('name')
-            template_path = uh.get('template_file')
-            if template_path:
-                try:
-                    template = prompts.load_yaml_template(template_path)
-                    self.language_hunters[hunter_name] = {
-                        'template': template,
-                        'cwe_profile': uh.get('cwe_profile', ''),
-                        'description': uh.get('description', '')
-                    }
-                except Exception as e:
-                    logging.warning(f"无法加载通用漏洞猎手 {hunter_name}: {e}")
-        
-        for hunter_name in recommended_hunter_names:
+        # 为每个 Hunter 创建 SinkHunter 任务
+        for hunter_name, hunter_info in language_hunters.items():
             self.tracker.add_task()
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=f"{task_id}_HUNTER_{hunter_name}",
                 sender="Coordinator",
                 recipient=f"SinkHunter_{hunter_name}",
-                payload={"action": "scan_sinks", "cwe_profile": language_hunters.get(hunter_name, {}).get('cwe_profile', '')}
+                payload={
+                    "action": "scan_sinks", 
+                    "cwe_profile": hunter_info.get('cwe_profile', ''),
+                    "description": hunter_info.get('description', '')
+                }
             )
         
+        # 为每个路由创建 LogicAuditor 任务
         for i, route in enumerate(routes):
             self.tracker.add_task()
             self.bus.write_message(
