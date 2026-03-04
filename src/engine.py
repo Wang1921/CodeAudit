@@ -2,9 +2,11 @@ import asyncio
 import logging
 import json
 import os
+from typing import Optional, Dict, Any
 from src.a2a_bus import A2ABusManager
 from src.agent import OpenCodeSubprocess
 from src.state_router import StateRouter
+from src.state_tracker import StateTracker
 from src import prompts
 
 MAX_CONCURRENT_AGENTS = 20
@@ -12,8 +14,9 @@ MAX_AGENT_TIMEOUT = 1800
 
 class AuditEngine:
     def __init__(self, target_source_dir: str):
+        self.tracker = StateTracker(target_source_dir)
         self.bus = A2ABusManager(target_source_dir)
-        self.router = StateRouter(self.bus)
+        self.router = StateRouter(self.bus, self.tracker)
         self.target_source_dir = target_source_dir
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
         self.hunter_registry = prompts.load_hunter_registry()
@@ -26,7 +29,7 @@ class AuditEngine:
             self.language_hunters[language] = prompts.get_hunter_templates_for_language(language)
         return self.language_hunters[language]
 
-    def _get_prompt_for_agent(self, agent_name: str, payload_json: str, context: dict = None) -> str:
+    def _get_prompt_for_agent(self, agent_name: str, payload_json: str, context: Optional[Dict[str, Any]] = None) -> str:
         """Get the prompt for a specific agent, using YAML templates if available."""
         ctx: dict = context if context is not None else {}
         
@@ -104,6 +107,7 @@ class AuditEngine:
                     logging.warning(f"Failed to load universal hunter {hunter_name}: {e}")
         
         for hunter_name in recommended_hunter_names:
+            self.tracker.add_task()
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=f"{task_id}_HUNTER_{hunter_name}",
@@ -113,6 +117,7 @@ class AuditEngine:
             )
         
         for i, route in enumerate(routes):
+            self.tracker.add_task()
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=f"{task_id}_ROUTE_{i}",
@@ -135,6 +140,7 @@ class AuditEngine:
                     context["dynamic_tracing_strategy"] = self.dynamic_tracing_strategy
                 
                 logging.info(f"Agent {recipient} starting task {env['task_id']}")
+                self.tracker.agent_start(env["task_id"], recipient, f"Processing {env['task_id']}")
                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
                 
                 tools = self._get_tools_for_agent(recipient)
@@ -151,10 +157,12 @@ class AuditEngine:
                     
                     self.router.route(filepath, result)
                     self.bus.mark_completed(filepath)
+                    self.tracker.agent_finish(env["task_id"])
                     logging.info(f"Agent {recipient} completed task {env['task_id']}")
                 except Exception as e:
                     logging.error(f"Agent {recipient} failed on task {env['task_id']}: {e}", exc_info=True)
                     self.bus.mark_failed(filepath)
+                    self.tracker.agent_finish(env["task_id"])
                     self.bus.write_raw_failed(str(e), "Execution or JSON parse error")
             except Exception as e:
                 logging.error(f"Failed to process message {filepath}: {e}", exc_info=True)
@@ -166,6 +174,7 @@ class AuditEngine:
         ])
         
         if is_fresh_start:
+            self.tracker.add_task()
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id="TASK-INIT-001",
@@ -174,6 +183,13 @@ class AuditEngine:
                 payload={"action": "extract_routes"}
             )
             logging.info("Injected initial Coordinator task.")
+
+        async def update_tracker_loop():
+            while True:
+                self.tracker.update_agent_times()
+                await asyncio.sleep(1)
+
+        asyncio.create_task(update_tracker_loop())
 
         while True:
             tasks = self.bus.get_pending_tasks()

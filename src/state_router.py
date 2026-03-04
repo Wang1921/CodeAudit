@@ -32,8 +32,9 @@ TERMINAL_STATES = [
 ]
 
 class StateRouter:
-    def __init__(self, bus: A2ABusManager):
+    def __init__(self, bus: A2ABusManager, tracker=None):
         self.bus = bus
+        self.tracker = tracker
 
     def route(self, completed_task: str, agent_output: Dict[str, Any]):
         """Route the output of an agent to the next hop."""
@@ -71,9 +72,11 @@ class StateRouter:
         """SinkHunter output goes to ReverseTracer for tracing."""
         sinks = agent_output.get("found_sinks", [])
         for sink in sinks:
+            if self.tracker: self.tracker.add_task()
+            if self.tracker: self.tracker.update_kanban("suspicious", task_id + sink.get("route", ""), "SINK", sink.get("route", "Unknown Sink"))
             self.bus.write_message(
                 message_type="TaskRequest",
-                task_id=task_id,
+                task_id=task_id + "_TRACE",
                 sender=sender,
                 recipient="ReverseTracer",
                 payload={"action": "trace_call_chain", "sink_details": sink}
@@ -82,6 +85,8 @@ class StateRouter:
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """ReverseTracer output goes to RedValidator for attack validation."""
         if "vuln_type" in agent_output:
+            if self.tracker: self.tracker.add_task()
+            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "Unknown"))
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
@@ -93,6 +98,8 @@ class StateRouter:
     def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """LogicAuditor output goes to RedValidator for attack validation."""
         if "vuln_type" in agent_output:
+            if self.tracker: self.tracker.add_task()
+            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "Unknown"))
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
@@ -100,6 +107,8 @@ class StateRouter:
                 recipient="RedValidator",
                 payload=agent_output
             )
+        else:
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "LOGIC", "Audit Clean", status="DEFENDED")
 
     def _route_red_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """RedValidator output goes to BlueValidator for defense validation."""
@@ -114,6 +123,8 @@ class StateRouter:
             if "call_chain" not in payload and "call_chain" in orig_payload:
                 payload["call_chain"] = orig_payload.get("call_chain")
             
+            if self.tracker: self.tracker.add_task()
+            if self.tracker: self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "Unknown"), payload.get("entry_route", "Unknown"))
             self.bus.write_message(
                 message_type="ExploitAttempt",
                 task_id=task_id,
@@ -121,11 +132,14 @@ class StateRouter:
                 recipient="BlueValidator",
                 payload=payload
             )
+        else:
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "RED-FAIL", "Not Exploitable", status="DEFENDED")
 
     def _route_blue_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """BlueValidator output goes to ReportGenerator for final reporting."""
         status = agent_output.get("status")
         if status == "VULNERABLE" or "mitigation_advice" in agent_output:
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, agent_output.get("vuln_type", "Unknown"), agent_output.get("entry_route", "Unknown"), status="CONFIRMED")
             self.bus.write_message(
                 message_type="ConfirmedVuln",
                 task_id=task_id,
@@ -133,3 +147,5 @@ class StateRouter:
                 recipient="ReportGenerator",
                 payload=agent_output
             )
+        else:
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "Defended", status="DEFENDED")
