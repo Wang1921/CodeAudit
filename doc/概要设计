@@ -40,15 +40,16 @@
 
 ### 3.2 引擎级强制安全红线 (Engine-Level Mandatory Overrides)
 调度引擎在任务裂变阶段强制干预，不完全依赖 AI 的自觉性：
-1. **通用红线强制兜底**：不论 `Coordinator` 识别为何种语言，引擎必定向总线塞入语言无关的底层猎手（如 CWE-532 `Privacy_Hunter` 敏感日志猎手，CWE-798 `Secret_Hunter` 硬编码凭证猎手）。
-2. **逻辑推演 100% 覆盖**：提取出的所有 API 路由，必须毫无遗漏地实例化为 `LogicAuditor` 任务。
+1. **语言级全量装配**：Python 引擎解析到 language_stack: "java" 后，会自动遍历 prompts/hunters/java/ 目录下的所有 .yaml 文件，并将它们全部实例化为 SinkHunter 任务下发
+2. **通用红线强制兜底**：不论 `Coordinator` 识别为何种语言，引擎必定向总线塞入语言无关的底层猎手（如 CWE-532 `Privacy_Hunter` 敏感日志猎手，CWE-798 `Secret_Hunter` 硬编码凭证猎手）。
+3. **逻辑推演 100% 覆盖**：提取出的所有 API 路由，必须毫无遗漏地实例化为 `LogicAuditor` 任务。
 
 ## 4. 智能体角色定义 (Agent Roster)
 系统由 1 个协调者与 5 个专家级工作节点组成（验证层拆分为红蓝双角色）：
 
 | 角色名称 | 类型 | 职责说明 | 核心输入 (A2A) | 核心输出 (A2A) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈。提取 API 路由表。**根据语言栈（如 Java），指派对应语言的猎手模板清单。** | 项目根目录 | `TaskRequest` |
+| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈。提取 API 路由表，并生成动态追踪策略（Tracing Strategy）| 项目根目录 | `TaskRequest` |
 | **SinkHunter (集群)** | 专家集群 | 基于静态 YAML 模板加载，专精某一语言的特定底层库，精准提取高危触点。 | 包含特定 `cwe_profile` 的 `TaskRequest` | 包含底层坐标的 `TaskRequest` |
 | ┣ _FileIO_Hunter_ | 实例化节点 | 专攻 CWE-22/73。精通 `java.io.*`, `java.nio.*`, `commons-io`, `MultipartFile` 等所有文件读写/路径拼接 API。 | - | - |
 | ┣ _Injection_Hunter_ | 实例化节点 | 专攻注入类 (JNDI, LDAP, OGNL, SpEL)。精通 `InitialContext.lookup`, `parseExpression`, `Ognl.getValue` 等执行点。 | - | - |
