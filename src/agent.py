@@ -10,7 +10,11 @@ class OpenCodeSubprocess:
         self.timeout = timeout
 
     async def _run_process(self, prompt: str, tools: Optional[str] = None) -> tuple[Optional[int], str, str]:
+        import sys
+        
         cmd = ["opencode", "run", "--format", "json"]
+        if sys.platform == "win32":
+            cmd = ["opencode.cmd", "run", "--format", "json"]
         if tools:
             pass # opencode handles tools automatically based on the agent or context, we pass prompt as arg
             
