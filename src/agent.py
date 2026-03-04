@@ -17,20 +17,20 @@ class OpenCodeSubprocess:
             cmd = ["opencode.cmd", "run", "--format", "json"]
         if tools:
             pass # opencode handles tools automatically based on the agent or context, we pass prompt as arg
-            
-        cmd.append(prompt)
-        logging.debug(f"Executing command: {' '.join(cmd)}")
+        
+        logging.debug(f"Executing command: {' '.join(cmd[:3])} [stdin-prompt]")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE,
             cwd=self.target_source_dir
         )
         
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(input=prompt.encode('utf-8')),
                 timeout=self.timeout
             )
             logging.debug(f"Process stdout: {stdout}")
