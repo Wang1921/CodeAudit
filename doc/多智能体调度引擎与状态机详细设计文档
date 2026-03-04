@@ -12,6 +12,8 @@
 2. **进程生命周期管理**：安全地拉起、监控、并回收 `opencode` CLI 子进程。
 3. **并发控制 (Fan-out/Fan-in)**：处理任务的裂变（如从 1 个路由表生成 50 个独立审计任务）与并行调度，最大化利用大模型 API 的并发额度。
 4. **容错与重试 (Fault Tolerance)**：处理大模型输出乱码、进程死锁或超时等异常边界情况。
+5. **动态模板组装**：读取 `prompts/` 目录下的静态 YAML 模板，将 `Coordinator` 的动态追踪策略拼接注入。
+6. **强制安全红线**：在任务裂变 (Fan-out) 时，强制塞入通用底线猎手（硬编码、敏感日志），并确保 API 路由 100% 覆盖。
 
 ---
 
@@ -31,23 +33,51 @@
 + **安全约束**：引擎需确保 `target_source_dir` 对运行进程为**只读 (Read-Only)** 权限，防止恶意 Agent 篡改源码导致后续分析链路污染。
 
 ---
+## 3. 模板加载与任务裂变 (Template Loading & Fan-out)
 
-## 3. 状态机与任务路由流转 (State Machine & Routing)
+### 3.1 静态 YAML 模板库读取
+引擎不再硬编码 Prompt，而是根据 `Coordinator` 的指令去读取 `prompts/` 下的具体文件（如 `prompts/hunters/java/injection.yaml`）。
+引擎提取 YAML 中的 `system_prompt_template`，并使用 `.format()` 将动态上下文替换进去。
+示例：
+```role: "Java_Injection_Hunter"
+description: "专攻 Java 体系下的 SQL/JNDI/LDAP 注入"
+system_prompt_template: |
+  # Role: Java 底层注入漏洞猎手
+  你当前运行在一个 Java 项目根目录下。你的脑海中只有 Java 的危险函数。
+  
+  ## Action Guidelines
+  请使用 grep 或编写 Python AST 脚本，在 .java 或 .xml 文件中死磕以下触点：
+  1. **SQL 拼接**: 寻找 `Statement.executeQuery()` 且参数包含 `+` 号拼接的代码。
+  2. **MyBatis 注入**: 检索 `*Mapper.xml` 文件，寻找使用 `${...}` (美元符号) 而不是 `#{...}` 的 SQL 语句。
+  3. **JNDI/LDAP**: 检索 `InitialContext.lookup()` 或 `LdapContext.lookup()`。
+  4. **SpEL 注入**: 检索 `ExpressionParser.parseExpression()`。
+  
+  忽略任何与 Java 无关的代码。一旦发现，立即输出 JSON 坐标。
+```
+
+### 3.2 Fan-out 裂变与强制兜底 (Engine-Level Overrides)
+在处理 `Coordinator_Output` 报文时，引擎执行极其严苛的裂变逻辑：
+1. **猎手合并**：将 `Coordinator` 建议的语言专属猎手（如 `Java_Injection_Hunter`）与**引擎硬编码的通用猎手**（`Secret_Hunter`, `Privacy_Hunter`）合并去重。
+2. **并发下发**：遍历合并后的猎手清单，为每个猎手生成独立的 `TaskRequest`。
+3. **逻辑审查兜底**：遍历所有的 `routes`，为每一个 API 路由生成一个专属的 `LogicAuditor` 任务请求。
+
+---
+## 4. 状态机与任务路由流转 (State Machine & Routing)
 引擎通过一个单向无环的**路由决策树 (Routing Table)** 来决定一个任务完成后，其结果应该交给谁。
 
-### 3.1 核心路由表定义
+### 4.1 核心路由表定义
 | 发送方 (Sender) | 消息类型 (MessageType) | 触发条件 | 下一跳接收方 (Recipient) | 操作动作 (Action) |
 | :--- | :--- | :--- | :--- | :--- |
 | `System` | `TaskRequest` | 引擎首次启动 | `Coordinator` | 生成全局任务地图 |
-| `Coordinator` | `Coordinator_Output` | 成功提取路由表 | `SinkHunter`** 集群** (并行)    `LogicAuditor` (按路由并行) | 触发 Fan-out (任务裂变) |
-| `SinkHunter` | `TaskRequest` | 发现高危触点 | `ReverseTracer` | 提交单点坐标进行溯源 |
+| `Coordinator` | `Coordinator_Output` | 成功提取路由表 | `SinkHunter`** 集群** (并行)    `LogicAuditor` (按路由并行) | 读取 YAML，触发 Fan-out (任务裂变) |
+| `SinkHunter` | `TaskRequest` | 发现高危触点 | `ReverseTracer` | 附带特化追踪策略，提交单点坐标进行溯源 |
 | `ReverseTracer` | `VulnCandidate` | 连通性确认完毕 | `RedValidator` | 提交给红队进行攻击推演 |
 | `LogicAuditor` | `VulnCandidate` | 发现业务逻辑缺陷 | `RedValidator` | 提交给红队进行攻击推演 |
 | `RedValidator` | `ExploitAttempt` | 成功构造 POC | `BlueValidator` | 提交给蓝队进行防御核查 |
 | `BlueValidator` | `ConfirmedVuln` | 防御被击穿 | `ReportGenerator` | 写入最终漏洞报告队列 |
 
 
-### 3.2 熔断与终止状态 (Terminal States)
+### 4.2 熔断与终止状态 (Terminal States)
 引擎在解析 JSON 后，若检测到以下特殊 `status` 字段，将**立即终止该任务链路**，直接归档至 `completed/` 目录：
 
 1. `NOT_EXPLOITABLE`: 红队判定参数写死或无利用价值。
@@ -55,21 +85,21 @@
 
 ---
 
-## 4. 容错、超时与死信机制 (Fault Tolerance)
+## 5. 容错、超时与死信机制 (Fault Tolerance)
 大模型的输出具有非确定性，CLI 工具也有崩溃的风险。引擎必须设计极强的防御性编程逻辑。
 
-### 4.1 契约破坏处理 (JSON Decode Error)
+### 5.1 契约破坏处理 (JSON Decode Error)
 + **检测**：进程结束后，引擎尝试 `json.loads(stdout)`。
 + **自愈机制 (Auto-Correction)**：如果解析失败，引擎不立即放弃。它会提取错误提示（如 "Expecting property name enclosed in double quotes"），并将损坏的输出重新封装，附带一段特定的 Prompt（"你刚才破坏了 JSON 契约，报错如下，请修复并只输出合法 JSON"），**重试 1 次**。
 + **死信降级**：如果重试依然失败，则将原始输出写入 `.a2a_bus/failed/` 目录，标记为死信（Dead Letter），供人类后续排查，保证主流水线不卡死。
 
-### 4.2 硬超时控制 (Hard Timeout)
+### 5.2 硬超时控制 (Hard Timeout)
 逆向溯源（`ReverseTracer`）如果陷入了复杂的 AST 循环依赖，可能会永远卡住。
 
 + **策略**：使用 `asyncio.wait_for(process.communicate(), timeout=MAX_AGENT_TIMEOUT)`。
 + **阈值设定**：单次 Agent 执行上限设定为 **1800 秒（30分钟）**。超时后，引擎向子进程发送 `SIGKILL` 强制回收资源，并将任务丢入死信队列。
 
-### 4.3 文件系统操作的原子性 (Atomic Operations)
+### 5.3 文件系统操作的原子性 (Atomic Operations)
 由于引擎是异步高并发读取目录的，极易产生竞争条件（Race Condition）。
 
 + **读取策略**：引擎扫描 `pending/` 目录获取文件列表后，必须使用 `os.rename(src, temp_processing_dir)` 将任务文件原子的移动到“处理中”状态区。如果 `rename` 失败，说明被其他协程抢占，直接跳过。
@@ -77,7 +107,7 @@
 
 ---
 
-## 5. 核心类结构抽象 (Class Architecture)
+## 6. 核心类结构抽象 (Class Architecture)
 引擎的代码架构将围绕以下核心类展开：
 
 1. `A2ABusManager`: 负责底层文件系统的原子读写、目录初始化、以及归档 (`completed/`, `failed/`) 管理。
