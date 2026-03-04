@@ -63,15 +63,8 @@ class AuditEngine:
 
     def _get_tools_for_agent(self, agent_name: str) -> str:
         """根据 Agent 类型分配工具，遵循最小权限原则。"""
-        if agent_name in ["Coordinator"]:
-            return "bash,read,glob,grep"
-        elif agent_name in ["ReverseTracer", "LogicAuditor"]:
-            return "bash,read,glob,grep"
-        elif agent_name.startswith("SinkHunter"):
-            return "bash,read,glob,grep"
-        elif agent_name in ["RedValidator", "BlueValidator"]:
-            return "bash,read,glob,grep"
-        return "bash,read,glob,grep"
+        # opencode 当前版本不支持 --tools 参数，返回空字符串
+        return ""
 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
         """根据 Coordinator 的输出执行任务裂变（Fan-out），包含强制策略覆盖。"""
@@ -152,7 +145,8 @@ class AuditEngine:
                     logging.info(f"Agent {recipient} 执行完成。输出: {result}")
                     
                     message_type = env.get("message_type", "")
-                    if message_type == "Coordinator_Output" or (env["sender"] == "Coordinator" and recipient == "Coordinator"):
+                    # Coordinator 执行完成后需要触发任务裂变
+                    if recipient == "Coordinator":
                         self._fan_out_coordinator_output(env["task_id"], result)
                     
                     self.router.route(filepath, result)

@@ -62,31 +62,27 @@ BLUE_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/blue_validator.yaml")
 RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
 
 def format_coordinator_prompt(payload_json: str) -> str:
-    return COORDINATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+    return COORDINATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_reverse_tracer_prompt(payload_json: str, dynamic_tracing_strategy: str = "") -> str:
-    return REVERSE_TRACER_PROMPT_TEMPLATE.format(
-        payload_json=payload_json,
-        dynamic_tracing_strategy=dynamic_tracing_strategy or "使用标准逆向追踪方法"
-    )
+    s = REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    s = s.replace("{dynamic_tracing_strategy}", dynamic_tracing_strategy or "使用标准逆向追踪方法")
+    return s
 
 def format_logic_auditor_prompt(payload_json: str) -> str:
-    return LOGIC_AUDITOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+    return LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_red_validator_prompt(payload_json: str) -> str:
-    return RED_VALIDATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+    return RED_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_blue_validator_prompt(payload_json: str) -> str:
-    return BLUE_VALIDATOR_PROMPT_TEMPLATE.format(payload_json=payload_json)
+    return BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_hunter_prompt(template: str, hunter_name: str, payload_json: str) -> str:
-    return template.format(hunter_name=hunter_name, payload_json=payload_json)
+    return template.replace("{hunter_name}", hunter_name).replace("{payload_json}", payload_json)
 
 def format_retry_prompt(error_details: str, raw_output: str) -> str:
-    return RETRY_PROMPT_TEMPLATE.format(
-        error_details=error_details,
-        raw_output=raw_output
-    )
+    return RETRY_PROMPT_TEMPLATE.replace("{error_details}", error_details).replace("{raw_output}", raw_output)
 
 COORDINATOR_PROMPT = """# Role: 首席架构师与全局调度器 (Coordinator)
 你目前运行在目标审计项目的根目录下，拥有完整的 opencode 执行能力。
