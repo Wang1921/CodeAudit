@@ -71,18 +71,33 @@ class AuditEngine:
         routes = coordinator_output.get("routes", [])
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
-        self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
-        
+
         recommended_hunters = coordinator_output.get("hunters_to_dispatch", [])
         
         language_hunters = self._get_language_hunters(language)
         recommended_hunter_names = set()
         
-        for hunter in recommended_hunters:
-            cwe = hunter.get("cwe_profile", "")
-            for name, info in language_hunters.items():
-                if cwe and cwe in info.get('cwe_profile', ''):
-                    recommended_hunter_names.add(name)
+        # 如果Coordinator没有输出hunters_to_dispatch，则根据语言自动选择
+        if not recommended_hunters:
+            # 根据语言自动选择默认的 Hunter
+            if language.lower() in ['java', 'kotlin', 'scala']:
+                recommended_hunter_names = {'Injection_Hunter', 'FileIO_Hunter', 'Deserialization_Hunter'}
+            elif language.lower() in ['javascript', 'typescript', 'nodejs']:
+                recommended_hunter_names = {'PrototypePollution_Hunter', 'CodeInjection_Hunter'}
+            elif language.lower() in ['python', 'django', 'flask']:
+                recommended_hunter_names = {'CodeInjection_Hunter', 'TemplateInjection_Hunter'}
+            else:
+                recommended_hunter_names = {'Injection_Hunter'}
+        else:
+            for hunter in recommended_hunters:
+                hunter_name = hunter.get("hunter_name", "")
+                if hunter_name:
+                    recommended_hunter_names.add(hunter_name)
+                # 也支持 cwe_profile 匹配
+                cwe = hunter.get("cwe_profile", "")
+                for name, info in language_hunters.items():
+                    if cwe and cwe.lower() in info.get('cwe_profile', '').lower():
+                        recommended_hunter_names.add(name)
         
         universal_hunters = self.hunter_registry.get('universal_hunters', [])
         for uh in universal_hunters:

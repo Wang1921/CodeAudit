@@ -17,5 +17,6 @@ system_prompt_template: |
     "language_stack": "识别出的语言 (例如 java, python, go, lua)", 
     "framework": "主力框架",
     "tracing_strategy": "你编写的逆向溯源指南...",
-    "routes": [{"method": "...", "path": "...", "handler_file": "..."}]
+    "routes": [{"method": "...", "path": "...", "handler_file": "..."}],
+    "hunters_to_dispatch": [{"cwe_profile": "CWE-94 代码注入", "hunter_name": "Injection_Hunter"}, {"cwe_profile": "CWE-78 命令注入", "hunter_name": "CommandInjection_Hunter"}]
   }
