@@ -36,7 +36,7 @@
 ## 3. 模板加载与任务裂变 (Template Loading & Fan-out)
 
 ### 3.1 静态 YAML 模板库读取
-引擎不再硬编码 Prompt，而是根据 `Coordinator` 的指令去读取 `prompts/` 下的具体文件（如 `prompts/hunters/java/injection.yaml`）。
+引擎不再硬编码 Prompt，而是根据 `Coordinator` 识别出的编程语言去读取 `prompts/` 下的具体文件（如 `prompts/hunters/java/injection.yaml`）。
 引擎提取 YAML 中的 `system_prompt_template`，并使用 `.format()` 将动态上下文替换进去。
 示例：
 ```role: "Java_Injection_Hunter"
