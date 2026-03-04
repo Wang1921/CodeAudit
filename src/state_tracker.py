@@ -36,9 +36,9 @@ class TrackerHandler(SimpleHTTPRequestHandler):
                 with open(html_path, 'r', encoding='utf-8') as f:
                     self.wfile.write(f.read().encode('utf-8'))
             except FileNotFoundError:
-                self.wfile.write(b"\xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0 HTML \xe5\xa4\xa7\xe5\xb1\x8f\xe6\x96\x87\xe4\xbb\xb6\xe3\x80\x82")
+                self.wfile.write(b"HTML Dashboard not found.")
         else:
-            self.send_error(404, "文件未找到")
+            self.send_error(404, "File not found")
 
 class StateTracker:
     def __init__(self, target_dir, port=8080):
