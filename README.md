@@ -19,21 +19,43 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   **红队 (RedValidator)**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。
     *   **蓝队 (BlueValidator)**: 负责审查代码库中的过滤器、拦截器或业务后置熔断机制。
     *   通过左右互搏，系统能最大程度消除传统 SAST 工具的**高误报率**。
+*   **动态模板加载 (Dynamic Prompt Templates)**
+    *   所有智能体 Prompt 不再硬编码在代码中，而是存储于 `prompts/` 目录下的 YAML 文件中。
+    *   引擎根据识别的语言栈动态加载对应的猎手模板。
+*   **语言分层猎手矩阵 (Language-Specific Hunter Matrix)**
+    *   针对不同编程语言维护独立的漏洞猎手，实现领域对焦最大化。
+    *   Java 猎手专注 JDBC/MyBatis/SpEL，Python 猎手专注 SQLAlchemy/os.system。
+*   **强制安全红线 (Mandatory Security Baseline)**
+    *   引擎在任务裂变时强制注入通用底线猎手（Secret_Hunter, Privacy_Hunter）。
+    *   确保所有识别的 API 路由 100% 覆盖 LogicAuditor 审查。
 
 ## 🏗️ 智能体架构 (Agent Roster)
 
-1.  **调度器 (Coordinator)**: 扫描项目语言栈，提取路由表，点将派发具体的猎手任务。
-2.  **底层猎手集群 (SinkHunters)**: 针对特定漏洞 (CWE) 检索源代码中的危险执行触点。
-3.  **逆向溯源专家 (ReverseTracer)**: 接收底层猎手提供的漏洞坐标，通过控制流/数据流自底向上追踪调用链路。
-4.  **业务逻辑推演专家 (LogicAuditor)**: 从 API 路由入口开始，自顶向下进行逻辑审计，审查鉴权模型和并发锁。
-5.  **红队验证官 (RedValidator)**: 对疑似漏洞进行利用推演。
-6.  **蓝队验证官 (BlueValidator)**: 对漏洞利用链路进行防御复盘，确认最终有效漏洞。
+| 角色名称 | 类型 | 职责说明 |
+| :--- | :--- | :--- |
+| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈，提取 API 路由表，生成动态追踪策略 |
+| **SinkHunter (集群)** | 专家集群 | 基于 YAML 模板加载，专精某一语言的特定底层库，精准提取高危触点 |
+| ┣ **FileIO_Hunter** | 实例化节点 | 专攻 CWE-22/73，路径遍历、文件解压炸弹 |
+| ┣ **Injection_Hunter** | 实例化节点 | 专攻注入类 (JNDI, LDAP, OGNL, SpEL) |
+| ┣ **DbQuery_Hunter** | 实例化节点 | 专攻 SQL/NoSQL 注入 |
+| ┣ **Secret_Hunter** | 实例化节点 | 专攻 CWE-798 硬编码凭证 |
+| ┣ **Privacy_Hunter** | 实例化节点 | 专攻 CWE-532 敏感日志 |
+| **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链 |
+| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞 |
+| **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性 |
+| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制，确认最终漏洞 |
 
 ## 🚀 快速开始 (Quick Start)
 
 ### 依赖要求
 - Python 3.10+
 - `opencode` CLI 工具链
+- PyYAML
+
+### 安装依赖
+```bash
+pip install pyyaml
+```
 
 ### 启动引擎
 系统核心调度由 Python 实现的异步引擎驱动，通过挂载目标项目根目录作为工作区启动：
@@ -45,11 +67,36 @@ python -m src.main ./dummy_project
 
 引擎启动后，会在目标目录下自动创建 `.a2a_bus/` 目录结构，并进入监听轮询模式。系统的运行日志将直接输出到控制台。
 
+### 目录结构
+```
+CodeAudit/
+├── src/                    # 核心引擎代码
+│   ├── engine.py           # 异步调度引擎
+│   ├── agent.py            # OpenCode 子进程管理
+│   ├── a2a_bus.py          # 文件系统消息总线
+│   ├── state_router.py     # 状态路由与任务裂变
+│   └── prompts.py          # 动态模板加载器
+├── prompts/                # 智能体 Prompt 模板库
+│   ├── core/               # 核心智能体模板
+│   │   ├── coordinator.yaml
+│   │   ├── reverse_tracer.yaml
+│   │   ├── logic_auditor.yaml
+│   │   ├── red_validator.yaml
+│   │   └── blue_validator.yaml
+│   ├── hunters/            # 漏洞猎手模板
+│   │   ├── java/           # Java 猎手
+│   │   ├── python/         # Python 猎手
+│   │   └── hunters.yaml    # 猎手注册表
+│   └── core/retry.yaml     # JSON 契约修复模板
+├── doc/                    # 设计文档
+└── dummy_project/          # 测试项目
+```
+
 ## 📚 详细设计文档
 
 更详细的架构设计、调度逻辑和 A2A 通信协议请参考以下文档（位于 `doc/` 目录下）：
 
 - [概要设计](doc/概要设计)
-- [多智能体调度引擎与状态机设计](doc/多智能体调度引擎与状态机设计文档)
+- [多智能体调度引擎与状态机详细设计](doc/多智能体调度引擎与状态机详细设计文档)
 - [核心智能体提示词工程规范](doc/核心智能体提示词工程规范详细设计文档)
-- [A2A 通信 JSON Schema 规范](doc/A2A%20通信%20JSON%20Schema%20详细设计)
+- [A2A 通信 JSON Schema 详细设计](doc/A2A%20通信%20JSON%20Schema%20详细设计)
