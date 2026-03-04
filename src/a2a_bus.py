@@ -83,10 +83,20 @@ class A2ABusManager:
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def mark_completed(self, filepath: str):
+    def mark_completed(self, filepath: str, agent_result: dict = None):
         basename = os.path.basename(filepath)
         dest = os.path.join(self.completed_dir, basename)
-        os.rename(filepath, dest)
+        
+        # 如果有 Agent 执行结果，更新 JSON 文件
+        if agent_result:
+            msg = self.read_message(filepath)
+            msg["agent_result"] = agent_result
+            with open(dest, "w", encoding="utf-8") as f:
+                json.dump(msg, f, ensure_ascii=False, indent=2)
+            # 删除原文件
+            os.remove(filepath)
+        else:
+            os.rename(filepath, dest)
 
     def mark_failed(self, filepath: str):
         basename = os.path.basename(filepath)

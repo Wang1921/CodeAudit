@@ -135,7 +135,7 @@ class AuditEngine:
                         self._fan_out_coordinator_output(env["task_id"], result)
                     
                     self.router.route(filepath, result)
-                    self.bus.mark_completed(filepath)
+                    self.bus.mark_completed(filepath, result)
                     self.tracker.agent_finish(env["task_id"])
                     logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
                 except Exception as e:
