@@ -1,5 +1,5 @@
 # 概要设计文档：双轨制多智能体代码审计系统
-**版本**: V1.0  |  **状态**: 草案 (Draft)
+**版本**: V5.0  |  **状态**: 正式 (Final)
 
 ## 1. 系统概述 (System Overview)
 传统的静态应用安全测试 (SAST) 工具在面对复杂的代码库时，常面临高误报率、跨文件调用链断裂以及无法发现业务逻辑漏洞的痛点。
@@ -29,13 +29,27 @@
 ### 2.6 最小权限原生沙盒 (Least Privilege Native Sandbox)
 + 摒弃 Docker 等重型虚拟化技术。通过 OpenCode 的原生启动参数（如 `--tools` 和 `--read-only`），按角色精准分配工具（如剥夺核心推演节点的 Bash 权限，仅保留 LSP 代码跳转能力），从根源杜绝恶意脚本执行。
 
-## 3. 智能体角色定义 (Agent Roster)
+### 2.7 语言分层猎手矩阵 (Language-Specific Hunter Matrix)
+* **消除知识串味**：放弃庞杂的单体通用猎手。将 `SinkHunter` 在工程目录上严格按照 `prompts/hunters/{language}/{vuln_type}.yaml` 进行物理隔离。
+* **极致领域对焦**：Java 注入猎手的 Prompt 脑海中只有 JDBC 和 MyBatis；Python 猎手只关注 SQLAlchemy 和 `os.system`。大模型的上下文窗口得到最大化利用，信噪比达到极致。
+
+## 3. 动态泛化与安全底线保障 (Generalization & Security Baseline)
+
+### 3.1 动态追踪策略注入 (Dynamic Tracing Profiles)
+面对 Nginx/Lua 等路由与业务逻辑跨文件隔离的复杂架构，`Coordinator` 在全局测绘时会动态生成一份“特化追踪指南”。引擎将其拼接到 `ReverseTracer` 提示词模板中，赋予其跨上下文的溯源能力。
+
+### 3.2 引擎级强制安全红线 (Engine-Level Mandatory Overrides)
+调度引擎在任务裂变阶段强制干预，不完全依赖 AI 的自觉性：
+1. **通用红线强制兜底**：不论 `Coordinator` 识别为何种语言，引擎必定向总线塞入语言无关的底层猎手（如 CWE-532 `Privacy_Hunter` 敏感日志猎手，CWE-798 `Secret_Hunter` 硬编码凭证猎手）。
+2. **逻辑推演 100% 覆盖**：提取出的所有 API 路由，必须毫无遗漏地实例化为 `LogicAuditor` 任务。
+
+## 4. 智能体角色定义 (Agent Roster)
 系统由 1 个协调者与 5 个专家级工作节点组成（验证层拆分为红蓝双角色）：
 
 | 角色名称 | 类型 | 职责说明 | 核心输入 (A2A) | 核心输出 (A2A) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈。提取 API 路由表。**根据语言栈（如 Java），动态派发多个极度垂直的专职猎手任务。** | 项目根目录 | `TaskRequest` |
-| **SinkHunter (集群)** | 专家集群 | **由多个平行的实例化节点组成，每个节点只专注一种或一类高度相关的底层风险。** 脑海中拥有该细分领域的详尽 API 与三方件知识库。 | 包含特定 `cwe_profile` 的 `TaskRequest` | 包含底层坐标的 `TaskRequest` |
+| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈。提取 API 路由表。**根据语言栈（如 Java），指派对应语言的猎手模板清单。** | 项目根目录 | `TaskRequest` |
+| **SinkHunter (集群)** | 专家集群 | 基于静态 YAML 模板加载，专精某一语言的特定底层库，精准提取高危触点。 | 包含特定 `cwe_profile` 的 `TaskRequest` | 包含底层坐标的 `TaskRequest` |
 | ┣ _FileIO_Hunter_ | 实例化节点 | 专攻 CWE-22/73。精通 `java.io.*`, `java.nio.*`, `commons-io`, `MultipartFile` 等所有文件读写/路径拼接 API。 | - | - |
 | ┣ _Injection_Hunter_ | 实例化节点 | 专攻注入类 (JNDI, LDAP, OGNL, SpEL)。精通 `InitialContext.lookup`, `parseExpression`, `Ognl.getValue` 等执行点。 | - | - |
 | ┣ _DbQuery_Hunter_ | 实例化节点 | 专攻 SQL/NoSQL 注入。精通 JDBC 拼接、MyBatis `${}` 规则、Hibernate HQL 等底层查询触点。 | - | - |
