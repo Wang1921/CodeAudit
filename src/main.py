@@ -18,22 +18,22 @@ def setup_logging():
 async def main():
     setup_logging()
     
-    parser = argparse.ArgumentParser(description="Multi-Agent Code Auditing System")
-    parser.add_argument("target_dir", help="The root directory of the source code to audit")
+    parser = argparse.ArgumentParser(description="多智能体代码审计系统")
+    parser.add_argument("target_dir", help="待审计源代码的根目录")
     args = parser.parse_args()
 
     target_dir = os.path.abspath(args.target_dir)
     if not os.path.isdir(target_dir):
-        logging.error(f"Target directory {target_dir} does not exist.")
+        logging.error(f"目标目录 {target_dir} 不存在。")
         sys.exit(1)
 
-    logging.info(f"Initializing Audit Engine for project: {target_dir}")
+    logging.info(f"正在初始化项目代码审计引擎: {target_dir}")
     engine = AuditEngine(target_dir)
     
     try:
         await engine.run()
     except KeyboardInterrupt:
-        logging.info("Audit Engine shutting down...")
+        logging.info("代码审计引擎正在关闭...")
 
 if __name__ == "__main__":
     asyncio.run(main())

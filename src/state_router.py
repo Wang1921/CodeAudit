@@ -37,7 +37,7 @@ class StateRouter:
         self.tracker = tracker
 
     def route(self, completed_task: str, agent_output: Dict[str, Any]):
-        """Route the output of an agent to the next hop."""
+        """将 Agent 的输出路由到下一跳。"""
         orig_env = self.bus.read_message(completed_task)
         sender = orig_env["recipient"]
         task_id = orig_env["task_id"]
@@ -46,7 +46,7 @@ class StateRouter:
         status = agent_output.get("status")
         
         if status in TERMINAL_STATES:
-            logging.info(f"Task {task_id} reached terminal state: {status}")
+            logging.info(f"任务 {task_id} 达到终态: {status}")
             return
 
         if sender == "Coordinator" or message_type == "Coordinator_Output":
@@ -62,18 +62,18 @@ class StateRouter:
         elif sender == "BlueValidator":
             self._route_blue_validator_output(task_id, agent_output, orig_env)
         else:
-            logging.warning(f"Unknown routing from sender: {sender}")
+            logging.warning(f"未知的发送者路由: {sender}")
 
     def _route_coordinator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """Handle Coordinator output with fan-out logic."""
+        """处理包含裂变（Fan-out）逻辑的 Coordinator 输出。"""
         pass
 
     def _route_sinkhunter_output(self, task_id: str, agent_output: Dict[str, Any], sender: str):
-        """SinkHunter output goes to ReverseTracer for tracing."""
+        """SinkHunter 输出进入 ReverseTracer 进行追踪。"""
         sinks = agent_output.get("found_sinks", [])
         for sink in sinks:
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("suspicious", task_id + sink.get("route", ""), "SINK", sink.get("route", "Unknown Sink"))
+            if self.tracker: self.tracker.update_kanban("suspicious", task_id + sink.get("route", ""), "SINK", sink.get("route", "未知触点"))
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=task_id + "_TRACE",
@@ -83,10 +83,10 @@ class StateRouter:
             )
 
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """ReverseTracer output goes to RedValidator for attack validation."""
+        """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
         if "vuln_type" in agent_output:
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "Unknown"))
+            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "未知"))
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
@@ -96,10 +96,10 @@ class StateRouter:
             )
 
     def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """LogicAuditor output goes to RedValidator for attack validation."""
+        """LogicAuditor 输出进入 RedValidator 进行攻击验证。"""
         if "vuln_type" in agent_output:
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "Unknown"))
+            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "未知"))
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
@@ -108,10 +108,10 @@ class StateRouter:
                 payload=agent_output
             )
         else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "LOGIC", "Audit Clean", status="DEFENDED")
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "LOGIC", "审计通过", status="DEFENDED")
 
     def _route_red_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """RedValidator output goes to BlueValidator for defense validation."""
+        """RedValidator 输出进入 BlueValidator 进行防御验证。"""
         status = agent_output.get("status")
         if status == "EXPLOITABLE" or "attack_vector" in agent_output:
             payload = agent_output.copy()
@@ -124,7 +124,7 @@ class StateRouter:
                 payload["call_chain"] = orig_payload.get("call_chain")
             
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "Unknown"), payload.get("entry_route", "Unknown"))
+            if self.tracker: self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "未知"), payload.get("entry_route", "未知"))
             self.bus.write_message(
                 message_type="ExploitAttempt",
                 task_id=task_id,
@@ -133,13 +133,13 @@ class StateRouter:
                 payload=payload
             )
         else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "RED-FAIL", "Not Exploitable", status="DEFENDED")
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "RED-FAIL", "不可利用", status="DEFENDED")
 
     def _route_blue_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """BlueValidator output goes to ReportGenerator for final reporting."""
+        """BlueValidator 输出进入 ReportGenerator 生成最终报告。"""
         status = agent_output.get("status")
         if status == "VULNERABLE" or "mitigation_advice" in agent_output:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, agent_output.get("vuln_type", "Unknown"), agent_output.get("entry_route", "Unknown"), status="CONFIRMED")
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, agent_output.get("vuln_type", "未知"), agent_output.get("entry_route", "未知"), status="CONFIRMED")
             self.bus.write_message(
                 message_type="ConfirmedVuln",
                 task_id=task_id,
@@ -148,4 +148,4 @@ class StateRouter:
                 payload=agent_output
             )
         else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "Defended", status="DEFENDED")
+            if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "防御有效", status="DEFENDED")

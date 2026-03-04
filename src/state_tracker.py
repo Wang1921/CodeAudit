@@ -8,7 +8,7 @@ from pathlib import Path
 
 class TrackerHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass # Disable logging for HTTP requests
+        pass # 禁用 HTTP 请求日志
 
     def do_GET(self):
         if self.path == '/state.json':
@@ -17,7 +17,7 @@ class TrackerHandler(SimpleHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             
-            # Read from memory
+            # 从内存中读取数据
             tracker = getattr(self.server, 'tracker', None)
             if tracker:
                 with tracker._lock:
@@ -36,9 +36,9 @@ class TrackerHandler(SimpleHTTPRequestHandler):
                 with open(html_path, 'r', encoding='utf-8') as f:
                     self.wfile.write(f.read().encode('utf-8'))
             except FileNotFoundError:
-                self.wfile.write(b"HTML Dashboard not found.")
+                self.wfile.write(b"\xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0 HTML \xe5\xa4\xa7\xe5\xb1\x8f\xe6\x96\x87\xe4\xbb\xb6\xe3\x80\x82")
         else:
-            self.send_error(404, "File not found")
+            self.send_error(404, "文件未找到")
 
 class StateTracker:
     def __init__(self, target_dir, port=8080):
@@ -64,6 +64,7 @@ class StateTracker:
         self.port = port
         class ReusableHTTPServer(HTTPServer):
             allow_reuse_address = True
+            tracker = None
             
         try:
             self.server = ReusableHTTPServer(('0.0.0.0', self.port), TrackerHandler)
@@ -76,9 +77,9 @@ class StateTracker:
         self.server_thread.daemon = True
         self.server_thread.start()
         
-        logging.info(f"Dashboard started. Open http://127.0.0.1:{self.port}/ in your browser.")
+        logging.info(f"前端大屏已启动，请在浏览器中打开 http://127.0.0.1:{self.port}/")
         
-        # Setup log interception
+        # 设置日志拦截
         self._setup_logging()
 
     def _setup_logging(self):
@@ -115,9 +116,9 @@ class StateTracker:
             if len(self.state["logs"]) > 50:
                 self.state["logs"].pop(0)
 
-    def agent_start(self, task_id, role, description="Processing"):
+    def agent_start(self, task_id, role, description="处理中"):
         with self._lock:
-            # Add or update agent
+            # 添加或更新 Agent
             agent = next((a for a in self.state["agents"] if a["id"] == task_id), None)
             if not agent:
                 self.state["agents"].append({
@@ -156,7 +157,7 @@ class StateTracker:
                 if status == "CONFIRMED":
                     self.state["vulns"]["high"] += 1
             
-            # Remove from other categories
+            # 从其他类别中移除
             for cat in self.state["kanban"].values():
                 cat[:] = [i for i in cat if i["id"] != item_id]
                 

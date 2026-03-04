@@ -28,9 +28,9 @@ class A2ABusManager:
             os.makedirs(d, exist_ok=True)
 
     def write_message(self, message_type: str, task_id: str, sender: str, recipient: str, payload: dict, priority: str = "normal") -> str:
-        """Atomically write a new A2A message."""
+        """原子地写入一条新的 A2A 消息。"""
         if message_type not in self.SUPPORTED_MESSAGE_TYPES:
-            logging.warning(f"Unknown message_type: {message_type}, adding anyway")
+            logging.warning(f"未知的 message_type: {message_type}, 但仍然添加")
         
         msg = {
             "a2a_version": "5.0" if message_type == "Coordinator_Output" else "1.0",
@@ -54,13 +54,13 @@ class A2ABusManager:
             os.rename(tmp_path, final_path)
             return final_path
         except Exception as e:
-            logging.error(f"Failed to write message {filename}: {e}")
+            logging.error(f"写入消息失败 {filename}: {e}")
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
             raise
 
     def get_pending_tasks(self) -> list:
-        """Scan pending and help_req dirs and atomically move to processing."""
+        """扫描 pending 和 help_req 目录，并原子地移动到 processing。"""
         tasks = []
         for dir_path in [self.help_req_dir, self.pending_dir]:
             try:
@@ -76,7 +76,7 @@ class A2ABusManager:
                     except OSError:
                         continue
             except Exception as e:
-                logging.error(f"Error scanning {dir_path}: {e}")
+                logging.error(f"扫描出错 {dir_path}: {e}")
         return tasks
 
     def read_message(self, filepath: str) -> dict:
@@ -97,5 +97,5 @@ class A2ABusManager:
         filename = f"malformed_{uuid.uuid4().hex[:8]}.txt"
         dest = os.path.join(self.failed_dir, filename)
         with open(dest, "w", encoding="utf-8") as f:
-            f.write(f"Reason: {reason}\n\n")
+            f.write(f"原因: {reason}\n\n")
             f.write(raw_content)

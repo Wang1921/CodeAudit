@@ -168,16 +168,16 @@
                                 vulns.critical = data.vulns.critical;
                                 vulns.high = data.vulns.high;
                                 
-                                // Update agents
+                                // 更新 agents
                                 agents.splice(0, agents.length, ...data.agents);
                                 
-                                // Update kanban
+                                // 更新看板
                                 kanban.suspicious.splice(0, kanban.suspicious.length, ...data.kanban.suspicious);
                                 kanban.red.splice(0, kanban.red.length, ...data.kanban.red);
                                 kanban.blue.splice(0, kanban.blue.length, ...data.kanban.blue);
                                 kanban.resolved.splice(0, kanban.resolved.length, ...data.kanban.resolved);
                                 
-                                // Update logs
+                                // 更新日志
                                 if (data.logs && data.logs.length > 0) {
                                     logs.splice(0, logs.length, ...data.logs);
                                     nextTick(() => {
@@ -187,7 +187,7 @@
                                 }
                             }
                         } catch (err) {
-                            console.error("Failed to fetch state:", err);
+                            console.error("获取状态失败:", err);
                         }
                     }, 1000);
                 });

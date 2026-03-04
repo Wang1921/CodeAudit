@@ -18,7 +18,7 @@ class OpenCodeSubprocess:
         if tools:
             cmd.extend(["--tools", tools])
         
-        logging.debug(f"Executing command: {' '.join(cmd[:5])} [stdin-prompt]")
+        logging.debug(f"执行命令: {' '.join(cmd[:5])} [stdin-prompt]")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -33,8 +33,8 @@ class OpenCodeSubprocess:
                 process.communicate(input=prompt.encode('utf-8')),
                 timeout=self.timeout
             )
-            logging.debug(f"Process stdout: {stdout}")
-            logging.debug(f"Process stderr: {stderr}")
+            logging.debug(f"进程标准输出: {stdout}")
+            logging.debug(f"进程标准错误: {stderr}")
             if stdout:
                 stdout_str = stdout.decode('utf-8', errors='ignore')
             else:
@@ -47,9 +47,9 @@ class OpenCodeSubprocess:
         except asyncio.TimeoutError:
             process.kill()
             await process.communicate()
-            raise TimeoutError("Agent execution timed out")
+            raise TimeoutError("Agent 执行超时")
         except Exception as e:
-            logging.error(f"Process execution failed: {e}")
+            logging.error(f"进程执行失败: {e}")
             raise
 
     def _extract_json(self, output: str) -> str:
@@ -73,19 +73,19 @@ class OpenCodeSubprocess:
         return full_text
 
     async def execute(self, prompt: str, tools: Optional[str] = None) -> Dict[str, Any]:
-        """Execute the agent and return parsed JSON."""
+        """执行 Agent 并返回解析后的 JSON。"""
         _, stdout, _ = await self._run_process(prompt, tools)
         clean_out = self._extract_json(stdout)
         
         try:
             return json.loads(clean_out)
         except json.JSONDecodeError as e:
-            logging.warning(f"JSON decode failed on first attempt: {e}")
+            logging.warning(f"首次尝试 JSON 解析失败: {e}")
             retry_prompt = prompts.format_retry_prompt(error_details=str(e), raw_output=clean_out)
             _, retry_stdout, _ = await self._run_process(retry_prompt, tools)
             clean_retry = self._extract_json(retry_stdout)
             try:
                 return json.loads(clean_retry)
             except json.JSONDecodeError as e2:
-                logging.error("JSON decode failed on retry")
-                raise ValueError(f"Agent failed to return valid JSON. Raw output: {clean_retry}") from e2
+                logging.error("重试时 JSON 解析失败")
+                raise ValueError(f"Agent 未能返回有效的 JSON。原始输出: {clean_retry}") from e2

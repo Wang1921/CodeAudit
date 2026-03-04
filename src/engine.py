@@ -24,13 +24,13 @@ class AuditEngine:
         self.dynamic_tracing_strategy = ""
 
     def _get_language_hunters(self, language: str) -> dict:
-        """Load and cache hunters for a specific language."""
+        """加载并缓存特定语言的漏洞猎手（Hunters）。"""
         if language not in self.language_hunters:
             self.language_hunters[language] = prompts.get_hunter_templates_for_language(language)
         return self.language_hunters[language]
 
     def _get_prompt_for_agent(self, agent_name: str, payload_json: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Get the prompt for a specific agent, using YAML templates if available."""
+        """获取特定 Agent 的提示词（Prompt），如果可用则使用 YAML 模板。"""
         ctx: dict = context if context is not None else {}
         
         if agent_name == "Coordinator":
@@ -55,14 +55,14 @@ class AuditEngine:
                 )
             return prompts.SINK_HUNTER_PROMPT.format(hunter_name=hunter_name, payload_json=payload_json)
         else:
-            raise ValueError(f"Unknown agent type: {agent_name}")
+            raise ValueError(f"未知的 Agent 类型: {agent_name}")
 
     def _get_current_language(self) -> str:
-        """Get the current language stack from Coordinator output."""
+        """从 Coordinator 输出中获取当前语言栈。"""
         return getattr(self, '_language_stack', 'java')
 
     def _get_tools_for_agent(self, agent_name: str) -> str:
-        """Determine tools based on agent type for least privilege principle."""
+        """根据 Agent 类型分配工具，遵循最小权限原则。"""
         if agent_name in ["Coordinator"]:
             return "bash,read,glob,grep"
         elif agent_name in ["ReverseTracer", "LogicAuditor"]:
@@ -74,7 +74,7 @@ class AuditEngine:
         return "bash,read,glob,grep"
 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
-        """Perform fan-out from Coordinator output with mandatory overrides."""
+        """根据 Coordinator 的输出执行任务裂变（Fan-out），包含强制策略覆盖。"""
         routes = coordinator_output.get("routes", [])
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
@@ -104,7 +104,7 @@ class AuditEngine:
                         'description': uh.get('description', '')
                     }
                 except Exception as e:
-                    logging.warning(f"Failed to load universal hunter {hunter_name}: {e}")
+                    logging.warning(f"无法加载通用漏洞猎手 {hunter_name}: {e}")
         
         for hunter_name in recommended_hunter_names:
             self.tracker.add_task()
@@ -139,17 +139,17 @@ class AuditEngine:
                 elif hasattr(self, 'dynamic_tracing_strategy'):
                     context["dynamic_tracing_strategy"] = self.dynamic_tracing_strategy
                 
-                logging.info(f"Agent {recipient} starting task {env['task_id']}")
-                self.tracker.agent_start(env["task_id"], recipient, f"Processing {env['task_id']}")
+                logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
+                self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
                 
                 tools = self._get_tools_for_agent(recipient)
                 
                 agent = OpenCodeSubprocess(self.target_source_dir, timeout=MAX_AGENT_TIMEOUT)
                 try:
-                    logging.info(f"Executing Agent {recipient}...")
+                    logging.info(f"正在执行 Agent {recipient}...")
                     result = await agent.execute(prompt, tools)
-                    logging.info(f"Agent {recipient} execution finished. Output: {result}")
+                    logging.info(f"Agent {recipient} 执行完成。输出: {result}")
                     
                     message_type = env.get("message_type", "")
                     if message_type == "Coordinator_Output" or (env["sender"] == "Coordinator" and recipient == "Coordinator"):
@@ -158,17 +158,17 @@ class AuditEngine:
                     self.router.route(filepath, result)
                     self.bus.mark_completed(filepath)
                     self.tracker.agent_finish(env["task_id"])
-                    logging.info(f"Agent {recipient} completed task {env['task_id']}")
+                    logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
                 except Exception as e:
-                    logging.error(f"Agent {recipient} failed on task {env['task_id']}: {e}", exc_info=True)
+                    logging.error(f"Agent {recipient} 在任务 {env['task_id']} 上失败: {e}", exc_info=True)
                     self.bus.mark_failed(filepath)
                     self.tracker.agent_finish(env["task_id"])
-                    self.bus.write_raw_failed(str(e), "Execution or JSON parse error")
+                    self.bus.write_raw_failed(str(e), "执行或 JSON 解析错误")
             except Exception as e:
-                logging.error(f"Failed to process message {filepath}: {e}", exc_info=True)
+                logging.error(f"处理消息失败 {filepath}: {e}", exc_info=True)
 
     async def run(self):
-        logging.info("Starting Audit Engine...")
+        logging.info("正在启动代码审计引擎...")
         is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
             self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
         ])
@@ -182,7 +182,7 @@ class AuditEngine:
                 recipient="Coordinator",
                 payload={"action": "extract_routes"}
             )
-            logging.info("Injected initial Coordinator task.")
+            logging.info("已注入初始 Coordinator 任务。")
 
         async def update_tracker_loop():
             while True:
