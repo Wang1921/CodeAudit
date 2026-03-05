@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Dict, Any
+from typing import Optional, Dict, Any
 from src import prompts
 
 class OpenCodeSubprocess:
