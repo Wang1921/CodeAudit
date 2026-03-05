@@ -13,6 +13,7 @@
         .pulse-green { box-shadow: 0 0 8px #22c55e; animation: pulse 2s infinite; }
         .pulse-red { box-shadow: 0 0 8px #ef4444; animation: pulse 1s infinite; }
         [v-cloak] { display: none; }
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.75); }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
@@ -104,7 +105,9 @@
                     <div class="flex flex-col bg-gray-900 rounded border border-gray-700 p-2">
                         <h3 class="text-xs text-green-400 mb-2 font-bold text-center">4. RESOLVED (定性)</h3>
                         <div class="flex-1 overflow-y-auto space-y-2">
-                            <div v-for="card in kanban.resolved" :class="['p-2 rounded border text-sm shadow', card.status === 'CONFIRMED' ? 'bg-red-900/30 border-red-700' : 'bg-gray-800 border-gray-600']">
+                            <div v-for="card in kanban.resolved" 
+                                 :class="['p-2 rounded border text-sm shadow cursor-pointer hover:border-blue-500 transition-colors', card.status === 'CONFIRMED' ? 'bg-red-900/30 border-red-700' : 'bg-gray-800 border-gray-600']"
+                                 @click="showDetail(card)">
                                 <div class="flex justify-between items-center">
                                     <span class="text-xs bg-gray-700 px-1 rounded">{{ card.type }}</span>
                                     <span :class="['text-[10px] px-1 rounded', card.status === 'CONFIRMED' ? 'bg-red-500 text-white' : 'bg-green-600 text-white']">{{ card.status === 'CONFIRMED' ? 'VULN' : 'DEFENDED' }}</span>
@@ -130,20 +133,69 @@
             </div>
         </footer>
 
+        <!-- 详情模态框 -->
+        <div v-if="selectedCard" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" @click.self="selectedCard = null">
+            <div class="bg-gray-800 rounded-lg border border-gray-700 shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+                <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                    <div>
+                        <h3 class="text-lg font-bold text-white">{{ selectedCard.type }}</h3>
+                        <p class="text-sm text-gray-400 mt-1">{{ selectedCard.route }}</p>
+                    </div>
+                    <button @click="selectedCard = null" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                </div>
+                <div class="p-4 overflow-y-auto flex-1 space-y-4">
+                    <div v-if="selectedCard.call_chain && selectedCard.call_chain.length > 0">
+                        <h4 class="text-sm font-bold text-blue-400 mb-2">调用链 (Call Chain)</h4>
+                        <div class="bg-gray-900 rounded p-3 space-y-2">
+                            <div v-for="(step, index) in selectedCard.call_chain" :key="index" 
+                                 class="flex items-start gap-2 text-sm">
+                                <span class="text-gray-500 font-mono">{{ index + 1 }}.</span>
+                                <span class="text-gray-300">{{ step }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="selectedCard.suspicion_reason">
+                        <h4 class="text-sm font-bold text-yellow-400 mb-2">怀疑原因 (Suspicion Reason)</h4>
+                        <div class="bg-gray-900 rounded p-3 text-sm text-gray-300">{{ selectedCard.suspicion_reason }}</div>
+                    </div>
+
+                    <div v-if="selectedCard.attack_vector">
+                        <h4 class="text-sm font-bold text-red-400 mb-2">攻击向量 (Attack Vector)</h4>
+                        <div class="bg-gray-900 rounded p-3 text-sm text-gray-300">{{ selectedCard.attack_vector }}</div>
+                    </div>
+
+                    <div v-if="selectedCard.defense_analysis">
+                        <h4 class="text-sm font-bold text-blue-400 mb-2">防御分析 (Defense Analysis)</h4>
+                        <div class="bg-gray-900 rounded p-3 text-sm text-gray-300">{{ selectedCard.defense_analysis }}</div>
+                    </div>
+
+                    <div v-if="selectedCard.mitigation_advice">
+                        <h4 class="text-sm font-bold text-green-400 mb-2">修复建议 (Mitigation)</h4>
+                        <div class="bg-gray-900 rounded p-3 text-sm text-gray-300">{{ selectedCard.mitigation_advice }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
         const { createApp, ref, reactive, onMounted, nextTick } = Vue;
 
-        createApp({
-            setup() {
-                const progress = ref(0);
-                const tokens = ref(0);
-                const target = ref('');
-                const vulns = reactive({ critical: 0, high: 0 });
-                
-                // 真实运行中的 Agents
-                const agents = reactive([]);
+         createApp({
+             setup() {
+                 const progress = ref(0);
+                 const tokens = ref(0);
+                 const target = ref('');
+                 const vulns = reactive({ critical: 0, high: 0 });
+                 const selectedCard = ref(null);
+                 
+                 const showDetail = (card) => {
+                     selectedCard.value = card;
+                 };
+                 
+                 const agents = reactive([]);
 
                 // 真实看板数据
                 const kanban = reactive({
@@ -192,7 +244,7 @@
                     }, 1000);
                 });
 
-                return { target, progress, tokens, vulns, agents, kanban, logs };
+                 return { target, progress, tokens, vulns, agents, kanban, logs, selectedCard, showDetail };
             }
         }).mount('#app');
     </script>
