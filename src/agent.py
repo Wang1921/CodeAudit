@@ -83,12 +83,19 @@ class OpenCodeSubprocess:
             if not line: continue
             try:
                 data = json.loads(line)
-                if data.get('type') == 'text' and 'part' in data and 'text' in data['part']:
+                msg_type = data.get('type')
+                
+                # 提取文本内容
+                if msg_type == 'text' and 'part' in data and 'text' in data['part']:
                     full_text += data['part']['text']
-                elif data.get('type') == 'text':
+                elif msg_type == 'text':
                     full_text += data.get('part', {}).get('text', '')
-                elif data.get('type') == 'token_usage':
-                    tokens_used = data.get('total_tokens', 0)
+                
+                # 提取token统计 - OpenCode使用 step_finish 类型，tokens在嵌套对象中
+                elif msg_type == 'step_finish' and 'tokens' in data:
+                    tokens_used = data['tokens'].get('total', 0)
+                
+                # 兼容旧格式（如果有）
                 elif 'total_tokens' in data:
                     tokens_used = data.get('total_tokens', 0)
             except:
