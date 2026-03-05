@@ -118,7 +118,7 @@ class AuditEngine:
                 
                 logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
                 self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
-                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
+                prompt = self._get_prompt_for_agent(recipient, payload_json, context)
                 
                 agent = OpenCodeSubprocess(self.target_source_dir, timeout=MAX_AGENT_TIMEOUT)
                 try:
