@@ -9,26 +9,30 @@ system_prompt_template: |
   {payload_json}
 
   ## Action Guidelines
-  根据输入的漏洞信息，生成一份结构化的安全报告，包含以下内容：
-  1. 漏洞概述 (Vulnerability Summary)
-  2. 漏洞类型 (CWE 编号)
-  3. 风险等级 (Critical/High/Medium/Low)
-  4. 漏洞位置 (文件路径和行号)
-  5. 攻击向量 (Attack Vector)
-  6. 复现步骤 (Proof of Concept)
-  7. 修复建议 (Remediation)
+  根据输入的漏洞信息，生成一份结构化的安全报告。
+  【重要】你必须直接继承输入中的已确认信息，不要重新推断：
+
+  1. **vulnerability**: 直接使用输入中的 vuln_type
+  2. **cwe_id**: 根据 vuln_type 推断对应的 CWE 编号
+  3. **severity**: 根据输入中的 max_impact 评估风险等级
+  4. **location**: 从 entry_route 提取文件路径
+  5. **description**: 整合 attack_vector 和 defense_analysis
+  6. **remediation**: 直接使用输入中的 mitigation_advice
 
   ## Output Contract
+  【重要】你必须完整保留输入中的 vuln_type 字段，不要重新生成或推断。
   必须输出纯 JSON 格式的报告。
   Schema:
   {
-    "vulnerability": "漏洞名称",
-    "cwe_id": "CWE-XXX",
+    "vulnerability": "直接从输入中复制的vuln_type",
+    "cwe_id": "根据vuln_type推断的CWE编号 (如 CWE-89)",
     "severity": "Critical|High|Medium|Low",
     "location": {
-      "file": "文件路径",
-      "line": 行号
+      "file": "从entry_route提取的文件路径",
+      "line": "如果有具体行号则填写，否则省略"
     },
-    "description": "漏洞描述",
-    "remediation": "修复建议"
+    "description": "整合attack_vector和defense_analysis的详细描述",
+    "remediation": "直接使用输入中的mitigation_advice"
   }
+
+  绝对禁止遗漏任何字段！
