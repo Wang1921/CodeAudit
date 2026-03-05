@@ -74,6 +74,9 @@ class AuditEngine:
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
         
+        # 保存动态追踪策略供 ReverseTracer 使用
+        self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
+        
         # 加载该语言的所有 Hunter
         language_hunters = self._get_language_hunters(language)
         logging.info(f"为语言 {language} 加载了 {len(language_hunters)} 个 Hunter: {list(language_hunters.keys())}")
@@ -89,7 +92,8 @@ class AuditEngine:
                 payload={
                     "action": "scan_sinks", 
                     "cwe_profile": hunter_info.get('cwe_profile', ''),
-                    "description": hunter_info.get('description', '')
+                    "description": hunter_info.get('description', ''),
+                    "tracing_strategy": self.dynamic_tracing_strategy
                 }
             )
         
@@ -128,6 +132,12 @@ class AuditEngine:
                     logging.info(f"正在执行 Agent {recipient}...")
                     result = await agent.execute(prompt, tools)
                     logging.info(f"Agent {recipient} 执行完成。输出: {result}")
+                    
+                    # 更新token统计
+                    tokens_used = result.pop('_tokens', 0)
+                    if tokens_used > 0:
+                        self.tracker.add_tokens(tokens_used)
+                        logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
                     
                     message_type = env.get("message_type", "")
                     # Coordinator 执行完成后需要触发任务裂变

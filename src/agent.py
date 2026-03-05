@@ -67,7 +67,7 @@ class OpenCodeSubprocess:
             logging.error(f"进程执行失败: {e}")
             raise
 
-    def _extract_json(self, output: str) -> str:
+    def _extract_json_and_tokens(self, output: str) -> tuple[str, int]:
         import re
         # 移除 ANSI 转义序列
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -75,8 +75,9 @@ class OpenCodeSubprocess:
         
         full_text = ""
         stripped_output = cleaned.strip()
+        tokens_used = 0
         
-        # 尝试解析每一行 JSON
+        # 尝试解析每一行 JSON，同时提取token统计
         for line in stripped_output.split('\n'):
             line = line.strip()
             if not line: continue
@@ -86,6 +87,10 @@ class OpenCodeSubprocess:
                     full_text += data['part']['text']
                 elif data.get('type') == 'text':
                     full_text += data.get('part', {}).get('text', '')
+                elif data.get('type') == 'token_usage':
+                    tokens_used = data.get('total_tokens', 0)
+                elif 'total_tokens' in data:
+                    tokens_used = data.get('total_tokens', 0)
             except:
                 pass
         
@@ -96,23 +101,27 @@ class OpenCodeSubprocess:
         start = full_text.find('{')
         end = full_text.rfind('}')
         if start != -1 and end != -1:
-            return full_text[start:end+1]
-        return full_text.strip()
+            return full_text[start:end+1], tokens_used
+        return full_text.strip(), tokens_used
 
     async def execute(self, prompt: str, tools: Optional[str] = None) -> Dict[str, Any]:
         """执行 Agent 并返回解析后的 JSON。"""
         _, stdout, _ = await self._run_process(prompt, tools)
-        clean_out = self._extract_json(stdout)
+        clean_out, tokens = self._extract_json_and_tokens(stdout)
         
         try:
-            return json.loads(clean_out)
+            result = json.loads(clean_out)
+            result['_tokens'] = tokens
+            return result
         except json.JSONDecodeError as e:
             logging.warning(f"首次尝试 JSON 解析失败: {e}")
             retry_prompt = prompts.format_retry_prompt(error_details=str(e), raw_output=clean_out)
             _, retry_stdout, _ = await self._run_process(retry_prompt, tools)
-            clean_retry = self._extract_json(retry_stdout)
+            clean_retry, retry_tokens = self._extract_json_and_tokens(retry_stdout)
             try:
-                return json.loads(clean_retry)
+                result = json.loads(clean_retry)
+                result['_tokens'] = tokens + retry_tokens
+                return result
             except json.JSONDecodeError as e2:
                 logging.error("重试时 JSON 解析失败")
                 raise ValueError(f"Agent 未能返回有效的 JSON。原始输出: {clean_retry}") from e2

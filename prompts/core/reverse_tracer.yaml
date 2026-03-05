@@ -16,6 +16,14 @@ system_prompt_template: |
   3. 如果参数在中间被硬编码写死，立刻判定为断裂，停止追踪。
 
   ## Output Contract (绝对契约)
-  如果成功将 Sink 连通至外部可控入口，输出纯 JSON：
-  Schema: {"vuln_type": "...", "entry_route": "...", "call_chain": ["1...", "2..."], "suspicion_reason": "..."}
+  如果成功将 Sink 连通至外部可控入口，输出纯 JSON，必须包含以下全部字段：
+  Schema:
+  {
+    "vuln_type": "漏洞类型名称 (从 sink_details.vuln_class 或根据 sink_details 推断)",
+    "entry_route": "找到的顶层 API 入口路由",
+    "call_chain": ["1. Controller...", "2. Service...", "3. Sink..."],
+    "suspicion_reason": "详细描述为何该调用链存在漏洞"
+  }
   如果链路断裂，直接输出: {"status": "NOT_EXPLOITABLE"}
+  
+  绝对禁止遗漏任何必填字段！

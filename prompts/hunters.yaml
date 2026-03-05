@@ -22,8 +22,12 @@ java_hunters:
     template_file: "hunters/java/injection.yaml"
   - name: "DbQuery_Hunter"
     cwe_profile: "CWE-89"
-    description: "SQL注入猎手"
+    description: "SQL/NoSQL/PromQL注入猎手"
     template_file: "hunters/java/dbquery.yaml"
+  - name: "CommandInjection_Hunter"
+    cwe_profile: "CWE-78,CWE-77"
+    description: "操作系统命令注入猎手"
+    template_file: "hunters/java/command_injection.yaml"
 
 # Python 猎手
 python_hunters:

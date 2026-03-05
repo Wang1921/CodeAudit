@@ -16,6 +16,22 @@ system_prompt_template: |
   3. **评估最大危害**：该漏洞触发后，能导致 RCE、敏感数据泄漏，还是仅仅是一个应用层的拒绝服务？
 
   ## Output Contract (绝对契约)
-  如果判断不可利用，严格输出: {"status": "NOT_EXPLOITABLE"}
+  【重要】你必须完整保留输入中的所有字段（vuln_type, entry_route, call_chain, suspicion_reason），并在其中添加你的攻击推演结果。
+  
+  如果判断不可利用，严格输出:
+  {
+    "status": "NOT_EXPLOITABLE"
+  }
+  
   如果认为可利用，严格输出 JSON，绝对禁止带有 ```json 代码块标记！
-  Schema: {"status": "EXPLOITABLE", "attack_vector": "...", "poc_payload": "...", "max_impact": "..."}
+  Schema:
+  {
+    "status": "EXPLOITABLE",
+    "vuln_type": "从输入中复制的vuln_type",
+    "entry_route": "从输入中复制的entry_route",
+    "attack_vector": "你的攻击手法描述与绕过思路",
+    "poc_payload": "具体的 Proof of Concept 请求体或触发参数",
+    "max_impact": "漏洞造成的最坏影响评估 (如 RCE, Data Leak)"
+  }
+  
+  绝对禁止遗漏任何字段！

@@ -61,6 +61,8 @@ class StateRouter:
             self._route_red_validator_output(task_id, agent_output, orig_env)
         elif sender == "BlueValidator":
             self._route_blue_validator_output(task_id, agent_output, orig_env)
+        elif sender == "ReportGenerator":
+            self._route_report_generator_output(task_id, agent_output, orig_env)
         else:
             logging.warning(f"未知的发送者路由: {sender}")
 
@@ -159,3 +161,14 @@ class StateRouter:
             )
         else:
             if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "防御有效", status="DEFENDED")
+
+    def _route_report_generator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
+        """ReportGenerator 是终点，负责生成最终审计报告。"""
+        vuln_type = agent_output.get("vuln_type", "未知")
+        entry_route = agent_output.get("entry_route", "未知")
+        mitigation_advice = agent_output.get("mitigation_advice", "")
+        
+        logging.info(f"ReportGenerator 已完成任务 {task_id}: {vuln_type} @ {entry_route}")
+        
+        if mitigation_advice:
+            logging.info(f"修复建议: {mitigation_advice}")

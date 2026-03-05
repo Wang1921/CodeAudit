@@ -162,3 +162,7 @@ class StateTracker:
                 cat[:] = [i for i in cat if i["id"] != item_id]
                 
             self.state["kanban"][category].append(item)
+
+    def add_tokens(self, tokens: int):
+        with self._lock:
+            self.state["tokens"] += tokens

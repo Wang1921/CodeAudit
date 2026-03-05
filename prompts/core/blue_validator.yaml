@@ -13,6 +13,26 @@ system_prompt_template: |
   3. **实战对抗裁决**：现有的过滤机制能挡住红队的 `poc_payload` 吗？如果能，说明这是一个被成功防御的失效漏洞（误报）。
 
   ## Output Contract (绝对契约)
-  如果发现有效的防御机制，严格输出: {"status": "DEFENDED", "defense_analysis": "被 XX 拦截器阻挡"}
-  如果防御被击穿，严格输出: {"status": "VULNERABLE", "defense_analysis": "...", "mitigation_advice": "..."}
-  绝对禁止输出多余的 Markdown 标记！
+  【重要】你必须完整保留输入中的所有字段（vuln_type, entry_route, attack_vector, poc_payload, max_impact），并在其中添加你的防御分析结果。
+  
+  如果发现有效的防御机制，严格输出:
+  {
+    "status": "DEFENDED",
+    "vuln_type": "从输入中复制的vuln_type",
+    "entry_route": "从输入中复制的entry_route",
+    "defense_analysis": "被 XX 拦截器阻挡的具体分析"
+  }
+  
+  如果防御被击穿，严格输出:
+  {
+    "status": "VULNERABLE",
+    "vuln_type": "从输入中复制的vuln_type",
+    "entry_route": "从输入中复制的entry_route",
+    "attack_vector": "从输入中复制的attack_vector",
+    "poc_payload": "从输入中复制的poc_payload",
+    "max_impact": "从输入中复制的max_impact",
+    "defense_analysis": "为何防御失效的详细分析",
+    "mitigation_advice": "具体的修复建议"
+  }
+  
+  绝对禁止输出多余的 Markdown 标记！绝对禁止遗漏任何字段！
