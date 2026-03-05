@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from src import prompts
 
 class OpenCodeSubprocess:
@@ -11,7 +11,7 @@ class OpenCodeSubprocess:
         self.target_source_dir = target_source_dir
         self.timeout = timeout
 
-    async def _run_process(self, prompt: str, tools: Optional[str] = None) -> tuple[Optional[int], str, str]:
+    async def _run_process(self, prompt: str) -> tuple[Optional[int], str, str]:
         import sys
         import os
         
@@ -25,9 +25,6 @@ class OpenCodeSubprocess:
         
         cmd.extend(["--format", "json", "--dir", cwd])
         
-        if tools:
-            cmd.extend(["--tools", tools])
-        
         logging.debug(f"执行命令: {' '.join(cmd)}")
         
         process = await asyncio.create_subprocess_exec(
@@ -38,7 +35,6 @@ class OpenCodeSubprocess:
         )
         
         try:
-            # 通过 stdin 传递 prompt，并在发送后关闭 stdin
             stdin = process.stdin
             assert stdin is not None
             stdin.write(prompt.encode('utf-8'))
@@ -111,9 +107,9 @@ class OpenCodeSubprocess:
             return full_text[start:end+1], tokens_used
         return full_text.strip(), tokens_used
 
-    async def execute(self, prompt: str, tools: Optional[str] = None) -> Dict[str, Any]:
+    async def execute(self, prompt: str) -> Dict[str, Any]:
         """执行 Agent 并返回解析后的 JSON。"""
-        _, stdout, _ = await self._run_process(prompt, tools)
+        _, stdout, _ = await self._run_process(prompt)
         clean_out, tokens = self._extract_json_and_tokens(stdout)
         
         try:
@@ -123,7 +119,7 @@ class OpenCodeSubprocess:
         except json.JSONDecodeError as e:
             logging.warning(f"首次尝试 JSON 解析失败: {e}")
             retry_prompt = prompts.format_retry_prompt(error_details=str(e), raw_output=clean_out)
-            _, retry_stdout, _ = await self._run_process(retry_prompt, tools)
+            _, retry_stdout, _ = await self._run_process(retry_prompt)
             clean_retry, retry_tokens = self._extract_json_and_tokens(retry_stdout)
             try:
                 result = json.loads(clean_retry)

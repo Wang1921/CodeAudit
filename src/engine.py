@@ -58,48 +58,11 @@ class AuditEngine:
             return prompts.SINK_HUNTER_PROMPT.format(hunter_name=hunter_name, payload_json=payload_json)
         else:
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
-
+ 
     def _get_current_language(self) -> str:
         """从 Coordinator 输出中获取当前语言栈。"""
         return getattr(self, '_language_stack', 'java')
-
-    def _get_tools_for_agent(self, agent_name: str) -> str:
-        """根据 Agent 类型分配工具，遵循最小权限原则。"""
-        
-        # 只读工具集 - 用于代码分析
-        readonly_tools = "read,list,glob,grep"
-        
-        # Coordinator 需要执行命令来分析项目结构
-        if agent_name == "Coordinator":
-            return "bash,read,list,glob,grep"
-        
-        # SinkHunter 系列 - 只读权限
-        elif agent_name.startswith("SinkHunter"):
-            return readonly_tools
-        
-        # ReverseTracer - 只读权限
-        elif agent_name == "ReverseTracer":
-            return readonly_tools
-        
-        # LogicAuditor - 只读权限
-        elif agent_name == "LogicAuditor":
-            return readonly_tools
-        
-        # RedValidator - 只读权限（禁止写文件）
-        elif agent_name == "RedValidator":
-            return readonly_tools
-        
-        # BlueValidator - 只读权限
-        elif agent_name == "BlueValidator":
-            return readonly_tools
-        
-        # ReportGenerator - 只读权限
-        elif agent_name == "ReportGenerator":
-            return readonly_tools
-        
-        else:
-            return readonly_tools
-
+ 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
         """根据 Coordinator 的输出执行任务裂变（Fan-out）。"""
         routes = coordinator_output.get("routes", [])
@@ -155,14 +118,12 @@ class AuditEngine:
                 
                 logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
                 self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
-                prompt = self._get_prompt_for_agent(recipient, payload_json, context)
-                
-                tools = self._get_tools_for_agent(recipient)
+                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
                 
                 agent = OpenCodeSubprocess(self.target_source_dir, timeout=MAX_AGENT_TIMEOUT)
                 try:
                     logging.info(f"正在执行 Agent {recipient}...")
-                    result = await agent.execute(prompt, tools)
+                    result = await agent.execute(prompt)
                     logging.info(f"Agent {recipient} 执行完成。输出: {result}")
                     
                     # 更新token统计
