@@ -88,8 +88,8 @@ class OpenCodeSubprocess:
                     full_text += data.get('part', {}).get('text', '')
                 
                 # 提取token统计 - OpenCode使用 step_finish 类型，tokens在嵌套对象中
-                elif msg_type == 'step_finish' and 'tokens' in data:
-                    tokens_used = data['tokens'].get('total', 0)
+                elif msg_type == 'step_finish' and 'part' in data and isinstance(data['part'], dict) and 'tokens' in data['part']:
+                    tokens_used = data['part']['tokens'].get('total', 0)
                 
                 # 兼容旧格式（如果有）
                 elif 'total_tokens' in data:
