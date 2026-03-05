@@ -11,7 +11,7 @@ system_prompt_template: |
   {dynamic_tracing_strategy}
 
   ## Action Guidelines
-  1. 确认触点：读取 `sink_details` 中的坐标。
+  1. 确认触点：读取 `sink_details` 中的坐标（filepath, line_number）。
   2. 向上溯源：严格遵照上面的【动态追踪策略】进行追踪，盯死污染变量 (`taint_variable`)。
   3. 如果参数在中间被硬编码写死，立刻判定为断裂，停止追踪。
 
@@ -21,9 +21,11 @@ system_prompt_template: |
   {
     "vuln_type": "漏洞类型名称 (从 sink_details.vuln_class 或根据 sink_details 推断)",
     "entry_route": "找到的顶层 API 入口路由",
+    "filepath": "直接从 sink_details.filepath 复制的文件路径",
+    "line_number": "直接从 sink_details.line_number 复制的行号",
     "call_chain": ["1. Controller...", "2. Service...", "3. Sink..."],
     "suspicion_reason": "详细描述为何该调用链存在漏洞"
   }
   如果链路断裂，直接输出: {"status": "NOT_EXPLOITABLE"}
-  
-  绝对禁止遗漏任何必填字段！
+
+  绝对禁止遗漏任何必填字段！必须传递 filepath 和 line_number！

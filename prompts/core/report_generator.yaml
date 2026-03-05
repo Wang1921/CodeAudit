@@ -15,12 +15,13 @@ system_prompt_template: |
   1. **vulnerability**: 直接使用输入中的 vuln_type
   2. **cwe_id**: 根据 vuln_type 推断对应的 CWE 编号
   3. **severity**: 根据输入中的 max_impact 评估风险等级
-  4. **location**: 从 entry_route 提取文件路径
-  5. **description**: 整合 attack_vector 和 defense_analysis
-  6. **remediation**: 直接使用输入中的 mitigation_advice
+  4. **location**: 直接使用输入中的 filepath 和 line_number
+  5. **call_chain**: 直接使用输入中的 call_chain（完整的调用链信息）
+  6. **description**: 整合 attack_vector 和 defense_analysis
+  7. **remediation**: 直接使用输入中的 mitigation_advice
 
   ## Output Contract
-  【重要】你必须完整保留输入中的 vuln_type 字段，不要重新生成或推断。
+  【重要】你必须完整保留输入中的所有字段（vuln_type, filepath, line_number, call_chain），不要重新生成或推断。
   必须输出纯 JSON 格式的报告。
   Schema:
   {
@@ -28,11 +29,12 @@ system_prompt_template: |
     "cwe_id": "根据vuln_type推断的CWE编号 (如 CWE-89)",
     "severity": "Critical|High|Medium|Low",
     "location": {
-      "file": "从entry_route提取的文件路径",
-      "line": "如果有具体行号则填写，否则省略"
+      "file": "直接从输入中复制的filepath",
+      "line": "直接从输入中复制的line_number"
     },
-    "description": "整合attack_vector和defense_analysis的详细描述",
+    "call_chain": "直接从输入中复制的call_chain数组",
+    "description": "整合suspicion_reason, attack_vector和defense_analysis的详细描述",
     "remediation": "直接使用输入中的mitigation_advice"
   }
 
-  绝对禁止遗漏任何字段！
+  绝对对禁止遗漏任何字段！
