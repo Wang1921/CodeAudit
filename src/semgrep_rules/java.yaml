@@ -7,7 +7,7 @@ rules:
       - pattern: $X.executeLargeUpdate($Y)
     languages: [java]
     severity: ERROR
-    message: "SQL注入风险：用户输入可能进入SQL查询语句"
+    message: "SQL Injection risk: User input may enter SQL query"
     metadata:
       cwe: "CWE-89"
       vuln_class: "SQL Injection"
@@ -18,7 +18,7 @@ rules:
       - pattern: $X.createStatement($Y, $Z)
     languages: [java]
     severity: WARNING
-    message: "可能存在SQL注入风险：使用PreparedStatement替代Statement"
+    message: "Potential SQL Injection risk: Use PreparedStatement instead of Statement"
     metadata:
       cwe: "CWE-89"
       vuln_class: "SQL Injection"
@@ -31,7 +31,7 @@ rules:
       - pattern: $PB.command($X)
     languages: [java]
     severity: ERROR
-    message: "命令注入风险：用户输入可能进入系统命令执行"
+    message: "Command Injection risk: User input may enter system command execution"
     metadata:
       cwe: "CWE-78"
       vuln_class: "Command Injection"
@@ -43,7 +43,7 @@ rules:
       - pattern: new SpelExpressionParser().parseExpression($X)
     languages: [java]
     severity: ERROR
-    message: "SpEL表达式注入风险"
+    message: "SpEL Expression Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "SpEL Injection"
@@ -55,7 +55,7 @@ rules:
       - pattern: $C.getValue($X)
     languages: [java]
     severity: ERROR
-    message: "OGNL表达式注入风险"
+    message: "OGNL Expression Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "OGNL Injection"
@@ -66,7 +66,7 @@ rules:
       - pattern: new Template($X).process($Y)
     languages: [java]
     severity: ERROR
-    message: "FreeMarker模板注入风险"
+    message: "FreeMarker Template Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "FreeMarker SSTI"
@@ -78,7 +78,7 @@ rules:
       - pattern: $VE.mergeTemplate($X)
     languages: [java]
     severity: ERROR
-    message: "Velocity模板注入风险"
+    message: "Velocity Template Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Velocity SSTI"
@@ -87,7 +87,7 @@ rules:
     pattern: $TE.process($X, $Y)
     languages: [java]
     severity: ERROR
-    message: "Thymeleaf模板注入风险"
+    message: "Thymeleaf Template Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Thymeleaf SSTI"
@@ -99,7 +99,7 @@ rules:
       - pattern: GroovyClassLoader.parseClass($X)
     languages: [java]
     severity: ERROR
-    message: "Groovy代码注入风险"
+    message: "Groovy Code Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Groovy Code Injection"
@@ -110,7 +110,7 @@ rules:
       - pattern: new ScriptEngineManager().getEngineByName($X).eval($Y)
     languages: [java]
     severity: ERROR
-    message: "JavaScript引擎注入风险"
+    message: "JavaScript Engine Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "JavaScript Engine Injection"
@@ -123,7 +123,7 @@ rules:
       - pattern: $IC.lookup($X)
     languages: [java]
     severity: ERROR
-    message: "JNDI注入（可能导致RCE）"
+    message: "JNDI Injection (may lead to RCE)"
     metadata:
       cwe: "CWE-502"
       vuln_class: "JNDI Injection"
@@ -134,7 +134,7 @@ rules:
       - pattern: Class.forName($X).getDeclaredMethod($Y).invoke($Z, ...)
     languages: [java]
     severity: ERROR
-    message: "不安全反射调用风险"
+    message: "Unsafe Reflection Invocation risk"
     metadata:
       cwe: "CWE-470"
       vuln_class: "Unsafe Reflection"
@@ -153,7 +153,7 @@ rules:
       - pattern: Files.readAllBytes($X)
     languages: [java]
     severity: WARNING
-    message: "路径遍历风险：文件路径可能包含用户输入"
+    message: "Path Traversal risk: File path may contain user input"
     metadata:
       cwe: "CWE-22"
       vuln_class: "Path Traversal"
@@ -164,7 +164,7 @@ rules:
       - pattern: new File($X).getName()
     languages: [java]
     severity: WARNING
-    message: "路径遍历风险：使用不安全的文件名处理"
+    message: "Path Traversal risk: Using unsafe filename handling"
     metadata:
       cwe: "CWE-22"
       vuln_class: "Path Traversal"
@@ -176,7 +176,7 @@ rules:
       - pattern: XMLReaderFactory.createXMLReader()
     languages: [java]
     severity: WARNING
-    message: "XXE风险：XML解析器可能未禁用外部实体"
+    message: "XXE risk: XML parser may not disable external entities"
     metadata:
       cwe: "CWE-611"
       vuln_class: "XXE Injection"
@@ -185,7 +185,7 @@ rules:
     pattern: TransformerFactory.newInstance()
     languages: [java]
     severity: WARNING
-    message: "XXE风险：XSLT转换器可能存在XXE漏洞"
+    message: "XXE risk: XSLT transformer may have XXE vulnerability"
     metadata:
       cwe: "CWE-611"
       vuln_class: "XXE Injection"
@@ -198,7 +198,7 @@ rules:
       - pattern: HttpsURLConnection($X)
     languages: [java]
     severity: WARNING
-    message: "SSRF风险：URL可能包含用户可控输入"
+    message: "SSRF risk: URL may contain user-controllable input"
     metadata:
       cwe: "CWE-918"
       vuln_class: "SSRF"
@@ -210,7 +210,7 @@ rules:
       - pattern: $HC.execute(new HttpUriRequest($X))
     languages: [java]
     severity: WARNING
-    message: "SSRF风险：HTTP客户端请求URL可能包含用户输入"
+    message: "SSRF risk: HTTP client request URL may contain user input"
     metadata:
       cwe: "CWE-918"
       vuln_class: "SSRF"
@@ -223,7 +223,7 @@ rules:
       - pattern: new XMLDecoder($X)
     languages: [java]
     severity: ERROR
-    message: "不安全反序列化风险"
+    message: "Unsafe Deserialization risk"
     metadata:
       cwe: "CWE-502"
       vuln_class: "Unsafe Deserialization"
@@ -232,7 +232,7 @@ rules:
     pattern-regex: (password|passwd|secret|api[_-]?key|private[_-]?key|access[_-]?token)\s*(=|:)\s*["']([\w\-\+=/]{10,})["']
     languages: [java]
     severity: ERROR
-    message: "硬编码敏感信息风险：发现可能的硬编码密码或密钥"
+    message: "Hardcoded Sensitive Information risk: Potential hardcoded password or key detected"
     metadata:
       cwe: "CWE-798"
       vuln_class: "Hardcoded Secret"
@@ -241,7 +241,7 @@ rules:
     pattern-regex: (jdbc:|mongodb://|redis://|mysql://|postgresql://)\S+["']
     languages: [java]
     severity: ERROR
-    message: "硬编码数据库连接字符串风险"
+    message: "Hardcoded Database Connection String risk"
     metadata:
       cwe: "CWE-798"
       vuln_class: "Hardcoded DB Connection"
@@ -256,7 +256,7 @@ rules:
       - pattern: System.err.println($X)
     languages: [java]
     severity: INFO
-    message: "日志注入风险：用户输入可能被记录到日志文件"
+    message: "Log Injection risk: User input may be recorded in log files"
     metadata:
       cwe: "CWE-117"
       vuln_class: "Log Injection"
@@ -269,7 +269,7 @@ rules:
       - pattern: $RT.execute($X, ...)
     languages: [java]
     severity: WARNING
-    message: "SSRF风险：RestTemplate请求URL可能包含用户输入"
+    message: "SSRF risk: RestTemplate request URL may contain user input"
     metadata:
       cwe: "CWE-918"
       vuln_class: "SSRF"
@@ -281,7 +281,7 @@ rules:
       - pattern: $F.sendRedirect($X)
     languages: [java]
     severity: WARNING
-    message: "开放重定向风险：重定向目标可能包含用户输入"
+    message: "Open Redirect risk: Redirect target may contain user input"
     metadata:
       cwe: "CWE-601"
       vuln_class: "Open Redirect"
@@ -294,7 +294,7 @@ rules:
       - pattern: $R.getWriter().print($X)
     languages: [java]
     severity: WARNING
-    message: "XSS风险：用户输入直接写入响应"
+    message: "XSS risk: User input directly written to response"
     metadata:
       cwe: "CWE-79"
       vuln_class: "XSS"

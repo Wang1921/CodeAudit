@@ -5,7 +5,7 @@ rules:
       - pattern: cursor.executemany($X)
     languages: [python]
     severity: ERROR
-    message: "SQL注入风险：SQL语句可能包含用户输入"
+    message: "SQL Injection risk: SQL statement may contain user input"
     metadata:
       cwe: "CWE-89"
       vuln_class: "SQL Injection"
@@ -14,7 +14,7 @@ rules:
     pattern: $DB.session.execute($X)
     languages: [python]
     severity: WARNING
-    message: "SQLAlchemy可能存在SQL注入风险"
+    message: "SQLAlchemy may have SQL Injection risk"
     metadata:
       cwe: "CWE-89"
       vuln_class: "SQL Injection"
@@ -28,7 +28,7 @@ rules:
       - pattern: subprocess.run($X, shell=True)
     languages: [python]
     severity: ERROR
-    message: "命令注入风险：用户输入可能进入系统命令"
+    message: "Command Injection risk: User input may enter system command"
     metadata:
       cwe: "CWE-78"
       vuln_class: "Command Injection"
@@ -39,7 +39,7 @@ rules:
       - pattern: subprocess.Popen($X, ..., shell=True)
     languages: [python]
     severity: ERROR
-    message: "命令注入风险：shell=True时用户输入可能进入命令"
+    message: "Command Injection risk: User input may enter command when shell=True"
     metadata:
       cwe: "CWE-78"
       vuln_class: "Command Injection"
@@ -50,7 +50,7 @@ rules:
       - pattern: $T.render($X)
     languages: [python]
     severity: ERROR
-    message: "Jinja2 SSTI风险：模板渲染可能包含用户输入"
+    message: "Jinja2 SSTI risk: Template rendering may contain user input"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Jinja2 SSTI"
@@ -59,7 +59,7 @@ rules:
     pattern: Template($X).render($C)
     languages: [python]
     severity: ERROR
-    message: "Django模板注入风险"
+    message: "Django Template Injection risk"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Django SSTI"
@@ -70,7 +70,7 @@ rules:
       - pattern: exec($X)
     languages: [python]
     severity: ERROR
-    message: "代码注入风险：eval/exec可能执行恶意代码"
+    message: "Code Injection risk: eval/exec may execute malicious code"
     metadata:
       cwe: "CWE-94"
       vuln_class: "Code Injection"
@@ -84,7 +84,7 @@ rules:
       - pattern: cPickle.load($X)
     languages: [python]
     severity: ERROR
-    message: "不安全的反序列化风险：pickle可能执行任意代码"
+    message: "Unsafe Deserialization risk: pickle may execute arbitrary code"
     metadata:
       cwe: "CWE-502"
       vuln_class: "Unsafe Pickle"
@@ -96,7 +96,7 @@ rules:
       - pattern: yaml.load($X, Loader=yaml.Loader)
     languages: [python]
     severity: ERROR
-    message: "不安全的YAML加载风险：可能执行任意代码"
+    message: "Unsafe YAML Load risk: May execute arbitrary code"
     metadata:
       cwe: "CWE-502"
       vuln_class: "Unsafe YAML Load"
@@ -109,7 +109,7 @@ rules:
       - pattern: os.path.join($X, $Y)
     languages: [python]
     severity: WARNING
-    message: "路径遍历风险：文件路径可能包含用户输入"
+    message: "Path Traversal risk: File path may contain user input"
     metadata:
       cwe: "CWE-22"
       vuln_class: "Path Traversal"
@@ -123,7 +123,7 @@ rules:
       - pattern: requests.request($X, ...)
     languages: [python]
     severity: WARNING
-    message: "SSRF风险：请求URL可能包含用户输入"
+    message: "SSRF risk: Request URL may contain user input"
     metadata:
       cwe: "CWE-918"
       vuln_class: "SSRF"
@@ -135,7 +135,7 @@ rules:
       - pattern: urllib2.Request($X)
     languages: [python]
     severity: WARNING
-    message: "SSRF风险：urllib请求URL可能包含用户输入"
+    message: "SSRF risk: urllib request URL may contain user input"
     metadata:
       cwe: "CWE-918"
       vuln_class: "SSRF"
@@ -148,7 +148,7 @@ rules:
       - pattern: parseString($X)
     languages: [python]
     severity: WARNING
-    message: "XXE风险：XML解析可能存在外部实体注入"
+    message: "XXE risk: XML parsing may have external entity injection"
     metadata:
       cwe: "CWE-611"
       vuln_class: "XXE Injection"
@@ -160,7 +160,7 @@ rules:
       - pattern: return render_template($X, $C)
     languages: [python]
     severity: WARNING
-    message: "XSS风险：用户输入可能直接输出到响应"
+    message: "XSS risk: User input may be directly output to response"
     metadata:
       cwe: "CWE-79"
       vuln_class: "XSS"
@@ -169,7 +169,7 @@ rules:
     pattern-regex: '(password|passwd|secret|api[_-]?key|private[_-]?key|access[_-]?token)\s*(=|:)\s*["\']([\w\-\+=/]{10,})["\']'
     languages: [python]
     severity: ERROR
-    message: "硬编码敏感信息风险：发现可能的硬编码密码或密钥"
+    message: "Hardcoded Sensitive Information risk: Potential hardcoded password or key detected"
     metadata:
       cwe: "CWE-798"
       vuln_class: "Hardcoded Secret"
@@ -178,7 +178,7 @@ rules:
     pattern-regex: '(mongodb://|redis://|mysql://|postgresql://|sqlite:///)\S+["\']'
     languages: [python]
     severity: ERROR
-    message: "硬编码数据库连接字符串风险"
+    message: "Hardcoded Database Connection String risk"
     metadata:
       cwe: "CWE-798"
       vuln_class: "Hardcoded DB Connection"
@@ -197,7 +197,7 @@ rules:
       - pattern: logger.debug($X)
     languages: [python]
     severity: INFO
-    message: "日志注入风险：用户输入可能被记录到日志"
+    message: "Log Injection risk: User input may be recorded in logs"
     metadata:
       cwe: "CWE-117"
       vuln_class: "Log Injection"
@@ -209,7 +209,7 @@ rules:
       - pattern: flask.redirect($X)
     languages: [python]
     severity: WARNING
-    message: "开放重定向风险：重定向目标可能包含用户输入"
+    message: "Open Redirect risk: Redirect target may contain user input"
     metadata:
       cwe: "CWE-601"
       vuln_class: "Open Redirect"
