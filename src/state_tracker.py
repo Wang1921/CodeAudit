@@ -149,7 +149,7 @@ class StateTracker:
             self.total_tasks += 1
             self.state["progress"] = min(100, int((self.completed_tasks / max(1, self.total_tasks)) * 100))
 
-    def update_kanban(self, category, item_id, item_type, route, status="PENDING"):
+    def update_kanban(self, category, item_id, item_type, route, status="PENDING", details=None):
         with self._lock:
             item = {"id": item_id, "type": item_type, "route": route}
             if category == "resolved":
@@ -157,11 +157,27 @@ class StateTracker:
                 if status == "CONFIRMED":
                     self.state["vulns"]["high"] += 1
             
+            # 添加完整的漏洞详情
+            if details:
+                item.update(details)
+            
             # 从其他类别中移除
             for cat in self.state["kanban"].values():
                 cat[:] = [i for i in cat if i["id"] != item_id]
                 
             self.state["kanban"][category].append(item)
+
+    def update_kanban_item(self, item_id, details):
+        with self._lock:
+            # 在所有类别中查找并更新该项目
+            for category in self.state["kanban"].values():
+                for item in category:
+                    if item.get("id") == item_id:
+                        # 更新详情
+                        if details:
+                            item.update(details)
+                        return True
+            return False
 
     def add_tokens(self, tokens: int):
         with self._lock:

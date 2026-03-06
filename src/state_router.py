@@ -98,7 +98,14 @@ class StateRouter:
                 entry_route = sink_details.get("filepath", "未知")
             
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("red", task_id, vuln_type, entry_route)
+            if self.tracker:
+                details = {
+                    "call_chain": agent_output.get("call_chain"),
+                    "suspicion_reason": agent_output.get("suspicion_reason"),
+                    "vuln_type": agent_output.get("vuln_type") or agent_output.get("vuln_class"),
+                    "entry_route": entry_route
+                }
+                self.tracker.update_kanban("red", task_id, vuln_type, entry_route, details=details)
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
@@ -136,7 +143,17 @@ class StateRouter:
                 payload["call_chain"] = orig_payload.get("call_chain")
             
             if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "未知"), payload.get("entry_route", "未知"))
+            if self.tracker:
+                details = {
+                    "attack_vector": payload.get("attack_vector"),
+                    "poc_payload": payload.get("poc_payload"),
+                    "max_impact": payload.get("max_impact"),
+                    "call_chain": payload.get("call_chain"),
+                    "suspicion_reason": payload.get("suspicion_reason"),
+                    "vuln_type": payload.get("vuln_type"),
+                    "entry_route": payload.get("entry_route")
+                }
+                self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "未知"), payload.get("entry_route", "未知"), details=details)
             self.bus.write_message(
                 message_type="ExploitAttempt",
                 task_id=task_id,
@@ -151,7 +168,30 @@ class StateRouter:
         """BlueValidator 输出进入 ReportGenerator 生成最终报告。"""
         status = agent_output.get("status")
         if status == "VULNERABLE" or "mitigation_advice" in agent_output:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, agent_output.get("vuln_type", "未知"), agent_output.get("entry_route", "未知"), status="CONFIRMED")
+            if self.tracker:
+                details = {
+                    "call_chain": agent_output.get("call_chain"),
+                    "attack_vector": agent_output.get("attack_vector"),
+                    "defense_analysis": agent_output.get("defense_analysis"),
+                    "mitigation_advice": agent_output.get("mitigation_advice"),
+                    "suspicion_reason": agent_output.get("suspicion_reason"),
+                    "cwe": agent_output.get("cwe"),
+                    "poc_payload": agent_output.get("poc_payload"),
+                    "max_impact": agent_output.get("max_impact"),
+                    "vulnerability": agent_output.get("vulnerability"),
+                    "cwe_id": agent_output.get("cwe_id"),
+                    "severity": agent_output.get("severity"),
+                    "description": agent_output.get("description"),
+                    "remediation": agent_output.get("remediation")
+                }
+                self.tracker.update_kanban(
+                    "resolved", 
+                    task_id, 
+                    agent_output.get("vuln_type", "未知"), 
+                    agent_output.get("entry_route", "未知"), 
+                    status="CONFIRMED",
+                    details=details
+                )
             self.bus.write_message(
                 message_type="ConfirmedVuln",
                 task_id=task_id,
