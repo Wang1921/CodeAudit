@@ -1,0 +1,300 @@
+rules:
+  - id: java-sqli
+    pattern-either:
+      - pattern: $X.executeQuery($Y)
+      - pattern: $X.execute($Y)
+      - pattern: $X.executeUpdate($Y)
+      - pattern: $X.executeLargeUpdate($Y)
+    languages: [java]
+    severity: ERROR
+    message: "SQL注入风险：用户输入可能进入SQL查询语句"
+    metadata:
+      cwe: "CWE-89"
+      vuln_class: "SQL Injection"
+
+  - id: java-sqli-prepared-statement-missing
+    pattern-either:
+      - pattern: $X.createStatement($Y)
+      - pattern: $X.createStatement($Y, $Z)
+    languages: [java]
+    severity: WARNING
+    message: "可能存在SQL注入风险：使用PreparedStatement替代Statement"
+    metadata:
+      cwe: "CWE-89"
+      vuln_class: "SQL Injection"
+
+  - id: java-command-injection-runtime
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec($X)
+      - pattern: Runtime.exec($X)
+      - pattern: ProcessBuilder($X)
+      - pattern: $PB.command($X)
+    languages: [java]
+    severity: ERROR
+    message: "命令注入风险：用户输入可能进入系统命令执行"
+    metadata:
+      cwe: "CWE-78"
+      vuln_class: "Command Injection"
+
+  - id: java-spel-injection
+    pattern-either:
+      - pattern: $P.parseExpression($X).getValue($C, $Y)
+      - pattern: $P.parseExpression($X).getValue($C)
+      - pattern: new SpelExpressionParser().parseExpression($X)
+    languages: [java]
+    severity: ERROR
+    message: "SpEL表达式注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "SpEL Injection"
+
+  - id: java-ognl-injection
+    pattern-either:
+      - pattern: Ognl.getValue($X)
+      - pattern: OgnlUtil.getValue($X)
+      - pattern: $C.getValue($X)
+    languages: [java]
+    severity: ERROR
+    message: "OGNL表达式注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "OGNL Injection"
+
+  - id: java-freemarker-ssti
+    pattern-either:
+      - pattern: $TE.process($X, $Y)
+      - pattern: new Template($X).process($Y)
+    languages: [java]
+    severity: ERROR
+    message: "FreeMarker模板注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "FreeMarker SSTI"
+
+  - id: java-velocity-ssti
+    pattern-either:
+      - pattern: Velocity.evaluate($X)
+      - pattern: $VE.evaluate($X)
+      - pattern: $VE.mergeTemplate($X)
+    languages: [java]
+    severity: ERROR
+    message: "Velocity模板注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Velocity SSTI"
+
+  - id: java-thymeleaf-s-ssti
+    pattern: $TE.process($X, $Y)
+    languages: [java]
+    severity: ERROR
+    message: "Thymeleaf模板注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Thymeleaf SSTI"
+
+  - id: java-groovy-injection
+    pattern-either:
+      - pattern: $GS.evaluate($X)
+      - pattern: new GroovyShell().evaluate($X)
+      - pattern: GroovyClassLoader.parseClass($X)
+    languages: [java]
+    severity: ERROR
+    message: "Groovy代码注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Groovy Code Injection"
+
+  - id: java-javascript-engine-injection
+    pattern-either:
+      - pattern: $SM.getEngineByName($X).eval($Y)
+      - pattern: new ScriptEngineManager().getEngineByName($X).eval($Y)
+    languages: [java]
+    severity: ERROR
+    message: "JavaScript引擎注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "JavaScript Engine Injection"
+
+  - id: java-jndi-injection
+    pattern-either:
+      - pattern: new InitialContext().lookup($X)
+      - pattern: LdapContext.lookup($X)
+      - pattern: RmiContext.lookup($X)
+      - pattern: $IC.lookup($X)
+    languages: [java]
+    severity: ERROR
+    message: "JNDI注入（可能导致RCE）"
+    metadata:
+      cwe: "CWE-502"
+      vuln_class: "JNDI Injection"
+
+  - id: java-unsafe-reflection
+    pattern-either:
+      - pattern: Class.forName($X).getMethod($Y).invoke($Z, ...)
+      - pattern: Class.forName($X).getDeclaredMethod($Y).invoke($Z, ...)
+    languages: [java]
+    severity: ERROR
+    message: "不安全反射调用风险"
+    metadata:
+      cwe: "CWE-470"
+      vuln_class: "Unsafe Reflection"
+
+  - id: java-path-traversal-file
+    pattern-either:
+      - pattern: new File($X)
+      - pattern: new FileInputStream($X)
+      - pattern: new FileOutputStream($X)
+      - pattern: new FileReader($X)
+      - pattern: new FileWriter($X)
+      - pattern: Files.newInputStream($X, ...)
+      - pattern: Files.newOutputStream($X, ...)
+      - pattern: Files.readString($X)
+      - pattern: Files.writeString($X, $Y)
+      - pattern: Files.readAllBytes($X)
+    languages: [java]
+    severity: WARNING
+    message: "路径遍历风险：文件路径可能包含用户输入"
+    metadata:
+      cwe: "CWE-22"
+      vuln_class: "Path Traversal"
+
+  - id: java-path-traversal-filenameutil
+    pattern-either:
+      - pattern: FilenameUtils.getName($X)
+      - pattern: new File($X).getName()
+    languages: [java]
+    severity: WARNING
+    message: "路径遍历风险：使用不安全的文件名处理"
+    metadata:
+      cwe: "CWE-22"
+      vuln_class: "Path Traversal"
+
+  - id: java-xxe-xmlreader
+    pattern-either:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern: SAXParserFactory.newInstance()
+      - pattern: XMLReaderFactory.createXMLReader()
+    languages: [java]
+    severity: WARNING
+    message: "XXE风险：XML解析器可能未禁用外部实体"
+    metadata:
+      cwe: "CWE-611"
+      vuln_class: "XXE Injection"
+
+  - id: java-xxe-transformer
+    pattern: TransformerFactory.newInstance()
+    languages: [java]
+    severity: WARNING
+    message: "XXE风险：XSLT转换器可能存在XXE漏洞"
+    metadata:
+      cwe: "CWE-611"
+      vuln_class: "XXE Injection"
+
+  - id: java-ssrf-urlconnection
+    pattern-either:
+      - pattern: new URL($X).openConnection()
+      - pattern: new URL($X).openStream()
+      - pattern: HttpURLConnection($X)
+      - pattern: HttpsURLConnection($X)
+    languages: [java]
+    severity: WARNING
+    message: "SSRF风险：URL可能包含用户可控输入"
+    metadata:
+      cwe: "CWE-918"
+      vuln_class: "SSRF"
+
+  - id: java-ssrf-apache-httpclient
+    pattern-either:
+      - pattern: $HC.execute(new HttpGet($X))
+      - pattern: $HC.execute(new HttpPost($X))
+      - pattern: $HC.execute(new HttpUriRequest($X))
+    languages: [java]
+    severity: WARNING
+    message: "SSRF风险：HTTP客户端请求URL可能包含用户输入"
+    metadata:
+      cwe: "CWE-918"
+      vuln_class: "SSRF"
+
+  - id: java-deserialization-unsafe
+    pattern-either:
+      - pattern: new ObjectInputStream($X)
+      - pattern: $OIS.readObject()
+      - pattern: XMLDecoder($X)
+      - pattern: new XMLDecoder($X)
+    languages: [java]
+    severity: ERROR
+    message: "不安全反序列化风险"
+    metadata:
+      cwe: "CWE-502"
+      vuln_class: "Unsafe Deserialization"
+
+  - id: java-secret-hardcode-password
+    pattern-regex: (password|passwd|secret|api[_-]?key|private[_-]?key|access[_-]?token)\s*(=|:)\s*["']([\w\-\+=/]{10,})["']
+    languages: [java]
+    severity: ERROR
+    message: "硬编码敏感信息风险：发现可能的硬编码密码或密钥"
+    metadata:
+      cwe: "CWE-798"
+      vuln_class: "Hardcoded Secret"
+
+  - id: java-secret-hardcode-connection-string
+    pattern-regex: (jdbc:|mongodb://|redis://|mysql://|postgresql://)\S+["']
+    languages: [java]
+    severity: ERROR
+    message: "硬编码数据库连接字符串风险"
+    metadata:
+      cwe: "CWE-798"
+      vuln_class: "Hardcoded DB Connection"
+
+  - id: java-log-injection
+    pattern-either:
+      - pattern: $L.info($X)
+      - pattern: $L.error($X)
+      - pattern: $L.warn($X)
+      - pattern: $L.debug($X)
+      - pattern: System.out.println($X)
+      - pattern: System.err.println($X)
+    languages: [java]
+    severity: INFO
+    message: "日志注入风险：用户输入可能被记录到日志文件"
+    metadata:
+      cwe: "CWE-117"
+      vuln_class: "Log Injection"
+
+  - id: java-ssrf-resttemplate
+    pattern-either:
+      - pattern: $RT.getForObject($X, ...)
+      - pattern: $RT.postForObject($X, ...)
+      - pattern: $RT.exchange($X, ...)
+      - pattern: $RT.execute($X, ...)
+    languages: [java]
+    severity: WARNING
+    message: "SSRF风险：RestTemplate请求URL可能包含用户输入"
+    metadata:
+      cwe: "CWE-918"
+      vuln_class: "SSRF"
+
+  - id: java-open-redirect
+    pattern-either:
+      - pattern: response.sendRedirect($X)
+      - pattern: $R.sendRedirect($X)
+      - pattern: $F.sendRedirect($X)
+    languages: [java]
+    severity: WARNING
+    message: "开放重定向风险：重定向目标可能包含用户输入"
+    metadata:
+      cwe: "CWE-601"
+      vuln_class: "Open Redirect"
+
+  - id: java-xss-response-write
+    pattern-either:
+      - pattern: response.getWriter().write($X)
+      - pattern: response.getWriter().print($X)
+      - pattern: $R.getWriter().write($X)
+      - pattern: $R.getWriter().print($X)
+    languages: [java]
+    severity: WARNING
+    message: "XSS风险：用户输入直接写入响应"
+    metadata:
+      cwe: "CWE-79"
+      vuln_class: "XSS"

@@ -7,10 +7,10 @@ NEXT_HOP_ROUTING = {
         "TaskRequest": "Coordinator"
     },
     "Coordinator": {
-        "Coordinator_Output": "Fan-out (SinkHunter集群 + LogicAuditor)"
+        "Coordinator_Output": "Fan-out (SemgrepScanner + LogicAuditor)"
     },
-    "SinkHunter": {
-        "TaskRequest": "ReverseTracer"
+    "SemgrepScanner": {
+        "ScanResult": "ReverseTracer"
     },
     "ReverseTracer": {
         "VulnCandidate": "RedValidator"
@@ -51,8 +51,8 @@ class StateRouter:
 
         if sender == "Coordinator" or message_type == "Coordinator_Output":
             self._route_coordinator_output(task_id, agent_output, orig_env)
-        elif sender.startswith("SinkHunter"):
-            self._route_sinkhunter_output(task_id, agent_output, sender)
+        elif sender == "SemgrepScanner":
+            pass
         elif sender == "ReverseTracer":
             self._route_reverse_tracer_output(task_id, agent_output, orig_env)
         elif sender == "LogicAuditor":

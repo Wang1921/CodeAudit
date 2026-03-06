@@ -8,6 +8,7 @@ from src.agent import OpenCodeSubprocess
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 from src import prompts
+from src.semgrep_scanner import SemgrepScanner
 
 MAX_CONCURRENT_AGENTS = 20
 MAX_AGENT_TIMEOUT = 1800
@@ -72,22 +73,37 @@ class AuditEngine:
         # 保存动态追踪策略供 ReverseTracer 使用
         self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
         
-        # 加载该语言的所有 Hunter
-        language_hunters = self._get_language_hunters(language)
-        logging.info(f"为语言 {language} 加载了 {len(language_hunters)} 个 Hunter: {list(language_hunters.keys())}")
+        # 使用 Semgrep 一次性扫描所有漏洞
+        logging.info(f"开始使用 Semgrep 扫描 {language} 项目...")
+        scanner = SemgrepScanner(self.target_source_dir)
+        scan_result = scanner.scan(language)
         
-        # 为每个 Hunter 创建 SinkHunter 任务
-        for hunter_name, hunter_info in language_hunters.items():
+        sinks = scan_result.get("sinks", [])
+        total = scan_result.get("total", 0)
+        logging.info(f"Semgrep 扫描完成，发现 {total} 个潜在漏洞点")
+        
+        # 为每个 sink 创建 ReverseTracer 任务
+        for i, sink in enumerate(sinks):
             self.tracker.add_task()
+            sink_details = sink.get("sink_details", {})
+            vuln_class = sink_details.get("vuln_class", "Unknown")
+            filepath = sink_details.get("filepath", "Unknown")
+            
+            self.tracker.update_kanban(
+                "suspicious", 
+                f"{task_id}_SINK_{i}", 
+                vuln_class,
+                filepath
+            )
+            
             self.bus.write_message(
                 message_type="TaskRequest",
-                task_id=f"{task_id}_HUNTER_{hunter_name}",
-                sender="Coordinator",
-                recipient=f"SinkHunter_{hunter_name}",
+                task_id=f"{task_id}_SINK_{i}_TRACE",
+                sender="SemgrepScanner",
+                recipient="ReverseTracer",
                 payload={
-                    "action": "scan_sinks", 
-                    "cwe_profile": hunter_info.get('cwe_profile', ''),
-                    "description": hunter_info.get('description', ''),
+                    "action": "trace_call_chain",
+                    "sink_details": sink_details,
                     "tracing_strategy": self.dynamic_tracing_strategy
                 }
             )

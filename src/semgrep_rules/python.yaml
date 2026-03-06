@@ -1,0 +1,215 @@
+rules:
+  - id: python-sqli
+    pattern-either:
+      - pattern: cursor.execute($X)
+      - pattern: cursor.executemany($X)
+    languages: [python]
+    severity: ERROR
+    message: "SQL注入风险：SQL语句可能包含用户输入"
+    metadata:
+      cwe: "CWE-89"
+      vuln_class: "SQL Injection"
+
+  - id: python-sqlalchemy-sqli
+    pattern: $DB.session.execute($X)
+    languages: [python]
+    severity: WARNING
+    message: "SQLAlchemy可能存在SQL注入风险"
+    metadata:
+      cwe: "CWE-89"
+      vuln_class: "SQL Injection"
+
+  - id: python-command-injection-os-system
+    pattern-either:
+      - pattern: os.system($X)
+      - pattern: os.popen($X)
+      - pattern: os.spawn*$X
+      - pattern: subprocess.call($X)
+      - pattern: subprocess.run($X, shell=True)
+    languages: [python]
+    severity: ERROR
+    message: "命令注入风险：用户输入可能进入系统命令"
+    metadata:
+      cwe: "CWE-78"
+      vuln_class: "Command Injection"
+
+  - id: python-command-injection-subprocess
+    pattern-either:
+      - pattern: subprocess.Popen($X, shell=True)
+      - pattern: subprocess.Popen($X, ..., shell=True)
+    languages: [python]
+    severity: ERROR
+    message: "命令注入风险：shell=True时用户输入可能进入命令"
+    metadata:
+      cwe: "CWE-78"
+      vuln_class: "Command Injection"
+
+  - id: python-jinja2-ssti
+    pattern-either:
+      - pattern: template.render($X)
+      - pattern: $T.render($X)
+    languages: [python]
+    severity: ERROR
+    message: "Jinja2 SSTI风险：模板渲染可能包含用户输入"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Jinja2 SSTI"
+
+  - id: python-django-ssti
+    pattern: Template($X).render($C)
+    languages: [python]
+    severity: ERROR
+    message: "Django模板注入风险"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Django SSTI"
+
+  - id: python-eval-injection
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: exec($X)
+    languages: [python]
+    severity: ERROR
+    message: "代码注入风险：eval/exec可能执行恶意代码"
+    metadata:
+      cwe: "CWE-94"
+      vuln_class: "Code Injection"
+
+  - id: python-pickle-unsafe
+    pattern-either:
+      - pattern: pickle.loads($X)
+      - pattern: pickle.load($X)
+      - pattern: pickle.Unpickler($X).load()
+      - pattern: cPickle.loads($X)
+      - pattern: cPickle.load($X)
+    languages: [python]
+    severity: ERROR
+    message: "不安全的反序列化风险：pickle可能执行任意代码"
+    metadata:
+      cwe: "CWE-502"
+      vuln_class: "Unsafe Pickle"
+
+  - id: python-yaml-unsafe
+    pattern-either:
+      - pattern: yaml.load($X)
+      - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+      - pattern: yaml.load($X, Loader=yaml.Loader)
+    languages: [python]
+    severity: ERROR
+    message: "不安全的YAML加载风险：可能执行任意代码"
+    metadata:
+      cwe: "CWE-502"
+      vuln_class: "Unsafe YAML Load"
+
+  - id: python-path-traversal
+    pattern-either:
+      - pattern: open($X)
+      - pattern: open($X, ...)
+      - pattern: os.open($X)
+      - pattern: os.path.join($X, $Y)
+    languages: [python]
+    severity: WARNING
+    message: "路径遍历风险：文件路径可能包含用户输入"
+    metadata:
+      cwe: "CWE-22"
+      vuln_class: "Path Traversal"
+
+  - id: python-ssrf-requests
+    pattern-either:
+      - pattern: requests.get($X)
+      - pattern: requests.post($X)
+      - pattern: requests.put($X)
+      - pattern: requests.delete($X)
+      - pattern: requests.request($X, ...)
+    languages: [python]
+    severity: WARNING
+    message: "SSRF风险：请求URL可能包含用户输入"
+    metadata:
+      cwe: "CWE-918"
+      vuln_class: "SSRF"
+
+  - id: python-ssrf-urllib
+    pattern-either:
+      - pattern: urllib.request.urlopen($X)
+      - pattern: urllib2.urlopen($X)
+      - pattern: urllib2.Request($X)
+    languages: [python]
+    severity: WARNING
+    message: "SSRF风险：urllib请求URL可能包含用户输入"
+    metadata:
+      cwe: "CWE-918"
+      vuln_class: "SSRF"
+
+  - id: python-xml-xxe
+    pattern-either:
+      - pattern: xml.etree.ElementTree.parse($X)
+      - pattern: minidom.parse($X)
+      - pattern: xml.dom.minidom.parse($X)
+      - pattern: parseString($X)
+    languages: [python]
+    severity: WARNING
+    message: "XXE风险：XML解析可能存在外部实体注入"
+    metadata:
+      cwe: "CWE-611"
+      vuln_class: "XXE Injection"
+
+  - id: python-xss-response
+    pattern-either:
+      - pattern: HttpResponse($X)
+      - pattern: render($X, ...)
+      - pattern: return render_template($X, $C)
+    languages: [python]
+    severity: WARNING
+    message: "XSS风险：用户输入可能直接输出到响应"
+    metadata:
+      cwe: "CWE-79"
+      vuln_class: "XSS"
+
+  - id: python-secret-hardcode-password
+    pattern-regex: '(password|passwd|secret|api[_-]?key|private[_-]?key|access[_-]?token)\s*(=|:)\s*["\']([\w\-\+=/]{10,})["\']'
+    languages: [python]
+    severity: ERROR
+    message: "硬编码敏感信息风险：发现可能的硬编码密码或密钥"
+    metadata:
+      cwe: "CWE-798"
+      vuln_class: "Hardcoded Secret"
+
+  - id: python-secret-hardcode-db-url
+    pattern-regex: '(mongodb://|redis://|mysql://|postgresql://|sqlite:///)\S+["\']'
+    languages: [python]
+    severity: ERROR
+    message: "硬编码数据库连接字符串风险"
+    metadata:
+      cwe: "CWE-798"
+      vuln_class: "Hardcoded DB Connection"
+
+  - id: python-log-injection
+    pattern-either:
+      - pattern: logging.info($X)
+      - pattern: logging.error($X)
+      - pattern: logging.warn($X)
+      - pattern: logging.warning($X)
+      - pattern: logging.debug($X)
+      - pattern: logger.info($X)
+      - pattern: logger.error($X)
+      - pattern: logger.warn($X)
+      - pattern: logger.warning($X)
+      - pattern: logger.debug($X)
+    languages: [python]
+    severity: INFO
+    message: "日志注入风险：用户输入可能被记录到日志"
+    metadata:
+      cwe: "CWE-117"
+      vuln_class: "Log Injection"
+
+  - id: python-open-redirect
+    pattern-either:
+      - pattern: redirect($X)
+      - pattern: HttpResponseRedirect($X)
+      - pattern: flask.redirect($X)
+    languages: [python]
+    severity: WARNING
+    message: "开放重定向风险：重定向目标可能包含用户输入"
+    metadata:
+      cwe: "CWE-601"
+      vuln_class: "Open Redirect"
