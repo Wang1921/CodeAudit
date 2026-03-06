@@ -2,6 +2,7 @@ import time
 import threading
 import json
 import logging
+import logging.handlers
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 from pathlib import Path
@@ -87,7 +88,7 @@ class StateTracker:
             def __init__(self, tracker):
                 super().__init__()
                 self.tracker = tracker
-
+            
             def emit(self, record):
                 try:
                     msg = self.format(record)
@@ -99,6 +100,24 @@ class StateTracker:
         handler = StateLogHandler(self)
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
+        
+        log_dir = Path(self.state["target"]) / ".a2a_logs"
+        try:
+            log_dir.mkdir(exist_ok=True)
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_dir / "audit.log",
+                maxBytes=10*1024*1024,
+                backupCount=5,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(logging.Formatter(
+                '[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            logging.getLogger().addHandler(file_handler)
+            logging.info(f"日志文件已设置: {log_dir / 'audit.log'}")
+        except Exception as e:
+            logging.warning(f"无法设置文件日志处理器: {e}")
 
     def add_log(self, msg, level):
         from datetime import datetime

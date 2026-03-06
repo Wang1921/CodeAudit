@@ -27,10 +27,12 @@ class SemgrepScanner:
             "--json",
             "--no-git-ignore",
             "--severity", "ERROR",
-            "--severity",            "WARNING",
+            "--severity", "WARNING",
             "--quiet",
             self.target_dir
         ]
+        
+        logger.info(f"执行 Semgrep 扫描: {' '.join(cmd)}")
         
         try:
             result = subprocess.run(
@@ -41,8 +43,11 @@ class SemgrepScanner:
             )
             
             if result.returncode != 0:
-                logger.error(f"Semgrep 执行失败: {result.stderr}")
+                logger.error(f"Semgrep 执行失败 (返回码 {result.returncode}): {result.stderr}")
                 return {"sinks": [], "total": 0}
+            
+            if result.stderr:
+                logger.warning(f"Semgrep stderr: {result.stderr}")
             
             stdout = result.stdout
             json_start = stdout.find('{')
@@ -54,10 +59,23 @@ class SemgrepScanner:
             
             json_str = stdout[json_start:json_end + 1]
             semgrep_output = json.loads(json_str)
-            return self._convert_to_sink_format(semgrep_output)
+            
+            scan_result = self._convert_to_sink_format(semgrep_output)
+            
+            total = scan_result.get("total", 0)
+            logger.info(f"Semgrep 扫描完成，共发现 {total} 个潜在漏洞点")
+            
+            for i, sink in enumerate(scan_result.get("sinks", [])[:5]):
+                details = sink.get("sink_details", {})
+                logger.info(f"  [{i+1}] {details.get('vuln_class')} @ {details.get('filepath')}:{details.get('line_number')}")
+            
+            if total > 5:
+                logger.info(f"  ... 还有 {total - 5} 个漏洞点")
+            
+            return scan_result
             
         except subprocess.TimeoutExpired:
-            logger.error("Semgrep 执行超时")
+            logger.error("Semgrep 执行超时（300秒）")
             return {"sinks": [], "total": 0}
         except json.JSONDecodeError as e:
             logger.error(f"解析 Semgrep 输出失败: {e}")
