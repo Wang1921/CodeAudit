@@ -20,18 +20,9 @@ class AuditEngine:
         self.router = StateRouter(self.bus, self.tracker)
         self.target_source_dir = target_source_dir
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
-        self.hunter_registry = prompts.load_hunter_registry()
-        self.language_hunters = {}
         self.dynamic_tracing_strategy = ""
-
-    def _get_language_hunters(self, language: str) -> dict:
-        """加载并缓存特定语言的漏洞猎手（Hunters）。"""
-        if language not in self.language_hunters:
-            self.language_hunters[language] = prompts.get_hunter_templates_for_language(language)
-        return self.language_hunters[language]
-
+    
     def _get_prompt_for_agent(self, agent_name: str, payload_json: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """获取特定 Agent 的提示词（Prompt），如果可用则使用 YAML 模板。"""
         ctx: dict = context if context is not None else {}
         
         if agent_name == "Coordinator":
@@ -47,33 +38,16 @@ class AuditEngine:
             return prompts.format_blue_validator_prompt(payload_json)
         elif agent_name == "ReportGenerator":
             return prompts.format_report_generator_prompt(payload_json)
-        elif agent_name.startswith("SinkHunter"):
-            hunter_name = agent_name.replace("SinkHunter_", "")
-            hunters = self._get_language_hunters(self._get_current_language())
-            if hunter_name in hunters:
-                return prompts.format_hunter_prompt(
-                    hunters[hunter_name]['template'],
-                    hunter_name,
-                    payload_json
-                )
-            return prompts.SINK_HUNTER_PROMPT.format(hunter_name=hunter_name, payload_json=payload_json)
         else:
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
- 
-    def _get_current_language(self) -> str:
-        """从 Coordinator 输出中获取当前语言栈。"""
-        return getattr(self, '_language_stack', 'java')
- 
+
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
-        """根据 Coordinator 的输出执行任务裂变（Fan-out）。"""
         routes = coordinator_output.get("routes", [])
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
         
-        # 保存动态追踪策略供 ReverseTracer 使用
         self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
         
-        # 使用 Semgrep 一次性扫描所有漏洞
         logging.info(f"开始使用 Semgrep 扫描 {language} 项目...")
         scanner = SemgrepScanner(self.target_source_dir)
         scan_result = scanner.scan(language)
@@ -82,7 +56,6 @@ class AuditEngine:
         total = scan_result.get("total", 0)
         logging.info(f"Semgrep 扫描完成，发现 {total} 个潜在漏洞点")
         
-        # 为每个 sink 创建 ReverseTracer 任务
         for i, sink in enumerate(sinks):
             self.tracker.add_task()
             sink_details = sink.get("sink_details", {})
@@ -108,7 +81,6 @@ class AuditEngine:
                 }
             )
         
-        # 为每个路由创建 LogicAuditor 任务
         for i, route in enumerate(routes):
             self.tracker.add_task()
             self.bus.write_message(
@@ -142,14 +114,12 @@ class AuditEngine:
                     result = await agent.execute(prompt)
                     logging.info(f"Agent {recipient} 执行完成。输出: {result}")
                     
-                    # 更新token统计
                     tokens_used = result.pop('_tokens', 0)
                     if tokens_used > 0:
                         self.tracker.add_tokens(tokens_used)
                         logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
                     
                     message_type = env.get("message_type", "")
-                    # Coordinator 执行完成后需要触发任务裂变
                     if recipient == "Coordinator":
                         self._fan_out_coordinator_output(env["task_id"], result)
                     

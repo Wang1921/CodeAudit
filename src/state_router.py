@@ -70,28 +70,12 @@ class StateRouter:
         """处理包含裂变（Fan-out）逻辑的 Coordinator 输出。"""
         pass
 
-    def _route_sinkhunter_output(self, task_id: str, agent_output: Dict[str, Any], sender: str):
-        """SinkHunter 输出进入 ReverseTracer 进行追踪。"""
-        # 检查是否有 sink_details（SinkHunter 返回的格式）
-        sink_details = agent_output.get("sink_details")
-        if sink_details:
-            sink_key = sink_details.get("filepath", "") + str(sink_details.get("line_number", ""))
-            if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("suspicious", task_id + sink_key, "SINK", sink_details.get("filepath", "未知"))
-            self.bus.write_message(
-                message_type="TaskRequest",
-                task_id=task_id + "_TRACE",
-                sender=sender,
-                recipient="ReverseTracer",
-                payload={"action": "trace_call_chain", "sink_details": sink_details}
-            )
-
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
         # 支持 vuln_type 或 vuln_class 字段
         vuln_type = agent_output.get("vuln_type") or agent_output.get("vuln_class")
         if vuln_type:
-            # 获取 entry_route，优先从 agent_output 获取，其次从 sink_details 获取
+            # 获取 entry_route，优先从 agent_output 获取，其次从 sink_details。
             entry_route = agent_output.get("entry_route")
             if not entry_route:
                 sink_details = agent_output.get("sink_details", {})
