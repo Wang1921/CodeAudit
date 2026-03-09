@@ -13,7 +13,8 @@ NEXT_HOP_ROUTING = {
         "ScanResult": "ReverseTracer"
     },
     "ReverseTracer": {
-        "VulnCandidate": "RedValidator"
+        "VulnCandidate": "RedValidator",
+        "CrossServiceTraceRequest": "Orchestrator"
     },
     "LogicAuditor": {
         "VulnCandidate": "RedValidator"
@@ -49,6 +50,11 @@ class StateRouter:
             logging.info(f"任务 {task_id} 达到终态: {status}")
             return
 
+        # 拦截跨界追踪求救信号
+        if sender == "ReverseTracer" and agent_output.get("action") == "cross_service_trace":
+            self._route_cross_service_request(task_id, agent_output, orig_env)
+            return
+
         if sender == "Coordinator" or message_type == "Coordinator_Output":
             self._route_coordinator_output(task_id, agent_output, orig_env)
         elif sender == "SemgrepScanner":
@@ -65,6 +71,24 @@ class StateRouter:
             self._route_report_generator_output(task_id, agent_output, orig_env)
         else:
             logging.warning(f"未知的发送者路由: {sender}")
+
+    def _route_cross_service_request(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
+        """将跨微服务追踪请求路由给 Orchestrator（引擎主循环特殊处理）。"""
+        target = agent_output.get("target_identifier", "unknown")
+        logging.info(f"触发跨微服务追踪求救信号: {task_id} -> 目标: {target}")
+
+        if self.tracker:
+            self.tracker.add_task()
+            self.tracker.update_kanban("suspicious", f"{task_id}_CROSS", "CROSS_SERVICE", target)
+
+        self.bus.write_message(
+            message_type="CrossServiceTraceRequest",
+            task_id=f"{task_id}_CROSS",
+            sender="ReverseTracer",
+            recipient="Orchestrator",
+            payload=agent_output,
+            priority="high"
+        )
 
     def _route_coordinator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """处理包含裂变（Fan-out）逻辑的 Coordinator 输出。"""

@@ -20,6 +20,11 @@ async def main():
     
     parser = argparse.ArgumentParser(description="多智能体代码审计系统")
     parser.add_argument("target_dir", help="待审计源代码的根目录")
+    parser.add_argument(
+        "--semgrep-rules",
+        default=None,
+        help="Semgrep 规则路径（目录或单个 .yaml 文件），默认使用内置规则目录",
+    )
     args = parser.parse_args()
 
     target_dir = os.path.abspath(args.target_dir)
@@ -38,7 +43,7 @@ async def main():
             logging.warning(f"清理 .a2a_bus 目录失败: {e}")
     
     logging.info(f"正在初始化项目代码审计引擎: {target_dir}")
-    engine = AuditEngine(target_dir)
+    engine = AuditEngine(target_dir, semgrep_rules=args.semgrep_rules)
     
     try:
         await engine.run()

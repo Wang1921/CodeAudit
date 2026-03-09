@@ -10,7 +10,8 @@ class A2ABusManager:
         "Coordinator_Output",
         "VulnCandidate",
         "ExploitAttempt",
-        "ConfirmedVuln"
+        "ConfirmedVuln",
+        "CrossServiceTraceRequest"  # 跨微服务追踪请求
     ]
     
     def __init__(self, project_root: str):

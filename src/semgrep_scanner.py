@@ -7,23 +7,43 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 class SemgrepScanner:
-    def __init__(self, target_dir: str, rules_dir: str = None):
+    def __init__(self, target_dir: str, rules_path: str = None):
+        """
+        target_dir:  待扫描的源码目录
+        rules_path:  Semgrep 规则路径，支持：
+                     - None          → 使用内置 src/semgrep_rules/<language>.yaml
+                     - 目录路径      → 使用 <rules_path>/<language>.yaml
+                     - .yaml 文件路径 → 直接作为 --config 传给 semgrep（忽略 language 参数）
+        """
         self.target_dir = target_dir
-        if rules_dir is None:
-            rules_dir = str(Path(__file__).parent / "semgrep_rules")
-        self.rules_dir = Path(rules_dir)
-    
+        self._rules_path = Path(rules_path) if rules_path else None
+        # 兼容旧属性名，指向规则目录（文件模式下为其父目录）
+        if self._rules_path is None:
+            self.rules_dir = Path(__file__).parent / "semgrep_rules"
+        elif self._rules_path.is_file():
+            self.rules_dir = self._rules_path.parent
+        else:
+            self.rules_dir = self._rules_path
+
+    def _resolve_config(self, language: str) -> Path | None:
+        """返回实际传给 --config 的路径，不存在则返回 None。"""
+        if self._rules_path and self._rules_path.is_file():
+            # 用户直接指定了规则文件，忽略 language
+            return self._rules_path
+        # 目录模式：在目录下查找 <language>.yaml
+        rule_file = self.rules_dir / f"{language}.yaml"
+        return rule_file if rule_file.exists() else None
+
     def scan(self, language: str = "java") -> Dict[str, Any]:
         """执行 Semgrep 扫描并返回结果"""
-        rule_file = self.rules_dir / f"{language}.yaml"
-        
-        if not rule_file.exists():
-            logger.warning(f"规则文件不存在: {rule_file}")
+        config = self._resolve_config(language)
+        if config is None:
+            logger.warning(f"规则文件不存在: {self.rules_dir / (language + '.yaml')}")
             return {"sinks": [], "total": 0}
-        
+
         cmd = [
             "semgrep",
-            "--config", str(rule_file),
+            "--config", str(config),
             "--json",
             "--no-git-ignore",
             "--severity", "ERROR",
@@ -162,7 +182,6 @@ class SemgrepScanner:
     
     def get_supported_languages(self) -> List[str]:
         """获取支持的语言列表"""
-        languages = []
-        for file in self.rules_dir.glob("*.yaml"):
-            languages.append(file.stem)
-        return sorted(languages)
+        if self._rules_path and self._rules_path.is_file():
+            return [self._rules_path.stem]
+        return sorted(f.stem for f in self.rules_dir.glob("*.yaml"))
