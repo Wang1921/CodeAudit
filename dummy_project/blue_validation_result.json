@@ -1,0 +1,14 @@
+{
+  "status": "VULNERABLE",
+  "vuln_type": "Command Injection",
+  "entry_route": "/api/ping",
+  "filepath": "/home/CodeAudit/dummy_project/src/main/java/com/example/demo/service/impl/PingServiceImpl.java",
+  "line_number": 11,
+  "call_chain": ["1. Controller: VulnController.ping(@RequestParam String target) - 接收外部HTTP请求参数", "2. Service: PingService.ping(String target) - 传递污染参数", "3. Sink: PingServiceImpl.ping() line 11 - Runtime.getRuntime().exec(cmd) 执行命令注入"],
+  "suspicion_reason": "外部HTTP请求参数target通过@RequestParam传入Controller，直接拼接到命令字符串'ping -c 1 ' + target中，未经任何过滤或安全校验即传入Runtime.getRuntime().exec()执行，存在OS命令注入漏洞。攻击者可通过传入'; cat /etc/passwd'等恶意payload执行任意系统命令。",
+  "attack_vector": "直接使用Shell元字符注入。由于target参数未经任何过滤或转义直接拼接到命令中，攻击者可使用分号(;)、管道符(|)、&、$(command)反引号`command`等Shell元字符截断原命令并注入任意恶意命令。例如使用;截断ping命令后续注入whoami id等命令。",
+  "poc_payload": "GET /api/ping?target=127.0.0.1;%20whoami\n或者\nGET /api/ping?target=127.0.0.1%20|%20cat%20/etc/passwd\n或者\nGET /api/ping?target=$(whoami)",
+  "max_impact": "RCE - 攻击者可利用此漏洞在服务器上执行任意系统命令，获取服务器完全控制权，进行敏感数据窃取、横向渗透、安装后门等操作",
+  "defense_analysis": "项目中未发现任何安全防御机制：1) 无全局安全配置（无SecurityFilterChain或WebSecurityConfigurerAdapter）；2) Controller层无@Validated注解进行参数校验；3) Service层无任何输入过滤或转义；4) 无HandlerInterceptor或Filter进行请求拦截过滤。target参数从HTTP请求直接传递到Runtime.getRuntime().exec()，完全没有任何防御措施。",
+  "mitigation_advice": "1. 使用数组方式调用exec()而非字符串拼接，避免shell解析；2. 对target参数进行严格的白名单校验（如仅允许IP地址或域名）；3. 使用Spring的@Validated注解添加正则表达式验证；4. 考虑使用InetAddress.getByName()进行DNS解析而非调用系统ping命令。"
+}
