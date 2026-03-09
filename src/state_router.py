@@ -1,4 +1,7 @@
 import logging
+import json
+import os
+from datetime import datetime
 from src.a2a_bus import A2ABusManager
 from typing import Dict, Any
 
@@ -220,3 +223,42 @@ class StateRouter:
         
         if mitigation_advice:
             logging.info(f"修复建议: {mitigation_advice}")
+        
+        self._save_vulnerability_report(task_id, agent_output)
+    
+    def _save_vulnerability_report(self, task_id: str, agent_output: Dict[str, Any]):
+        """将漏洞报告保存到磁盘。"""
+        try:
+            output_dir = "reports"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"vulnerability_{task_id}_{timestamp}.json"
+            filepath = os.path.join(output_dir, filename)
+            
+            report = {
+                "task_id": task_id,
+                "timestamp": datetime.now().isoformat(),
+                "vuln_type": agent_output.get("vuln_type", "未知"),
+                "entry_route": agent_output.get("entry_route", "未知"),
+                "mitigation_advice": agent_output.get("mitigation_advice", ""),
+                "description": agent_output.get("description", ""),
+                "severity": agent_output.get("severity", ""),
+                "cwe_id": agent_output.get("cwe_id", ""),
+                "poc_payload": agent_output.get("poc_payload", ""),
+                "max_impact": agent_output.get("max_impact", ""),
+                "defense_analysis": agent_output.get("defense_analysis", ""),
+                "remediation": agent_output.get("remediation", ""),
+                "attack_vector": agent_output.get("attack_vector", ""),
+                "call_chain": agent_output.get("call_chain", []),
+                "suspicion_reason": agent_output.get("suspicion_reason", ""),
+                "cwe": agent_output.get("cwe", ""),
+                "vulnerability": agent_output.get("vulnerability", "")
+            }
+            
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+            
+            logging.info(f"漏洞报告已保存到: {filepath}")
+        except Exception as e:
+            logging.error(f"保存漏洞报告失败: {e}")
