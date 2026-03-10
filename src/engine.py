@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 from src.a2a_bus import A2ABusManager
-from src.agent import OpenCodeSubprocess
+from src.agent import OpenCodeAgent
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 from src import prompts
 from src.semgrep_scanner import SemgrepScanner
+from src.server_manager import OpenCodeServerManager
 
 MAX_CONCURRENT_AGENTS = 20
 MAX_AGENT_TIMEOUT = 1800
@@ -25,6 +26,8 @@ class AuditEngine:
         self.dynamic_tracing_strategy = ""
         # 全局服务路由字典：service_name -> service_root_dir
         self.service_route_map: dict = {}
+        # 沙盒池管理器
+        self.server_manager = OpenCodeServerManager(max_active_servers=5)
 
     def _get_service_dir(self, filepath: str) -> str:
         """根据文件路径，推断其所属的微服务根目录。
@@ -156,42 +159,42 @@ class AuditEngine:
                     context["dynamic_tracing_strategy"] = env["payload"]["tracing_strategy"]
                 elif hasattr(self, 'dynamic_tracing_strategy'):
                     context["dynamic_tracing_strategy"] = self.dynamic_tracing_strategy
-                
+
                 logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
                 self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
-                
-                # 动态降级 cwd：ReverseTracer 精准空投到漏洞所在微服务目录
-                target_cwd = self.target_source_dir
-                if recipient == "ReverseTracer":
-                    sink_file = env.get("payload", {}).get("sink_details", {}).get("filepath", "")
-                    if sink_file:
-                        target_cwd = self._get_service_dir(sink_file)
 
-                agent = OpenCodeSubprocess(target_cwd, timeout=MAX_AGENT_TIMEOUT)
-                try:
-                    logging.info(f"正在执行 Agent {recipient}...")
-                    result = await agent.execute(prompt)
-                    logging.info(f"Agent {recipient} 执行完成。输出: {result}")
-                    
-                    tokens_used = result.pop('_tokens', 0)
-                    if tokens_used > 0:
-                        self.tracker.add_tokens(tokens_used)
-                        logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
-                    
-                    message_type = env.get("message_type", "")
-                    if recipient == "Coordinator":
-                        self._fan_out_coordinator_output(env["task_id"], result)
-                    
-                    self.router.route(filepath, result)
-                    self.bus.mark_completed(filepath, result)
-                    self.tracker.agent_finish(env["task_id"])
-                    logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
-                except Exception as e:
-                    logging.error(f"Agent {recipient} 在任务 {env['task_id']} 上失败: {e}", exc_info=True)
-                    self.bus.mark_failed(filepath)
-                    self.tracker.agent_finish(env["task_id"])
-                    self.bus.write_raw_failed(str(e), "执行或 JSON 解析错误")
+                # 动态推断目录与分配工具权限
+                if recipient == "Coordinator":
+                    target_cwd = self.target_source_dir  # 上帝视角：锁定根目录
+                    allowed_tools = "codesearch,glob,grep,read" # 绝对不给 lsp
+                else:
+                    sink_file = env.get("payload", {}).get("sink_details", {}).get("filepath", "")
+                    target_cwd = self._get_service_dir(sink_file) # 局部空投：进入微服务子目录
+                    allowed_tools = "lsp,read,codesearch" # 开启重型武器 lsp
+
+                # 通过 Server Pool 获取端口
+                port = await self.server_manager.get_or_start_server(target_cwd)
+
+                # 使用 HTTP Agent 执行
+                agent = OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT)
+                result = await agent.execute(prompt, allowed_tools=allowed_tools)
+
+                logging.info(f"Agent {recipient} 执行完成。输出: {result}")
+
+                tokens_used = result.pop('_tokens', 0)
+                if tokens_used > 0:
+                    self.tracker.add_tokens(tokens_used)
+                    logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
+
+                message_type = env.get("message_type", "")
+                if recipient == "Coordinator":
+                    self._fan_out_coordinator_output(env["task_id"], result)
+
+                self.router.route(filepath, result)
+                self.bus.mark_completed(filepath, result)
+                self.tracker.agent_finish(env["task_id"])
+                logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
             except Exception as e:
                 logging.error(f"处理消息失败 {filepath}: {e}", exc_info=True)
 
@@ -240,18 +243,21 @@ class AuditEngine:
         )
 
         for service_dir in service_dirs:
-            relay_agent = OpenCodeSubprocess(target_source_dir=str(service_dir), timeout=MAX_AGENT_TIMEOUT)
             asyncio.create_task(
-                self._run_relay_agent(relay_agent, prompt, task_id, service_dir.name, payload.get("vuln_type"))
+                self._run_relay_agent(str(service_dir), prompt, task_id, service_dir.name, payload.get("vuln_type"))
             )
 
         self.bus.mark_completed(filepath, {"status": "DISPATCHED_GLOBALLY"})
 
-    async def _run_relay_agent(self, agent: OpenCodeSubprocess, prompt: str, base_task_id: str, service_name: str, vuln_type: str):
+    async def _run_relay_agent(self, service_dir: str, prompt: str, base_task_id: str, service_name: str, vuln_type: str):
         """在指定微服务目录异地执行接力 ReverseTracer，将贯通结果注入红蓝流水线。"""
         logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
         try:
-            result = await agent.execute(prompt)
+            # 通过 Server Pool 获取端口
+            port = await self.server_manager.get_or_start_server(service_dir)
+            # 使用 HTTP Agent 执行
+            agent = OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT)
+            result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
             tokens_used = result.pop('_tokens', 0)
             if tokens_used > 0:
                 self.tracker.add_tokens(tokens_used)
@@ -272,34 +278,37 @@ class AuditEngine:
             logging.error(f"微服务 [{service_name}] 接力追踪异常: {e}")
 
     async def run(self):
-        logging.info("正在启动代码审计引擎...")
-        is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
-            self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
-        ])
-        
-        if is_fresh_start:
-            self.tracker.add_task()
-            self.bus.write_message(
-                message_type="TaskRequest",
-                task_id="TASK-INIT-001",
-                sender="System",
-                recipient="Coordinator",
-                payload={"action": "extract_routes"}
-            )
-            logging.info("已注入初始 Coordinator 任务。")
+        try:
+            logging.info("正在启动代码审计引擎...")
+            is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
+                self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
+            ])
 
-        async def update_tracker_loop():
+            if is_fresh_start:
+                self.tracker.add_task()
+                self.bus.write_message(
+                    message_type="TaskRequest",
+                    task_id="TASK-INIT-001",
+                    sender="System",
+                    recipient="Coordinator",
+                    payload={"action": "extract_routes"}
+                )
+                logging.info("已注入初始 Coordinator 任务。")
+
+            async def update_tracker_loop():
+                while True:
+                    self.tracker.update_agent_times()
+                    await asyncio.sleep(1)
+
+            asyncio.create_task(update_tracker_loop())
+
             while True:
-                self.tracker.update_agent_times()
-                await asyncio.sleep(1)
+                tasks = self.bus.get_pending_tasks()
+                if not tasks:
+                    await asyncio.sleep(1)
+                    continue
 
-        asyncio.create_task(update_tracker_loop())
-
-        while True:
-            tasks = self.bus.get_pending_tasks()
-            if not tasks:
-                await asyncio.sleep(1)
-                continue
-
-            for coro in tasks:
-                asyncio.create_task(self.process_task(coro))
+                for coro in tasks:
+                    asyncio.create_task(self.process_task(coro))
+        finally:
+            await self.server_manager.shutdown_all()

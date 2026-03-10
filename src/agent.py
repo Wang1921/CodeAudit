@@ -1,125 +1,53 @@
-import asyncio
 import json
 import logging
-import os
-import tempfile
-from typing import Optional, Dict, Any
-from src import prompts
+import asyncio
+import aiohttp
+from typing import Dict, Any
+from . import prompts
 
-class OpenCodeSubprocess:
-    def __init__(self, target_source_dir: str, timeout: int = 1800):
-        self.target_source_dir = target_source_dir
+class OpenCodeAgent:
+    def __init__(self, port: int, timeout: int = 1800):
+        self.port = port
         self.timeout = timeout
+        # 需根据 opencode 实际运行的 API 端点调整 (如 /api/run 或 /v1/chat/completions)
+        self.api_url = f"http://127.0.0.1:{self.port}/api/run"
 
-    async def _run_process(self, prompt: str) -> tuple[Optional[int], str, str]:
-        import sys
-        import os
-        
-        cwd = os.path.abspath(self.target_source_dir)
-        logging.debug(f"工作目录: {cwd}")
-        logging.debug(f"Prompt 长度: {len(prompt)}")
-        
-        cmd = ["opencode", "run"]
-        if sys.platform == "win32":
-            cmd = ["opencode.exe", "run"]
-        
-        cmd.extend(["--format", "json", "--dir", cwd])
-        
-        logging.debug(f"执行命令: {' '.join(cmd)}")
-        
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            stdin=asyncio.subprocess.PIPE
-        )
+    async def execute(self, prompt: str, allowed_tools: str = "read,grep,lsp,codesearch") -> Dict[str, Any]:
+        payload = {
+            "prompt": prompt,
+            "tools": allowed_tools.split(","),
+            "format": "json"
+        }
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=prompt.encode('utf-8')),
-                timeout=self.timeout
-            )
-            logging.debug(f"进程标准输出: {stdout}")
-            logging.debug(f"进程标准错误: {stderr}")
-            if stdout:
-                stdout_str = stdout.decode('utf-8', errors='ignore')
-            else:
-                stdout_str = ""
-            if stderr:
-                stderr_str = stderr.decode('utf-8', errors='ignore')
-            else:
-                stderr_str = ""
-            return process.returncode, stdout_str, stderr_str
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.communicate()
-            raise TimeoutError("Agent 执行超时")
-        except Exception as e:
-            logging.error(f"进程执行失败: {e}")
-            raise
-
-    def _extract_json_and_tokens(self, output: str) -> tuple[str, int]:
-        import re
-        # 移除 ANSI 转义序列
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        cleaned = ansi_escape.sub('', output)
-        
-        full_text = ""
-        stripped_output = cleaned.strip()
-        tokens_used = 0
-        
-        # 尝试解析每一行 JSON，同时提取token统计
-        for line in stripped_output.split('\n'):
-            line = line.strip()
-            if not line: continue
+        async with aiohttp.ClientSession() as session:
             try:
-                data = json.loads(line)
-                msg_type = data.get('type')
-                
-                # 提取文本内容
-                if msg_type == 'text' and 'part' in data and 'text' in data['part']:
-                    full_text += data['part']['text']
-                elif msg_type == 'text':
-                    full_text += data.get('part', {}).get('text', '')
-                
-                # 提取token统计 - OpenCode使用 step_finish 类型，tokens在嵌套对象中
-                elif msg_type == 'step_finish' and 'part' in data and isinstance(data['part'], dict) and 'tokens' in data['part']:
-                    tokens_used = data['part']['tokens'].get('total', 0)
-                
-                # 兼容旧格式（如果有）
-                elif 'total_tokens' in data:
-                    tokens_used = data.get('total_tokens', 0)
-            except:
-                pass
-        
-        if not full_text:
-            full_text = stripped_output
+                client_timeout = aiohttp.ClientTimeout(total=self.timeout)
+                async with session.post(self.api_url, json=payload, timeout=client_timeout) as response:
+                    if response.status != 200:
+                        err = await response.text()
+                        raise RuntimeError(f"OpenCode Server 异常: {err}")
 
-        # 查找 JSON 对象
-        start = full_text.find('{')
-        end = full_text.rfind('}')
-        if start != -1 and end != -1:
-            return full_text[start:end+1], tokens_used
-        return full_text.strip(), tokens_used
+                    result_text = await response.text()
+                    try:
+                        # 假设返回体包含 JSON 输出和 Tokens
+                        data = json.loads(result_text)
+                        data['_tokens'] = data.get('usage', {}).get('total_tokens', 0)
+                        return data
+                    except json.JSONDecodeError as e:
+                        # 这里保留原来的容错重试逻辑，防止大模型乱格式
+                        return await self._retry(session, result_text, str(e), allowed_tools)
+            except asyncio.TimeoutError:
+                raise TimeoutError("Agent HTTP 执行超时")
 
-    async def execute(self, prompt: str) -> Dict[str, Any]:
-        """执行 Agent 并返回解析后的 JSON。"""
-        _, stdout, _ = await self._run_process(prompt)
-        clean_out, tokens = self._extract_json_and_tokens(stdout)
-        
-        try:
-            result = json.loads(clean_out)
-            result['_tokens'] = tokens
-            return result
-        except json.JSONDecodeError as e:
-            logging.warning(f"首次尝试 JSON 解析失败: {e}")
-            retry_prompt = prompts.format_retry_prompt(error_details=str(e), raw_output=clean_out)
-            _, retry_stdout, _ = await self._run_process(retry_prompt)
-            clean_retry, retry_tokens = self._extract_json_and_tokens(retry_stdout)
+    async def _retry(self, session, raw_output, error_msg, allowed_tools):
+        logging.warning("JSON 验证失败，尝试触发修复重试...")
+        truncated = raw_output if len(raw_output) <= 2000 else raw_output[:2000] + "\n...[已截断]..."
+        retry_prompt = prompts.format_retry_prompt(error_details=error_msg, raw_output=truncated)
+
+        payload = {"prompt": retry_prompt, "tools": allowed_tools.split(","), "format": "json"}
+        async with session.post(self.api_url, json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+            text = await resp.text()
             try:
-                result = json.loads(clean_retry)
-                result['_tokens'] = tokens + retry_tokens
-                return result
-            except json.JSONDecodeError as e2:
-                logging.error("重试时 JSON 解析失败")
-                raise ValueError(f"Agent 未能返回有效的 JSON。原始输出: {clean_retry}") from e2
+                return json.loads(text)
+            except Exception:
+                raise ValueError(f"重试依然失败: {text[:500]}")
