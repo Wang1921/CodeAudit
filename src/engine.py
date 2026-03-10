@@ -74,7 +74,22 @@ class AuditEngine:
         else:
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
 
-    def _fan_out_coordinator_output(self, task_id: str, coordinator_output: dict):
+    def _fan_out_coordinator_output(self, task_id: str, coordinator_output: str):
+        """解析 Coordinator 的 Markdown JSON 输出"""
+        import re
+        
+        # 从 Markdown 代码块中提取 JSON
+        json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', coordinator_output, re.DOTALL)
+        if json_match:
+            coordinator_output = json.loads(json_match.group(1))
+        else:
+            # 如果没有 Markdown 代码块，尝试直接解析
+            try:
+                coordinator_output = json.loads(coordinator_output)
+            except:
+                logging.error(f"无法解析 Coordinator 输出: {coordinator_output[:500]}")
+                return
+        
         routes = coordinator_output.get("routes", [])
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
@@ -189,7 +204,7 @@ class AuditEngine:
 
                 message_type = env.get("message_type", "")
                 if recipient == "Coordinator":
-                    self._fan_out_coordinator_output(env["task_id"], result)
+                    self._fan_out_coordinator_output(env["task_id"], result["response"])
 
                 self.router.route(filepath, result)
                 self.bus.mark_completed(filepath, result)

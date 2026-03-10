@@ -39,6 +39,30 @@ class StateRouter:
     def __init__(self, bus: A2ABusManager, tracker=None):
         self.bus = bus
         self.tracker = tracker
+    
+    def _parse_json_output(self, output):
+        """解析可能是 Markdown 格式的 JSON 输出"""
+        if isinstance(output, dict):
+            return output
+        
+        import re
+        import json
+        
+        # 从 Markdown 代码块中提取 JSON
+        json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', str(output), re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        
+       
+        
+        # 如果没有 Markdown 代码块，尝试直接解析
+        try:
+            return json.loads(str(output))
+        except json.JSONDecodeError:
+            return {}
 
     def route(self, completed_task: str, agent_output: Dict[str, Any]):
         """将 Agent 的输出路由到下一跳。"""
@@ -99,6 +123,9 @@ class StateRouter:
 
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
+        # 解析可能包含 Markdown 的 JSON 输出
+        agent_output = self._parse_json_output(agent_output)
+        
         # 支持 vuln_type 或 vuln_class 字段
         vuln_type = agent_output.get("vuln_type") or agent_output.get("vuln_class")
         if vuln_type:
@@ -127,6 +154,9 @@ class StateRouter:
 
     def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """LogicAuditor 输出进入 RedValidator 进行攻击验证。"""
+        # 解析可能包含 Markdown 的 JSON 输出
+        agent_output = self._parse_json_output(agent_output)
+        
         if "vuln_type" in agent_output:
             if self.tracker: self.tracker.add_task()
             if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "未知"))

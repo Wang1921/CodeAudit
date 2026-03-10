@@ -45,8 +45,8 @@ class OpenCodeServerManager:
         except Exception as e:
             logging.debug(f"stderr reader stopped for {cwd}: {e}")
         finally:
-            if process.stderr:
-                process.stderr.close()
+            if process.stderr and not process.stderr.at_eof():
+                process.stderr.feed_eof()
 
     async def _check_server_health(self, port: int) -> bool:
         """检查 /global/health 端点确认服务器可用"""

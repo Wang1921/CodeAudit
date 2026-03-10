@@ -63,7 +63,7 @@ class OpenCodeAgent:
 
         # 构建请求体
         payload = {
-            "parts": [{"role": "user", "content": prompt}]
+            "parts": [{"type": "text", "text": prompt}]
         }
 
         try:
@@ -77,12 +77,13 @@ class OpenCodeAgent:
                 try:
                     # opencode 返回格式: {info: Message, parts: Part[]}
                     data = json.loads(result_text)
-                    # 提取回复内容
+                    # 提取回复内容 - 新格式使用 type/text 而不是 role/content
                     parts = data.get("parts", [])
                     content = ""
                     for part in parts:
-                        if part.get("role") == "assistant":
-                            content = part.get("content", "")
+                        # 查找 text 类型的 part
+                        if part.get("type") == "text":
+                            content = part.get("text", "")
                             break
 
                     # 构造兼容返回格式
@@ -111,7 +112,7 @@ class OpenCodeAgent:
         session_id = await self._ensure_session()
         url = f"{self._base_url}/session/{session_id}/message"
 
-        payload = {"parts": [{"role": "user", "content": retry_prompt}]}
+        payload = {"parts": [{"type": "text", "text": retry_prompt}]}
 
         async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
             text = await resp.text()
@@ -120,8 +121,9 @@ class OpenCodeAgent:
                 parts = data.get("parts", [])
                 content = ""
                 for part in parts:
-                    if part.get("role") == "assistant":
-                        content = part.get("content", "")
+                    # 查找 text 类型的 part
+                    if part.get("type") == "text":
+                        content = part.get("text", "")
                         break
                 return {
                     "response": content,
