@@ -2,7 +2,7 @@ import json
 import logging
 import asyncio
 import aiohttp
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from . import prompts
 
 logger = logging.getLogger(__name__)
@@ -19,10 +19,12 @@ class OpenCodeAgent:
         self.hostname = hostname
         self.timeout = timeout
         self.auto_create_session = auto_create_session
-
+ 
         self._base_url = f"http://{self.hostname}:{self.port}"
         self._session_id: Optional[str] = None
         self._http_session: Optional[aiohttp.ClientSession] = None
+        self._session_tracker = None
+        self._current_task_id = None
 
     async def _get_http_session(self) -> aiohttp.ClientSession:
         if not self._http_session or self._http_session.closed:
@@ -33,13 +35,23 @@ class OpenCodeAgent:
         """创建新的 opencode 会话"""
         url = f"{self._base_url}/session"
         session = await self._get_http_session()
-
+ 
         async with session.post(url, json={}) as resp:
             if resp.status != 200:
                 err = await resp.text()
                 raise RuntimeError(f"创建会话失败: {err}")
             data = await resp.json()
-            return data["id"]
+            session_id = data["id"]
+            
+            # 通知 tracker
+            if self._session_tracker and self._current_task_id:
+                self._session_tracker.track_session(
+                    self._current_task_id,
+                    session_id,
+                    self.port
+                )
+            
+            return session_id
 
     async def _ensure_session(self) -> str:
         """确保会话存在"""
@@ -108,12 +120,12 @@ class OpenCodeAgent:
         logger.warning("JSON 验证失败，尝试触发修复重试...")
         truncated = raw_output if len(raw_output) <= 2000 else raw_output[:2000] + "\n...[已截断]..."
         retry_prompt = prompts.format_retry_prompt(error_details=error_msg, raw_output=truncated)
-
-        session_id = await self._ensure_session()
-        url = f"{self._base_url}/session/{session_id}/message"
-
+ 
+        sid = await self._ensure_session()
+        url = f"{self._base_url}/session/{sid}/message"
+ 
         payload = {"parts": [{"type": "text", "text": retry_prompt}]}
-
+ 
         async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
             text = await resp.text()
             try:
@@ -121,7 +133,6 @@ class OpenCodeAgent:
                 parts = data.get("parts", [])
                 content = ""
                 for part in parts:
-                    # 查找 text 类型的 part
                     if part.get("type") == "text":
                         content = part.get("text", "")
                         break
@@ -150,15 +161,64 @@ class OpenCodeAgent:
         finally:
             self._session_id = None
 
+    def set_session_tracker(self, tracker):
+        """设置 session 追踪器回调"""
+        self._session_tracker = tracker
+    
+    def set_current_task(self, task_id):
+        """设置当前任务 ID"""
+        self._current_task_id = task_id
+    
+    async def get_session_status(self, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        查询 opencode session 状态
+        返回: {"type": "busy" | "idle" | "retry", ...}
+        """
+        sid = session_id or self._session_id
+        if not sid:
+            return {}
+        
+        session = await self._get_http_session()
+        try:
+            async with session.get(f"{self._base_url}/session/status") as resp:
+                if resp.status == 200:
+                    all_statuses = await resp.json()
+                    return all_statuses.get(sid, {})
+        except Exception as e:
+            logger.warning(f"查询 session 状态失败: {e}")
+        return {}
+    
+    async def get_session_messages(self, session_id: Optional[str] = None, limit: int = 50) -> list:
+        """
+        查询 opencode session 消息历史
+        返回: [{"role": "user|assistant", "parts": [...]}]
+        """
+        sid = session_id or self._session_id
+        if not sid:
+            return []
+        
+        session = await self._get_http_session()
+        url = f"{self._base_url}/session/{sid}/message"
+        if limit:
+            url += f"?limit={limit}"
+        
+        try:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            logger.warning(f"查询 session 消息失败: {e}")
+        return []
+    
     async def shutdown(self) -> None:
         """关闭资源"""
         if self.auto_create_session:
             await self.delete_session()
         if self._http_session and not self._http_session.closed:
             await self._http_session.close()
-
+ 
     async def __aenter__(self):
         return self
-
+ 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.shutdown()
