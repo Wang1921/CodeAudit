@@ -42,21 +42,35 @@ class StateRouter:
     
     def _parse_json_output(self, output):
         """解析可能是 Markdown 格式的 JSON 输出"""
-        if isinstance(output, dict):
-            return output
-        
         import re
         import json
         
-        # 从 Markdown 代码块中提取 JSON
+        # 如果是 dict，检查是否包含 response字段（OpenCode Agent 格式）
+        if isinstance(output, dict):
+            if "response" in output:
+                # 解析 response 字段中的 Markdown JSON
+                response_str = output["response"]
+                json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', str(response_str), re.DOTALL)
+                if json_match:
+                    try:
+                        return json.loads(json_match.group(1))
+                    except json.JSONDecodeError:
+                        pass
+                # 如果没有 Markdown 代码块，尝试直接解析 response
+                try:
+                    return json.loads(response_str)
+                except json.JSONDecodeError:
+                    pass
+            # 如果没有原 dict（但不是 OpenCode Agent 格式），直接返回
+            return output
+        
+        # 如果是字符串，尝试解析
         json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', str(output), re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
             except json.JSONDecodeError:
                 pass
-        
-       
         
         # 如果没有 Markdown 代码块，尝试直接解析
         try:
@@ -70,20 +84,22 @@ class StateRouter:
         sender = orig_env["recipient"]
         task_id = orig_env["task_id"]
         message_type = orig_env.get("message_type", "TaskRequest")
- 
+  
         # 首先解析 agent_output 中的 response 字段（如果有 Markdown 包装）
         parsed_output = self._parse_json_output(agent_output)
         status = parsed_output.get("status")
         
+        logging.info(f"[路由] {sender} -> ? | task_id={task_id} | parsed keys: {list(parsed_output.keys())}")
+        
         if status in TERMINAL_STATES:
             logging.info(f"任务 {task_id} 达到终态: {status}")
             return
- 
+  
         # 拦截跨界追踪求救信号
         if sender == "ReverseTracer" and parsed_output.get("action") == "cross_service_trace":
             self._route_cross_service_request(task_id, parsed_output, orig_env)
             return
- 
+  
         if sender == "Coordinator" or message_type == "Coordinator_Output":
             self._route_coordinator_output(task_id, agent_output, orig_env)
         elif sender == "SemgrepScanner":
@@ -126,6 +142,7 @@ class StateRouter:
 
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
+        logging.info(f"[路由] ReverseTracer -> RedValidator | vuln_type={agent_output.get('vuln_type')}")
         # 支持 vuln_type 或 vuln_class 字段
         # 注意: agent_output 已经在 route() 方法中解析过了
         vuln_type = agent_output.get("vuln_type") or agent_output.get("vuln_class")
@@ -155,6 +172,7 @@ class StateRouter:
 
     def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """LogicAuditor 输出进入 RedValidator 进行攻击验证。"""
+        logging.info(f"[路由] LogicAuditor -> ? | vuln_type={agent_output.get('vuln_type')} | keys={list(agent_output.keys())}")
         # 注意: agent_output 已经在 route() 方法中解析过了
         
         if "vuln_type" in agent_output:
@@ -175,6 +193,7 @@ class StateRouter:
         # 解析可能包含 Markdown 的 JSON 输出
         parsed_output = self._parse_json_output(agent_output)
         status = parsed_output.get("status")
+        logging.info(f"[路由] RedValidator -> ? | status={status} | attack_vector={'attack_vector' in parsed_output}")
         if status == "EXPLOITABLE" or "attack_vector" in parsed_output:
             payload = parsed_output.copy()
             orig_payload = orig_env.get("payload", {})
