@@ -1,38 +1,34 @@
 import subprocess
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 class SemgrepScanner:
-    def __init__(self, target_dir: str, rules_path: str = None):
+    def __init__(self, target_dir: str, rules_path: Optional[str] = None):
         """
         target_dir:  待扫描的源码目录
         rules_path:  Semgrep 规则路径，支持：
                      - None          → 使用内置 src/semgrep_rules/<language>.yaml
-                     - 目录路径      → 使用 <rules_path>/<language>.yaml
+                     - 目录路径      → 直接扫描该目录下所有 .yaml 规则文件（推荐使用 semgrep-rules）
                      - .yaml 文件路径 → 直接作为 --config 传给 semgrep（忽略 language 参数）
         """
         self.target_dir = target_dir
         self._rules_path = Path(rules_path) if rules_path else None
-        # 兼容旧属性名，指向规则目录（文件模式下为其父目录）
-        if self._rules_path is None:
-            self.rules_dir = Path(__file__).parent / "semgrep_rules"
-        elif self._rules_path.is_file():
-            self.rules_dir = self._rules_path.parent
-        else:
-            self.rules_dir = self._rules_path
+        self.rules_dir = Path(rules_path) if rules_path else Path(__file__).parent / "semgrep_rules"
 
-    def _resolve_config(self, language: str) -> Path | None:
+    def _resolve_config(self, language: Optional[str] = None) -> Optional[Path]:
         """返回实际传给 --config 的路径，不存在则返回 None。"""
         if self._rules_path and self._rules_path.is_file():
-            # 用户直接指定了规则文件，忽略 language
             return self._rules_path
-        # 目录模式：在目录下查找 <language>.yaml
-        rule_file = self.rules_dir / f"{language}.yaml"
-        return rule_file if rule_file.exists() else None
+        if self._rules_path and self._rules_path.is_dir():
+            return self._rules_path
+        if language:
+            rule_file = self.rules_dir / f"{language}.yaml"
+            return rule_file if rule_file.exists() else None
+        return None
 
     def scan(self, language: str = "java") -> Dict[str, Any]:
         """执行 Semgrep 扫描并返回结果"""
@@ -137,7 +133,7 @@ class SemgrepScanner:
         code = code.strip()
         
         metadata = result.get("extra", {}).get("metadata", {})
-        vuln_class = metadata.get("vuln_class", "Unknown Vulnerability")
+        vuln_class = self._extract_vuln_class(result, metadata)
         cwe = metadata.get("cwe", "")
         message = result.get("message", "")
         
@@ -162,6 +158,28 @@ class SemgrepScanner:
                 "severity": severity
             }
         }
+    
+    def _extract_vuln_class(self, result: Dict, metadata: Dict) -> str:
+        """从 Semgrep 结果提取漏洞类别"""
+        check_id = result.get("check_id", "")
+        if check_id:
+            return check_id
+        
+        category = metadata.get("category", "")
+        technology = metadata.get("technology", [])
+        subcategory = metadata.get("subcategory", "")
+        
+        if category:
+            if isinstance(technology, list) and technology:
+                tech_str = ", ".join(technology[:2])
+                if subcategory:
+                    return f"{category}.{tech_str}.{subcategory}"
+                return f"{category}.{tech_str}"
+            if subcategory:
+                return f"{category}.{subcategory}"
+            return category
+        
+        return "unknown-vulnerability"
     
     def _extract_taint_variable(self, result: Dict, code: str) -> str:
         """从 Semgrep 结果推断污点变量"""

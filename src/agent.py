@@ -33,15 +33,10 @@ class OpenCodeSubprocess:
             stderr=asyncio.subprocess.PIPE,
             stdin=asyncio.subprocess.PIPE
         )
-        
+
         try:
-            stdin = process.stdin
-            assert stdin is not None
-            stdin.write(prompt.encode('utf-8'))
-            stdin.close()
-            
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(input=prompt.encode('utf-8')),
                 timeout=self.timeout
             )
             logging.debug(f"进程标准输出: {stdout}")
