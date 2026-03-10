@@ -191,9 +191,9 @@ class AuditEngine:
                 # 通过 Server Pool 获取端口
                 port = await self.server_manager.get_or_start_server(target_cwd)
 
-                # 使用 HTTP Agent 执行
-                agent = OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT)
-                result = await agent.execute(prompt, allowed_tools=allowed_tools)
+                # 使用上下文管理器确保资源释放
+                async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                    result = await agent.execute(prompt, allowed_tools=allowed_tools)
 
                 logging.info(f"Agent {recipient} 执行完成。输出: {result}")
 
@@ -270,9 +270,9 @@ class AuditEngine:
         try:
             # 通过 Server Pool 获取端口
             port = await self.server_manager.get_or_start_server(service_dir)
-            # 使用 HTTP Agent 执行
-            agent = OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT)
-            result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
+            # 使用上下文管理器确保资源释放
+            async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
             tokens_used = result.pop('_tokens', 0)
             if tokens_used > 0:
                 self.tracker.add_tokens(tokens_used)
