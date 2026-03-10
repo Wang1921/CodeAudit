@@ -3,6 +3,8 @@ import threading
 import json
 import logging
 import logging.handlers
+import asyncio
+import aiohttp
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 from pathlib import Path
@@ -55,7 +57,8 @@ class StateTracker:
                 "blue": [],
                 "resolved": []
             },
-            "logs": []
+            "logs": [],
+            "session_registry": {}
         }
         self._lock = threading.Lock()
         
@@ -82,6 +85,9 @@ class StateTracker:
         
         # 设置日志拦截
         self._setup_logging()
+        
+        # 启动会话状态轮询任务
+        self._start_session_poller()
 
     def _setup_logging(self):
         class StateLogHandler(logging.Handler):
@@ -201,3 +207,127 @@ class StateTracker:
     def add_tokens(self, tokens: int):
         with self._lock:
             self.state["tokens"] += tokens
+
+    def track_session(self, task_id: str, session_id: str, port: int, hostname: str = "127.0.0.1"):
+        """注册新的会话追踪"""
+        with self._lock:
+            self.state["session_registry"][task_id] = {
+                "session_id": session_id,
+                "server_port": port,
+                "hostname": hostname,
+                "status": "busy",
+                "last_updated": time.time(),
+                "last_message_fetch": 0,
+                "messages": [],
+                "tools_used": [],
+                "tokens": {"total": 0, "input": 0, "output": 0, "reasoning": 0}
+            }
+        logging.info(f"开始追踪会话: task_id={task_id}, session_id={session_id}, port={port}")
+
+    def untrack_session(self, task_id: str):
+        """取消追踪会话"""
+        with self._lock:
+            if task_id in self.state["session_registry"]:
+                del self.state["session_registry"][task_id]
+        logging.info(f"停止追踪会话: task_id={task_id}")
+
+    async def update_sessions_from_opencode(self):
+        """后台任务：从 OpenCode Server 拉取会话状态和消息"""
+        sessions = self.state["session_registry"].copy()
+        
+        for task_id, session_info in sessions.items():
+            try:
+                base_url = f"http://{session_info['hostname']}:{session_info['server_port']}"
+                
+                # 1. 查询会话状态
+                status = await self._fetch_session_status(base_url, session_info['session_id'])
+                
+                # 2. 查询消息历史 (每隔 5 秒查询一次，避免过频)
+                current_time = time.time()
+                if current_time - session_info.get('last_message_fetch', 0) > 5:
+                    messages = await self._fetch_session_messages(base_url, session_info['session_id'])
+                    tools = self._extract_tool_calls(messages)
+                    tokens = self._extract_tokens(messages)
+                    
+                    with self._lock:
+                        if task_id in self.state["session_registry"]:
+                            self.state["session_registry"][task_id]["messages"] = messages
+                            self.state["session_registry"][task_id]["tools_used"] = tools
+                            self.state["session_registry"][task_id]["tokens"] = tokens
+                            self.state["session_registry"][task_id]["last_message_fetch"] = current_time
+                
+                # 更新状态
+                with self._lock:
+                    if task_id in self.state["session_registry"]:
+                        self.state["session_registry"][task_id]["status"] = status.get("type", "idle")
+                        self.state["session_registry"][task_id]["last_updated"] = current_time
+                
+            except Exception as e:
+                logging.warning(f"更新会话状态失败 {task_id}: {e}")
+
+    async def _fetch_session_status(self, base_url: str, session_id: str) -> dict:
+        """获取单个会话状态"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base_url}/session/status", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        all_status = await resp.json()
+                        return all_status.get(session_id, {})
+        except Exception:
+            pass
+        return {}
+
+    async def _fetch_session_messages(self, base_url: str, session_id: str, limit: int = 20) -> list:
+        """获取会话消息历史"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{base_url}/session/{session_id}/message?limit={limit}", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+        except Exception:
+            pass
+        return []
+
+    def _extract_tool_calls(self, messages: list) -> list:
+        """从消息中提取工具调用记录"""
+        tools = []
+        for msg in messages:
+            for part in msg.get("parts", []):
+                if part.get("type") == "tool":
+                    tools.append({
+                        "name": part.get("name"),
+                        "input": str(part.get("input", ""))[:100],
+                        "output": str(part.get("output", ""))[:100],
+                        "timestamp": msg.get("info", {}).get("time", {}).get("created")
+                    })
+        return tools
+
+    def _extract_tokens(self, messages: list) -> dict:
+        """从消息中提取 Token 使用情况"""
+        total_tokens = {"total": 0, "input": 0, "output": 0, "reasoning": 0}
+        for msg in messages:
+            info = msg.get("info", {})
+            tokens = info.get("tokens", {})
+            total_tokens["input"] += tokens.get("input", 0)
+            total_tokens["output"] += tokens.get("output", 0)
+            total_tokens["reasoning"] += tokens.get("reasoning", 0)
+        total_tokens["total"] = total_tokens["input"] + total_tokens["output"] + total_tokens["reasoning"]
+        return total_tokens
+
+    def _start_session_poller(self):
+        """启动会话状态轮询任务"""
+        def poll_loop():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                while True:
+                    loop.run_until_complete(self.update_sessions_from_opencode())
+                    time.sleep(2)
+            except Exception as e:
+                logging.error(f"会话轮询任务异常: {e}")
+            finally:
+                loop.close()
+        
+        poll_thread = threading.Thread(target=poll_loop, daemon=True)
+        poll_thread.start()
+        logging.info("会话状态轮询任务已启动")

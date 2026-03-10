@@ -212,6 +212,9 @@ class OpenCodeAgent:
     
     async def shutdown(self) -> None:
         """关闭资源"""
+        if self._session_tracker and self._current_task_id:
+            self._session_tracker.untrack_session(self._current_task_id)
+        
         if self.auto_create_session:
             await self.delete_session()
         if self._http_session and not self._http_session.closed:

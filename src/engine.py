@@ -193,6 +193,10 @@ class AuditEngine:
 
                 # 使用上下文管理器确保资源释放
                 async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                    # 设置 tracker
+                    agent.set_session_tracker(self.tracker)
+                    agent.set_current_task(env["task_id"])
+                    
                     result = await agent.execute(prompt, allowed_tools=allowed_tools)
 
                 logging.info(f"Agent {recipient} 执行完成。输出: {result}")

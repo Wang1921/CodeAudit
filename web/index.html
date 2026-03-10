@@ -47,26 +47,29 @@
             </div>
         </header>
 
-        <main class="flex-1 flex gap-4 min-h-0">
-            
-            <aside class="w-1/4 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
-                <div class="p-3 border-b border-gray-700 font-bold text-gray-300 flex justify-between">
-                    <span>Active Agents</span>
-                    <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded-full">Concurrent: {{ agents.length }}</span>
-                </div>
-                <div class="p-3 flex-1 overflow-y-auto space-y-3">
-                    <div v-for="agent in agents" :key="agent.id" class="p-3 rounded bg-gray-900 border border-gray-700 flex items-center gap-3">
-                        <div :class="['w-3 h-3 rounded-full', agent.statusColor]"></div>
-                        <div class="flex-1">
-                            <div class="text-sm font-bold text-gray-200">{{ agent.role }}</div>
-                            <div class="text-xs text-gray-500">{{ agent.task }}</div>
-                        </div>
-                        <div class="text-xs font-mono text-gray-400">{{ agent.time }}s</div>
-                    </div>
-                </div>
-            </aside>
+         <main class="flex-1 flex gap-4 min-h-0">
+             
+             <aside class="w-1/4 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
+                 <div class="p-3 border-b border-gray-700 font-bold text-gray-300 flex justify-between">
+                     <span>Active Agents</span>
+                     <span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded-full">Concurrent: {{ agents.length }}</span>
+                 </div>
+                 <div class="p-3 flex-1 overflow-y-auto space-y-3">
+                     <div v-for="agent in agents" :key="agent.id" 
+                          @click="selectAgent(agent)"
+                          class="p-3 rounded bg-gray-900 border border-gray-700 flex items-center gap-3 cursor-pointer hover:border-blue-500 transition-colors"
+                          :class="{'border-blue-500': selectedAgent && selectedAgent.id === agent.id}">
+                         <div :class="['w-3 h-3 rounded-full', agent.statusColor]"></div>
+                         <div class="flex-1">
+                             <div class="text-sm font-bold text-gray-200">{{ agent.role }}</div>
+                             <div class="text-xs text-gray-500">{{ agent.task }}</div>
+                         </div>
+                         <div class="text-xs font-mono text-gray-400">{{ agent.time }}s</div>
+                     </div>
+                 </div>
+             </aside>
 
-            <section class="flex-1 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
+             <section :class="['bg-gray-800 rounded-lg border border-gray-700 flex flex-col', selectedAgent ? 'flex-1' : 'flex-[3]']">
                 <div class="p-3 border-b border-gray-700 font-bold text-gray-300">Adversarial Kanban (红蓝推演)</div>
                 <div class="flex-1 p-3 grid grid-cols-4 gap-4 overflow-hidden">
                     
@@ -117,6 +120,85 @@
                         </div>
                     </div>
 
+                </div>
+            </section>
+
+            <!-- Agent 详情面板 -->
+            <section v-if="selectedAgent" class="w-2/5 bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
+                <div class="p-3 border-b border-gray-700 font-bold text-gray-300 flex justify-between items-center">
+                    <span>Agent Details: {{ selectedAgent.role }}</span>
+                    <button @click="selectedAgent = null" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto p-3 space-y-4">
+                    <!-- 会话状态 -->
+                    <div class="bg-gray-900 rounded p-3">
+                        <h4 class="text-xs text-gray-400 mb-2">Session Status</h4>
+                        <div class="flex items-center gap-2">
+                            <span :class="[
+                                'w-2 h-2 rounded-full',
+                                getSessionStatusColor(selectedAgent.session_info?.status)
+                            ]"></span>
+                            <span class="text-sm text-gray-200">{{ selectedAgent.session_info?.status || 'Unknown' }}</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            Session ID: {{ selectedAgent.session_info?.session_id?.slice(0, 8) || 'N/A' }}...
+                        </div>
+                    </div>
+                    
+                    <!-- Token 消耗 -->
+                    <div class="bg-gray-900 rounded p-3">
+                        <h4 class="text-xs text-gray-400 mb-2">Token Usage</h4>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div class="text-gray-400">Total: <span class="text-white">{{ formatTokens(selectedAgent.session_info?.tokens?.total) }}</span></div>
+                            <div class="text-gray-400">Input: <span class="text-white">{{ formatTokens(selectedAgent.session_info?.tokens?.input) }}</span></div>
+                            <div class="text-gray-400">Output: <span class="text-white">{{ formatTokens(selectedAgent.session_info?.tokens?.output) }}</span></div>
+                            <div class="text-gray-400">Reasoning: <span class="text-white">{{ formatTokens(selectedAgent.session_info?.tokens?.reasoning) }}</span></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 工具调用时间线 -->
+                    <div class="bg-gray-900 rounded p-3">
+                        <h4 class="text-xs text-gray-400 mb-2">Tool Calls Timeline</h4>
+                        <div class="space-y-2 max-h-40 overflow-y-auto">
+                            <div v-if="!selectedAgent.session_info?.tools_used?.length" class="text-xs text-gray-500">暂无工具调用</div>
+                            <div v-for="(tool, idx) in selectedAgent.session_info?.tools_used" :key="idx" 
+                                 class="bg-gray-800 rounded p-2 text-xs border border-gray-700">
+                                <div class="flex justify-between">
+                                    <span class="text-blue-400 font-bold">{{ tool.name }}</span>
+                                    <span class="text-gray-500">{{ formatTime(tool.timestamp) }}</span>
+                                </div>
+                                <div class="text-gray-400 mt-1 truncate">{{ tool.input }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 消息历史 -->
+                    <div class="bg-gray-900 rounded p-3">
+                        <h4 class="text-xs text-gray-400 mb-2">Message History</h4>
+                        <div class="space-y-2 max-h-60 overflow-y-auto">
+                            <div v-if="!selectedAgent.session_info?.messages?.length" class="text-xs text-gray-500">暂无消息</div>
+                            <div v-for="(msg, idx) in selectedAgent.session_info?.messages" :key="idx"
+                                 :class="[
+                                    'rounded p-2 text-xs',
+                                    msg.info?.role === 'user' ? 'bg-blue-900/20 border border-blue-800' : 'bg-green-900/20 border border-green-800'
+                                 ]">
+                                <div class="flex justify-between mb-1">
+                                    <span :class="[
+                                        'font-bold',
+                                        msg.info?.role === 'user' ? 'text-blue-400' : 'text-green-400'
+                                    ]">{{ msg.info?.role || 'Unknown' }}</span>
+                                    <span class="text-gray-500">{{ formatTime(msg.info?.time?.created) }}</span>
+                                </div>
+                                <div v-for="part in msg.parts" :key="part.type">
+                                    <div v-if="part.type === 'text'" class="text-gray-300 whitespace-pre-wrap">{{ part.text?.slice(0, 500) }}{{ part.text?.length > 500 ? '...' : '' }}</div>
+                                    <div v-if="part.type === 'tool'" class="text-purple-400 mt-1">
+                                        <span class="font-bold">→ {{ part.name }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
         </main>
@@ -180,73 +262,121 @@
 
     </div>
 
-    <script>
-        const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+     <script>
+         const { createApp, ref, reactive, onMounted, nextTick } = Vue;
 
-         createApp({
-             setup() {
-                 const progress = ref(0);
-                 const tokens = ref(0);
-                 const target = ref('');
-                 const vulns = reactive({ critical: 0, high: 0 });
-                 const selectedCard = ref(null);
-                 
-                 const showDetail = (card) => {
-                     selectedCard.value = card;
+          createApp({
+              setup() {
+                  const progress = ref(0);
+                  const tokens = ref(0);
+                  const target = ref('');
+                  const vulns = reactive({ critical: 0, high: 0 });
+                  const selectedCard = ref(null);
+                  const selectedAgent = ref(null);
+                  
+                  const showDetail = (card) => {
+                      selectedCard.value = card;
+                  };
+                  
+                  const agents = reactive([]);
+                  const sessionRegistry = reactive({});
+
+                 // 真实看板数据
+                 const kanban = reactive({
+                     suspicious: [],
+                     red: [],
+                     blue: [],
+                     resolved: []
+                 });
+
+                 const logs = reactive([]);
+
+                 const selectAgent = (agent) => {
+                     selectedAgent.value = agent;
+                     if (sessionRegistry[agent.id]) {
+                         selectedAgent.value.session_info = sessionRegistry[agent.id];
+                     }
                  };
-                 
-                 const agents = reactive([]);
 
-                // 真实看板数据
-                const kanban = reactive({
-                    suspicious: [],
-                    red: [],
-                    blue: [],
-                    resolved: []
-                });
+                 const getSessionStatusColor = (status) => {
+                     switch(status) {
+                         case 'busy': return 'bg-yellow-500 animate-pulse';
+                         case 'idle': return 'bg-green-500';
+                         case 'retry': return 'bg-red-500 animate-pulse';
+                         default: return 'bg-gray-500';
+                     }
+                 };
 
-                const logs = reactive([]);
+                 const formatTokens = (num) => (num || 0).toLocaleString();
 
-                // 轮询后端状态
-                onMounted(() => {
-                    setInterval(async () => {
-                        try {
-                            const response = await fetch('/state.json');
-                            if (response.ok) {
-                                const data = await response.json();
-                                target.value = data.target || 'Unknown';
-                                progress.value = data.progress;
-                                tokens.value = data.tokens;
-                                vulns.critical = data.vulns.critical;
-                                vulns.high = data.vulns.high;
-                                
-                                // 更新 agents
-                                agents.splice(0, agents.length, ...data.agents);
-                                
-                                // 更新看板
-                                kanban.suspicious.splice(0, kanban.suspicious.length, ...data.kanban.suspicious);
-                                kanban.red.splice(0, kanban.red.length, ...data.kanban.red);
-                                kanban.blue.splice(0, kanban.blue.length, ...data.kanban.blue);
-                                kanban.resolved.splice(0, kanban.resolved.length, ...data.kanban.resolved);
-                                
-                                // 更新日志
-                                if (data.logs && data.logs.length > 0) {
-                                    logs.splice(0, logs.length, ...data.logs);
-                                    nextTick(() => {
-                                        const container = document.getElementById('terminal-container');
-                                        container.scrollTop = container.scrollHeight;
-                                    });
-                                }
-                            }
-                        } catch (err) {
-                            console.error("获取状态失败:", err);
-                        }
-                    }, 1000);
-                });
+                 const formatTime = (timestamp) => {
+                     if (!timestamp) return '';
+                     return new Date(timestamp).toLocaleTimeString();
+                 };
 
-                 return { target, progress, tokens, vulns, agents, kanban, logs, selectedCard, showDetail };
-            }
-        }).mount('#app');
-    </script>
+                 // 轮询后端状态
+                 onMounted(() => {
+                     setInterval(async () => {
+                         try {
+                             const response = await fetch('/state.json');
+                             if (response.ok) {
+                                 const data = await response.json();
+                                 target.value = data.target || 'Unknown';
+                                 progress.value = data.progress;
+                                 tokens.value = data.tokens;
+                                 vulns.critical = data.vulns.critical;
+                                 vulns.high = data.vulns.high;
+                                 
+                                 // 更新 agents
+                                 agents.splice(0, agents.length, ...data.agents);
+                                 
+                                 // 更新会话注册表
+                                 Object.assign(sessionRegistry, data.session_registry || {});
+                                 
+                                 // 刷新选中的 Agent 详情
+                                 if (selectedAgent.value && sessionRegistry[selectedAgent.value.id]) {
+                                     selectedAgent.value.session_info = sessionRegistry[selectedAgent.value.id];
+                                 }
+                                 
+                                 // 更新看板
+                                 kanban.suspicious.splice(0, kanban.suspicious.length, ...data.kanban.suspicious);
+                                 kanban.red.splice(0, kanban.red.length, ...data.kanban.red);
+                                 kanban.blue.splice(0, kanban.blue.length, ...data.kanban.blue);
+                                 kanban.resolved.splice(0, kanban.resolved.length, ...data.kanban.resolved);
+                                 
+                                 // 更新日志
+                                 if (data.logs && data.logs.length > 0) {
+                                     logs.splice(0, logs.length, ...data.logs);
+                                     nextTick(() => {
+                                         const container = document.getElementById('terminal-container');
+                                         container.scrollTop = container.scrollHeight;
+                                     });
+                                 }
+                             }
+                         } catch (err) {
+                             console.error("获取状态失败:", err);
+                         }
+                     }, 1000);
+                 });
+
+                  return { 
+                      target, 
+                      progress, 
+                      tokens, 
+                      vulns, 
+                      agents, 
+                      kanban, 
+                      logs, 
+                      selectedCard, 
+                      selectedAgent,
+                      showDetail,
+                      selectAgent,
+                      getSessionStatusColor,
+                      formatTokens,
+                      formatTime
+                  };
+              }
+          }).mount('#app');
+     </script>
 </body>
 </html>
