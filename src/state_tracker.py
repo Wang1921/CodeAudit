@@ -289,43 +289,12 @@ class StateTracker:
         return []
 
     def _extract_tool_calls(self, messages: list) -> list:
-        """从消息中提取工具调用记录和步骤信息"""
-        tools = {
-            "tools": [],
-            "steps": []
-        }
-        
-        for msg in messages:
-            timestamp = msg.get("info", {}).get("time", {}).get("created")
-            for part in msg.get("parts", []):
-                part_type = part.get("type")
-                
-                if part_type == "tool":
-                    tools["tools"].append({
-                        "name": part.get("name"),
-                        "input": str(part.get("input", ""))[:100],
-                        "output": str(part.get("output", ""))[:100],
-                        "timestamp": timestamp
-                    })
-                elif part_type == "step-start":
-                    tools["steps"].append({
-                        "name": f"[START] {part.get('step', 'unknown')}",
-                        "input": part.get("description", ""),
-                        "output": "",
-                        "timestamp": timestamp
-                    })
-                elif part_type == "step-finish":
-                    tools["steps"].append({
-                        "name": f"[FINISH] {part.get('step', 'unknown')}",
-                        "input": "",
-                        "output": part.get("result", ""),
-                        "timestamp": timestamp
-                    })
-        
-        # 合并工具和步骤，按时间戳排序
-        all_calls = tools["tools"] + tools["steps"]
-        all_calls.sort(key=lambda x: x.get("timestamp", 0))
-        return all_calls
+        """
+        保留此方法以保持向后兼容，但返回空列表。
+        工具调用信息现在直接在 Message History 中的 tool 类型 part 中显示。
+        这样可以避免数据重复，并在消息历史中提供统一的时间线视图。
+        """
+        return []
 
     def _extract_tokens(self, messages: list) -> dict:
         """从消息中提取 Token 使用情况"""
