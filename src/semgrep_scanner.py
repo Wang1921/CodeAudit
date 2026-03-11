@@ -1,6 +1,7 @@
 import subprocess
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -12,38 +13,44 @@ class SemgrepScanner:
         target_dir:  待扫描的源码目录
         rules_path:  Semgrep 规则路径，支持：
                      - None          → 使用内置 src/semgrep_rules/<language>.yaml
-                     - 目录路径      → 直接扫描该目录下所有 .yaml 规则文件（推荐使用 semgrep-rules）
-                     - .yaml 文件路径 → 直接作为 --config 传给 semgrep（忽略 language 参数）
+                     - 目录路径      → 直接扫描该目录下所有 .yaml 规则文件
+                     - .yaml 文件路径 → 直接作为 --config 传给 semgrep（支持多个，逗号分隔）
         """
         self.target_dir = target_dir
-        self._rules_path = Path(rules_path) if rules_path else None
-        self.rules_dir = Path(rules_path) if rules_path else Path(__file__).parent / "semgrep_rules"
-
-    def _resolve_config(self, language: Optional[str] = None) -> Optional[Path]:
-        """返回实际传给 --config 的路径，不存在则返回 None。"""
-        if self._rules_path and self._rules_path.is_file():
-            return self._rules_path
-        if self._rules_path and self._rules_path.is_dir():
-            return self._rules_path
+        self.rules_dir = Path(__file__).parent / "semgrep_rules"
+        
+        # 支持多个规则路径（逗号分隔）
+        if rules_path:
+            self._rules = [Path(p.strip()) for p in rules_path.split(',')]
+        else:
+            self._rules = None
+    
+    def _resolve_config(self, language: Optional[str] = None) -> Optional[list]:
+        """返回规则路径列表，支持多个规则（逗号分隔）"""
+        if self._rules:
+            return self._rules
         if language:
             rule_file = self.rules_dir / f"{language}.yaml"
-            return rule_file if rule_file.exists() else None
-        return None
-
+            return [rule_file] if rule_file.exists() else []
+        return []
+ 
     def scan(self, language: str = "java") -> Dict[str, Any]:
         """执行 Semgrep 扫描并返回结果"""
-        config = self._resolve_config(language)
-        if config is None:
+        configs = self._resolve_config(language)
+        if not configs or len(configs) == 0:
             logger.warning(f"规则文件不存在: {self.rules_dir / (language + '.yaml')}")
             return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
-
+ 
         cmd = [
             "semgrep",
-            "--config", str(config),
             "--json",
             self.target_dir
         ]
         
+        # 添加多个 --config 参数
+        for config in configs:
+            cmd.extend(["--config", str(config)])
+ 
         logger.info(f"执行 Semgrep 扫描: {' '.join(cmd)}")
         
         try:
@@ -135,7 +142,7 @@ class SemgrepScanner:
         routes = []
         sinks = []
         
-        for result in semgrep_output.get("results", []):
+        for result in semgrep_output.get("results",[]):
             try:
                 check_id = result.get("check_id", "")
                 
@@ -162,11 +169,16 @@ class SemgrepScanner:
     def _parse_route_result(self, result: Dict) -> Optional[Dict]:
         """解析单个 API 路由结果"""
         import re
+        import os
         
         message = result.get("extra", {}).get("message", "")
         check_id = result.get("check_id", "")
         path = result.get("path", "")
         line = result.get("start", {}).get("line", 1)
+        
+        # 将相对路径转换为绝对路径
+        if not os.path.isabs(path):
+            path = os.path.abspath(os.path.join(self.target_dir, path))
         
         # 从 message 中提取路由信息
         # 示例: "发现 API (带类前缀) -> 类基础路径: "/api", 方法路径: "/eval", 方法名: evaluate"
@@ -294,6 +306,6 @@ class SemgrepScanner:
     
     def get_supported_languages(self) -> List[str]:
         """获取支持的语言列表"""
-        if self._rules_path and self._rules_path.is_file():
-            return [self._rules_path.stem]
+        if self._rules:
+            return [p.stem for p in self._rules]
         return sorted(f.stem for f in self.rules_dir.glob("*.yaml"))

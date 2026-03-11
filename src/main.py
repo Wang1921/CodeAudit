@@ -23,7 +23,7 @@ async def main():
     parser.add_argument(
         "--semgrep-rules",
         default=None,
-        help="Semgrep 规则路径（目录或单个 .yaml 文件），默认使用内置规则目录",
+        help="Semgrep 规则路径，支持多个（逗号分隔）：例如 '/path/to/vuln_rules,/path/to/api_routes'，默认使用内置规则目录",
     )
     args = parser.parse_args()
 
