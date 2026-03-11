@@ -136,10 +136,7 @@
                     <div class="bg-gray-900 rounded p-3">
                         <h4 class="text-xs text-gray-400 mb-2">Session Status</h4>
                         <div class="flex items-center gap-2">
-                            <span :class="[
-                                'w-2 h-2 rounded-full',
-                                getSessionStatusColor(selectedAgent.session_info?.status)
-                            ]"></span>
+                            <span :class="['w-2 h-2 rounded-full', getSessionStatusColor(selectedAgent.session_info?.status)]"></span>
                             <span class="text-sm text-gray-200">{{ selectedAgent.session_info?.status || 'Unknown' }}</span>
                         </div>
                         <div class="text-xs text-gray-500 mt-1">
@@ -189,15 +186,15 @@
                                      <div v-if="part.type === 'tool'" class="bg-gray-800 rounded p-2 mt-1 border border-gray-700">
                                          <div class="flex justify-between items-center mb-1">
                                              <span class="text-blue-400 font-bold">→ {{ part.tool || part.name }}</span>
-                                             <span v-if="part.state?.status" 
-                                                   :class="[
-                                                       'text-xs px-2 py-1 rounded',
-                                                       'bg-green-900 text-green-300': part.state.status === 'completed',
-                                                       'bg-red-900 text-red-300': part.state.status === 'failed',
-                                                       'bg-yellow-900 text-yellow-300': part.state.status === 'running'
-                                                   ]">
-                                                 {{ part.state.status }}
-                                             </span>
+                                              <span v-if="part.state?.status" 
+                                                    :class="[
+                                                        'text-xs px-2 py-1 rounded',
+                                                        part.state.status === 'completed' ? 'bg-green-900 text-green-300' : '',
+                                                        part.state.status === 'failed' ? 'bg-red-900 text-red-300' : '',
+                                                        part.state.status === 'running' ? 'bg-yellow-900 text-yellow-300' : ''
+                                                    ]">
+                                                  {{ part.state.status }}
+                                              </span>
                                          </div>
                                          
                                          <!-- 输入参数 -->
