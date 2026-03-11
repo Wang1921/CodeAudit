@@ -37,10 +37,10 @@ class AuditEngine:
         # 优先使用 Coordinator 建立的服务映射表
         if self.service_route_map:
             for service_name, service_dir in self.service_route_map.items():
-                if filepath.startswith(service_name + "/") or filepath.startswith(service_name + os.sep):
+                if service_dir in filepath:
                     logging.info(f"[ServiceDir] '{filepath}' 归属微服务 '{service_name}' -> {service_dir}")
                     return service_dir
-
+ 
         # 启发式回退：逐级向上查找构建文件
         parts = filepath.replace("\\", "/").split("/")
         build_markers = ("pom.xml", "go.mod", "package.json", "build.gradle")
@@ -51,7 +51,7 @@ class AuditEngine:
                     if os.path.exists(os.path.join(candidate, marker)):
                         logging.info(f"[ServiceDir] '{filepath}' 启发式识别微服务目录: {candidate}")
                         return candidate
-
+ 
         logging.info(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
         return self.target_source_dir
     
@@ -179,7 +179,10 @@ class AuditEngine:
                     target_cwd = self.target_source_dir  # 上帝视角：锁定根目录
                     allowed_tools = "codesearch,glob,grep,read" # 绝对不给 lsp
                 else:
+                    # 同时检查 sink_details 和 route_details
                     sink_file = env.get("payload", {}).get("sink_details", {}).get("filepath", "")
+                    if not sink_file:
+                        sink_file = env.get("payload", {}).get("route_details", {}).get("handler_file", "")
                     target_cwd = self._get_service_dir(sink_file) # 局部空投：进入微服务子目录
                     allowed_tools = "lsp,read,codesearch" # 开启重型武器 lsp
 
