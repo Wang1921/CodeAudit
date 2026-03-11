@@ -355,20 +355,10 @@
                           case 'idle': return 'bg-green-500';
                           case 'retry': return 'bg-red-500 animate-pulse';
                           default: return 'bg-gray-500';
-                      }
-                  };
-                 };
+                       }
+                   };
 
-                 const getSessionStatusColor = (status) => {
-                     switch(status) {
-                         case 'busy': return 'bg-yellow-500 animate-pulse';
-                         case 'idle': return 'bg-green-500';
-                         case 'retry': return 'bg-red-500 animate-pulse';
-                         default: return 'bg-gray-500';
-                     }
-                 };
-
-                 const formatTokens = (num) => (num || 0).toLocaleString();
+                   const formatTokens = (num) => (num || 0).toLocaleString();
 
                  const formatTime = (timestamp) => {
                      if (!timestamp) return '';
