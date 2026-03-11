@@ -44,5 +44,3 @@ reports/
 # Logs
 *.log
 
-# Semgrep rules
-semgrep-rules/
