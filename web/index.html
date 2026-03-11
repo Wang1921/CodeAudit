@@ -105,20 +105,21 @@
                         </div>
                     </div>
 
-                    <div class="flex flex-col bg-gray-900 rounded border border-gray-700 p-2">
-                        <h3 class="text-xs text-green-400 mb-2 font-bold text-center">4. RESOLVED (定性)</h3>
-                        <div class="flex-1 overflow-y-auto space-y-2">
-                            <div v-for="card in kanban.resolved" 
-                                 :class="['p-2 rounded border text-sm shadow cursor-pointer hover:border-blue-500 transition-colors', card.status === 'CONFIRMED' ? 'bg-red-900/30 border-red-700' : 'bg-gray-800 border-gray-600']"
-                                 @click="showDetail(card)">
-                                <div class="flex justify-between items-center">
-                                    <span class="text-xs bg-gray-700 px-1 rounded">{{ card.type }}</span>
-                                    <span :class="['text-[10px] px-1 rounded', card.status === 'CONFIRMED' ? 'bg-red-500 text-white' : 'bg-green-600 text-white']">{{ card.status === 'CONFIRMED' ? 'VULN' : 'DEFENDED' }}</span>
-                                </div>
-                                <div class="mt-1 text-gray-300 truncate">{{ card.route }}</div>
-                            </div>
-                        </div>
-                    </div>
+                     <div class="flex flex-col bg-gray-900 rounded border border-gray-700 p-2">
+                         <h3 class="text-xs text-green-400 mb-2 font-bold text-center">4. RESOLVED (定性) - {{ vulnerabilities.length }} 个漏洞</h3>
+                         <div class="flex-1 overflow-y-auto space-y-2">
+                             <div v-if="!vulnerabilities.length" class="text-xs text-gray-500 text-center py-4">暂无确认的漏洞</div>
+                             <div v-for="card in vulnerabilities" 
+                                  :class="['p-2 rounded border text-sm shadow cursor-pointer hover:border-blue-500 transition-colors', 'bg-red-900/30 border-red-700']"
+                                  @click="showDetail(card)">
+                                 <div class="flex justify-between items-center">
+                                     <span class="text-xs bg-gray-700 px-1 rounded">{{ card.type }}</span>
+                                     <span class="text-[10px] bg-red-500 text-white px-1 rounded">VULN</span>
+                                 </div>
+                                 <div class="mt-1 text-gray-300 truncate">{{ card.route }}</div>
+                             </div>
+                         </div>
+                     </div>
 
                 </div>
             </section>
@@ -307,7 +308,7 @@
     </div>
 
      <script>
-         const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+          const { createApp, ref, reactive, onMounted, nextTick, computed } = Vue;
 
           createApp({
               setup() {
@@ -333,13 +334,29 @@
                      resolved: []
                  });
 
-                 const logs = reactive([]);
+                  const logs = reactive([]);
+ 
+                  const selectAgent = (agent) => {
+                      selectedAgent.value = agent;
+                      if (sessionRegistry[agent.id]) {
+                          selectedAgent.value.session_info = sessionRegistry[agent.id];
+                      }
+                  };
 
-                 const selectAgent = (agent) => {
-                     selectedAgent.value = agent;
-                     if (sessionRegistry[agent.id]) {
-                         selectedAgent.value.session_info = sessionRegistry[agent.id];
-                     }
+                  // 计算属性：只显示确认的漏洞（status === 'CONFIRMED'）
+                  const vulnerabilities = computed(() => {
+                      if (!kanban.resolved) return [];
+                      return kanban.resolved.filter(card => card.status === 'CONFIRMED');
+                  });
+ 
+                  const getSessionStatusColor = (status) => {
+                      switch(status) {
+                          case 'busy': return 'bg-yellow-500 animate-pulse';
+                          case 'idle': return 'bg-green-500';
+                          case 'retry': return 'bg-red-500 animate-pulse';
+                          default: return 'bg-gray-500';
+                      }
+                  };
                  };
 
                  const getSessionStatusColor = (status) => {
@@ -428,15 +445,16 @@
                        agents, 
                        kanban, 
                        logs, 
-                       selectedCard, 
-                       selectedAgent,
-                       showDetail,
-                       selectAgent,
-                       getSessionStatusColor,
-                       formatTokens,
-                       formatTime,
-                       formatOutput
-                   };
+                        selectedCard, 
+                        selectedAgent,
+                        showDetail,
+                        selectAgent,
+                        getSessionStatusColor,
+                        formatTokens,
+                        formatTime,
+                        formatOutput,
+                        vulnerabilities
+                    };
               }
           }).mount('#app');
      </script>
