@@ -35,16 +35,12 @@ class SemgrepScanner:
         config = self._resolve_config(language)
         if config is None:
             logger.warning(f"规则文件不存在: {self.rules_dir / (language + '.yaml')}")
-            return {"sinks": [], "total": 0}
+            return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
 
         cmd = [
             "semgrep",
             "--config", str(config),
             "--json",
-            "--no-git-ignore",
-            "--severity", "ERROR",
-            "--severity", "WARNING",
-            "--quiet",
             self.target_dir
         ]
         
@@ -60,7 +56,7 @@ class SemgrepScanner:
             
             if result.returncode != 0:
                 logger.error(f"Semgrep 执行失败 (返回码 {result.returncode}): {result.stderr}")
-                return {"sinks": [], "total": 0}
+                return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
             
             if result.stderr:
                 logger.warning(f"Semgrep stderr: {result.stderr}")
@@ -71,37 +67,51 @@ class SemgrepScanner:
             
             if json_start == -1 or json_end == -1:
                 logger.error("无法在输出中找到 JSON 数据")
-                return {"sinks": [], "total": 0}
+                return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
             
             json_str = stdout[json_start:json_end + 1]
             semgrep_output = json.loads(json_str)
             
-            scan_result = self._convert_to_sink_format(semgrep_output)
+            logger.info(f"Semgrep 原始结果数量: {len(semgrep_output.get('results', []))}")
+            for i, r in enumerate(semgrep_output.get('results', [])[:3]):
+                logger.info(f"  [{i+1}] check_id={r.get('check_id')}, message={r.get('extra', {}).get('message', '')}")
             
-            total = scan_result.get("total", 0)
-            logger.info(f"Semgrep 扫描完成，共发现 {total} 个潜在漏洞点")
+            scan_result = self._parse_scan_results(semgrep_output)
             
+            total_routes = scan_result.get("total_routes", 0)
+            total_sinks = scan_result.get("total_sinks", 0)
+            logger.info(f"Semgrep 扫描完成:")
+            logger.info(f"  - 发现 {total_routes} 个 API 路由")
+            logger.info(f"  - 发现 {total_sinks} 个潜在漏洞点")
+            
+            # 显示前 5 个路由
+            for i, route in enumerate(scan_result.get("routes", [])[:5]):
+                logger.info(f"  [{i+1}] {route.get('method', 'UNKNOWN')} {route.get('path', 'unknown-path')} @ {route.get('handler_file', 'unknown-file')}")
+            
+            # 显示前 5 个漏洞点
             for i, sink in enumerate(scan_result.get("sinks", [])[:5]):
                 details = sink.get("sink_details", {})
                 logger.info(f"  [{i+1}] {details.get('vuln_class')} @ {details.get('filepath')}:{details.get('line_number')}")
             
-            if total > 5:
-                logger.info(f"  ... 还有 {total - 5} 个漏洞点")
+            if total_routes > 5:
+                logger.info(f"  ... 还有 {total_routes - 5} 个路由")
+            if total_sinks > 5:
+                logger.info(f"  ... 还有 {total_sinks - 5} 个漏洞点")
             
             return scan_result
             
         except subprocess.TimeoutExpired:
             logger.error("Semgrep 执行超时（300秒）")
-            return {"sinks": [], "total": 0}
+            return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
         except json.JSONDecodeError as e:
             logger.error(f"解析 Semgrep 输出失败: {e}")
-            return {"sinks": [], "total": 0}
+            return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
         except Exception as e:
             logger.error(f"Semgrep 执行异常: {e}")
-            return {"sinks": [], "total": 0}
+            return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
     
     def _convert_to_sink_format(self, semgrep_output: Dict) -> Dict[str, Any]:
-        """转换 Semgrep 输出为 SinkHunter 格式"""
+        """转换 Semgrep 输出为 SinkHunter 格式（兼容旧接口）"""
         sinks = []
         
         for result in semgrep_output.get("results", []):
@@ -113,7 +123,91 @@ class SemgrepScanner:
                 logger.warning(f"解析单个结果失败: {e}")
                 continue
         
-        return {"sinks": sinks, "total": len(sinks)}
+        return {
+            "routes": [],
+            "sinks": sinks,
+            "total_routes": 0,
+            "total_sinks": len(sinks)
+        }
+    
+    def _parse_scan_results(self, semgrep_output: Dict) -> Dict[str, Any]:
+        """分类解析 Semgrep 结果：区分路由和漏洞点"""
+        routes = []
+        sinks = []
+        
+        for result in semgrep_output.get("results", []):
+            try:
+                check_id = result.get("check_id", "")
+                
+                # 根据规则 ID 判断类型（规则 ID 包含 route, api 即为路由）
+                if "route" in check_id.lower() or "api" in check_id.lower():
+                    route = self._parse_route_result(result)
+                    if route:
+                        routes.append(route)
+                else:
+                    sink = self._parse_single_result(result)
+                    if sink:
+                        sinks.append(sink)
+            except Exception as e:
+                logger.warning(f"解析单个结果失败: {e}")
+                continue
+        
+        return {
+            "routes": routes,
+            "sinks": sinks,
+            "total_routes": len(routes),
+            "total_sinks": len(sinks)
+        }
+    
+    def _parse_route_result(self, result: Dict) -> Optional[Dict]:
+        """解析单个 API 路由结果"""
+        import re
+        
+        message = result.get("extra", {}).get("message", "")
+        check_id = result.get("check_id", "")
+        path = result.get("path", "")
+        line = result.get("start", {}).get("line", 1)
+        
+        # 从 message 中提取路由信息
+        # 示例: "发现 API (带类前缀) -> 类基础路径: "/api", 方法路径: "/eval", 方法名: evaluate"
+        base_path_match = re.search(r'类基础路径:\s*"?([^",\s]+)"?', message)
+        method_path_match = re.search(r'方法路径:\s*"?([^",\s]+)"?', message)
+        method_name_match = re.search(r'方法名:\s*(\w+)', message)
+        
+        base_path = base_path_match.group(1) if base_path_match else ""
+        method_path = method_path_match.group(1) if method_path_match else ""
+        method_name = method_name_match.group(1) if method_name_match else "unknown"
+        
+        # 推断 HTTP 方法
+        http_method = "GET"
+        if "post" in check_id.lower() or "PostMapping" in message or "POST" in message:
+            http_method = "POST"
+        elif "put" in check_id.lower() or "PutMapping" in message or "PUT" in message:
+            http_method = "PUT"
+        elif "delete" in check_id.lower() or "DeleteMapping" in message or "DELETE" in message:
+            http_method = "DELETE"
+        
+        # 推断微服务名称（从文件路径提取）
+        owning_service = self._extract_service_name(path)
+        
+        return {
+            "method": http_method,
+            "path": base_path + method_path,
+            "handler_file": path,
+            "handler_line": line,
+            "method_name": method_name,
+            "owning_service": owning_service
+        }
+    
+    def _extract_service_name(self, filepath: str) -> str:
+        """从文件路径提取微服务名称"""
+        # 示例路径: dummy_project/user-service/src/main/java/.../UserController.java
+        parts = filepath.replace("\\", "/").split("/")
+        # 查找包含 service 的目录
+        for part in parts:
+            if "service" in part.lower():
+                return part
+        return "main"  # 默认值
     
     def _parse_single_result(self, result: Dict) -> Dict:
         """解析单个 Semgrep 结果"""

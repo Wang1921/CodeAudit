@@ -1,61 +1,65 @@
 # CodeAudit - 双轨制多智能体代码审计系统 (Multi-Agent Code Auditing System)
 
-CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审计引擎。系统集成了 `opencode` 沙盒环境，并通过 **HTTP API** 与 opencode 服务器交互。系统结合 **Google A2A (Agent-to-Agent) 协议理念**，利用多个具有特定安全专业领域的大模型智能体 (Agents) 进行协同作战。
+CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审计引擎。系统通过 **Python 异步引擎** 驱动，结合 **OpenCode HTTP 沙盒池** 和 **Semgrep 静态扫描器**，利用多个具有特定安全专业领域的大模型智能体 (Agents) 进行协同作战。
 
-通过独特的**双轨制（自底向上与自顶向下并行）**架构，系统不仅能够发现传统静态分析工具擅长的技术型漏洞（如 SQL 注入、路径遍历），更能深入理解业务上下文，挖掘复杂的**业务逻辑漏洞**（如 IDOR 越权、条件竞争）。
+系统采用独特的**双轨制（自底向上与自顶向下并行）**架构，通过 **A2A 文件系统消息总线** 实现 Agent 间通信，能够发现技术型漏洞（如 SQL 注入、路径遍历）和业务逻辑漏洞（如 IDOR 越权、条件竞争）。
 
 ## 🌟 核心特性 (Core Features)
 
 *   **双轨并行审查 (Dual-Track Auditing)**
-    *   **技术轨道 (Bottom-Up)**: 从底层危险函数 (Sinks) 向上逆向追踪，专攻 CWE-22（路径遍历）、CWE-73（文件外部控制）及各类注入漏洞。
+    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪，专攻 CWE-22（路径遍历）、CWE-73（文件外部控制）及各类注入漏洞。
     *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、并发等状态机逻辑漏洞。
 *   **文件系统即总线 (A2A over File System IPC)**
     *   采用本地文件系统目录（`.a2a_bus/`）作为异步消息总线。
     *   Agent 之间通过读写强类型的 JSON 信封 (TaskRequest / TaskResult) 进行任务流转，具备极强的可观测性和容错性。
 *   **HTTP 沙盒池 (HTTP Sandbox Pool)**
-    *   采用 HTTP 沙盒池架构，避免进程启动开销。
-    *   支持 LRU 缓存策略，自动回收闲置沙盒。
-    *   基于真正的健康检查 (`/global/health`) 确保服务可用性。
-*   **无头沙盒执行 (Headless Sandbox Execution)**
-    *   每个 Agent 作为独立的 opencode 会话运行，按需被分配工具权限。
-    *   Agent 可以自主调用原生 LSP (语言服务器协议) 动态提取和跳转代码片段。
+    *   Python 引擎管理多个 OpenCode 服务器实例，采用 LRU 缓存策略（默认最大 5 个并发）。
+    *   自动健康检查 (`/global/health`)，失败时自动重启。
+    *   达到并发上限时自动回收最旧的沙盒服务器。
+*   **动态工具权限分配 (Dynamic Tool Permissions)**
+    *   **Coordinator**: 拥有 `codesearch, glob, grep, read` 权限，用于全局项目测绘。
+    *   **其他 Agent**: 拥有 `lsp, read, codesearch` 权限，开启重型武器 LSP 进行代码跳转。
+    *   动态推断每个 Agent 的工作目录（根目录 vs 微服务子目录）。
 *   **红蓝对抗验证 (Adversarial Validation)**
-    *   **红队 (RedValidator)**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。
-    *   **蓝队 (BlueValidator)**: 负责审查代码库中的过滤器、拦截器或业务后置熔断机制。
+    *   **RedValidator**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。
+    *   **BlueValidator**: 负责审查代码库中的过滤器、拦截器或业务后置熔断机制。
     *   通过左右互搏，系统能最大程度消除传统 SAST 工具的**高误报率**。
-*   **动态模板加载 (Dynamic Prompt Templates)**
-    *   所有智能体 Prompt 存储于 `prompts/` 目录下的 YAML 文件中。
-    *   引擎根据识别的语言栈动态加载对应的猎手模板。
-*   **语言分层猎手矩阵 (Language-Specific Hunter Matrix)**
-    *   针对不同编程语言维护独立的漏洞猎手，实现领域对焦最大化。
-    *   Java 猎手专注 JDBC/MyBatis/SpEL，Python 猎手专注 SQLAlchemy/os.system。
-*   **强制安全红线 (Mandatory Security Baseline)**
-    *   引擎在任务裂变时强制注入通用底线猎手（Secret_Hunter, Privacy_Hunter）。
-    *   确保所有识别的 API 路由 100% 覆盖 LogicAuditor 审查。
+*   **动态 Prompt 模板加载 (Dynamic Prompt Templates)**
+    *   所有智能体 Prompt 存储于 `prompts/core/` 目录下的 YAML 文件中。
+    *   引擎根据 Agent 类型动态加载对应的模板，支持变量替换（如 `{payload_json}`, `{dynamic_tracing_strategy}`）。
+*   **Semgrep 静态扫描集成 (Semgrep Integration)**
+    *   支持自定义 Semgrep 规则目录或单文件规则。
+    *   自动将 Semgrep 输出转换为标准的 `sink_details` 格式。
+    *   在 Coordinator 完成后自动触发，为每个发现的漏洞点生成 ReverseTracer 任务。
+*   **跨微服务追踪 (Cross-Service Tracing)**
+    *   自动识别项目中的微服务结构（通过 `pom.xml`, `package.json` 等构建文件）。
+    *   支持 ReverseTracer 发出跨微服务追踪请求，引擎自动在所有微服务中并发启动溯源 Agent。
+    *   构建全局服务路由表，支持跨服务调用链追踪。
+*   **Web 实时看板 (Real-time Web Dashboard)**
+    *   内置 HTTP 服务器（端口 8080），提供 Vue.js 驱动的实时监控看板。
+    *   显示审计进度、Token 消耗、漏洞统计、Agent 状态、红蓝对抗看板。
+    *   支持查看每个 Agent 的会话详情、消息历史、工具调用记录。
 
 ## 🏗️ 智能体架构 (Agent Roster)
 
-| 角色名称 | 类型 | 职责说明 |
-| :--- | :--- | :--- |
-| **Coordinator** | 调度器 | 负责扫描项目结构与语言栈，提取 API 路由表，生成动态追踪策略 |
-| **SinkHunter (集群)** | 专家集群 | 基于 YAML 模板加载，专精某一语言的特定底层库，精准提取高危触点 |
-| ┣ **FileIO_Hunter** | 实例化节点 | 专攻 CWE-22/73，路径遍历、文件解压炸弹 |
-| ┣ **Injection_Hunter** | 实例化节点 | 专攻注入类 (JNDI, LDAP, OGNL, SpEL) |
-| ┣ **DbQuery_Hunter** | 实例化节点 | 专攻 SQL/NoSQL 注入 |
-| ┣ **Secret_Hunter** | 实例化节点 | 专攻 CWE-798 硬编码凭证 |
-| ┣ **Privacy_Hunter** | 实例化节点 | 专攻 CWE-532 敏感日志 |
-| **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链 |
-| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞 |
-| **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性 |
-| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制，确认最终漏洞 |
+| 角色名称 | 类型 | 职责说明 | 工具权限 |
+| :--- | :--- | :--- | :--- |
+| **Coordinator** | 调度器 | 扫描项目结构、识别微服务、提取 API 路由表，生成动态追踪策略 | `codesearch, glob, grep, read` |
+| **SemgrepScanner** | 静态扫描器 | 使用 Semgrep 规则扫描代码库，发现底层危险函数（Sinks）| 无（外部进程）|
+| **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪 | `lsp, read, codesearch` |
+| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争等）| `lsp, read, codesearch` |
+| **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量 | `lsp, read, codesearch` |
+| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞 | `lsp, read, codesearch` |
+| **ReportGenerator** | 报告节点 | 生成最终审计报告，保存 JSON 格式漏洞报告到 `reports/` 目录 | `lsp, read, codesearch` |
+| **RetryAgent** | 重试节点 | 当 Agent 输出 JSON 格式错误时，自动触发重试修复 | `lsp, read, codesearch` |
 
 ## 🚀 快速开始 (Quick Start)
 
 ### 依赖要求
 - Python 3.10+
 - `opencode` CLI 工具链
-- `aiohttp`
-- PyYAML
+- `semgrep` (用于扫描 API 路由和漏洞点）
+- `aiohttp`, `PyYAML`
 
 ### 安装依赖
 ```bash
@@ -63,33 +67,41 @@ pip install aiohttp pyyaml
 ```
 
 ### 启动引擎
-系统核心调度由 Python 实现的异步引擎驱动，通过挂载目标项目根目录作为工作区启动：
+系统核心调度由 Python 异步引擎驱动，通过挂载目标项目根目录启动：
 
 ```bash
-# 启动审计引擎，并指定待审计的项目根目录（如 dummy_project）
+# 启动审计引擎，指定待审计的项目根目录
 python -m src.main ./dummy_project
 ```
 
 ### 高级选项
 ```bash
-# 使用自定义 Semgrep 规则
-python -m src.main ./dummy_project --semgrep-rules ./semgrep-rules
+# 使用自定义 Semgrep 规则（目录或单文件）
+python -m src.main ./dummy_project --semgrep-rules ./semgrep_rules/
 ```
 
-引擎启动后，会在目标目录下自动创建 `.a2a_bus/` 目录结构，并进入监听轮询模式。系统的运行日志将直接输出到控制台，同时提供 Web 前端大屏实时监控。
+引擎启动后，会自动：
+1. 在目标目录下创建 `.a2a_bus/` 消息总线目录
+2. 在目标目录下创建 `.a2a_logs/` 日志目录
+3. 在项目根目录下创建 `reports/` 漏洞报告目录
+4. 启动 Web 看板（默认端口 8080）
+5. 开始审计流程：
+   - Coordinator 识别技术栈和微服务结构
+   - Semgrep 一次性扫描 API 路由和漏洞点
+   - 并发执行逆向追踪和逻辑审计
 
 ### 目录结构
 ```
 CodeAudit/
 ├── src/                    # 核心引擎代码
-│   ├── engine.py           # 异步调度引擎
-│   ├── agent.py            # OpenCode HTTP 客户端
-│   ├── server_manager.py   # HTTP 沙盒池管理器
-│   ├── a2a_bus.py          # 文件系统消息总线
-│   ├── state_router.py     # 状态路由与任务裂变
-│   ├── state_tracker.py    # Web 前端状态追踪
-│   ├── semgrep_scanner.py  # Semgrep 静态扫描器
-│   └── prompts.py          # 动态模板加载器
+│   ├── engine.py           # 异步调度引擎 (333 行）
+│   ├── agent.py            # OpenCode HTTP 客户端 (227 行)
+│   ├── server_manager.py   # HTTP 沙盒池管理器 (184 行)
+│   ├── a2a_bus.py          # 文件系统消息总线 (112 行)
+│   ├── state_router.py     # 状态路由与任务裂变 (320 行)
+│   ├── state_tracker.py    # Web 前端状态追踪 (327 行)
+│   ├── semgrep_scanner.py  # Semgrep 静态扫描器 (205 行)
+│   └── prompts.py          # 动态模板加载器 (50 行)
 ├── prompts/                # 智能体 Prompt 模板库
 │   ├── core/               # 核心智能体模板
 │   │   ├── coordinator.yaml
@@ -97,12 +109,17 @@ CodeAudit/
 │   │   ├── logic_auditor.yaml
 │   │   ├── red_validator.yaml
 │   │   ├── blue_validator.yaml
-│   │   └── report_generator.yaml
-│   └── core/retry.yaml     # JSON 契约修复模板
-├── semgrep-rules/          # Semgrep 规则集合
+│   │   ├── report_generator.yaml
+│   │   └── retry.yaml
+│   └── hunters.yaml        # 语言分层猎手配置
+├── semgrep_rules/          # Semgrep 规则集合
+│   └── custom/
+│       └── spring-api.yaml
 ├── web/                    # Web 前端界面
-├── reports/                # 漏洞报告输出目录
-└── dummy_project/          # 测试项目
+│   └── index.html          # Vue.js 实时看板 (449 行)
+├── doc/                    # 详细设计文档
+├── reports/                # 漏洞报告输出目录（自动生成）
+└── dummy_project/          # 测试项目（多微服务架构）
 ```
 
 ## 🔧 配置说明

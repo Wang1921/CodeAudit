@@ -27,7 +27,7 @@ rules:
           - pattern: |
               @DeleteMapping($METHOD_ARGS)
               $RET $METHOD(...) { ... }
-
+ 
   # 场景二：匹配仅在方法级别定义路由的接口（排除掉被场景一匹配的情况）
   - id: spring-api-method-only
     message: "发现 API (无类前缀) -> 方法路径: $METHOD_ARGS, 方法名: $METHOD"

@@ -75,7 +75,7 @@ class AuditEngine:
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: str):
-        """解析 Coordinator 的 Markdown JSON 输出"""
+        """解析 Coordinator 的输出并触发 Semgrep 扫描"""
         import re
         
         # 从 Markdown 代码块中提取 JSON
@@ -90,20 +90,13 @@ class AuditEngine:
                 logging.error(f"无法解析 Coordinator 输出: {coordinator_output[:500]}")
                 return
         
-        routes = coordinator_output.get("routes", [])
+        # Coordinator 不再返回 routes，只返回这些信息
         language = coordinator_output.get("language_stack", "java")
         self._language_stack = language
-
         self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
-
-        # 构建全局服务路由字典，供后续 _get_service_dir() 查表
+        
+        # 注册微服务（从 rpc_providers）
         self.service_route_map = {}
-        for route in routes:
-            svc = route.get("owning_service", "")
-            if svc and svc not in self.service_route_map:
-                svc_dir = os.path.join(self.target_source_dir, svc)
-                if os.path.isdir(svc_dir):
-                    self.service_route_map[svc] = svc_dir
         rpc_providers = coordinator_output.get("rpc_providers", [])
         for provider in rpc_providers:
             svc = provider.get("service_name", "")
@@ -111,17 +104,29 @@ class AuditEngine:
                 svc_dir = os.path.join(self.target_source_dir, svc)
                 if os.path.isdir(svc_dir):
                     self.service_route_map[svc] = svc_dir
+        
         if self.service_route_map:
             logging.info(f"[ServiceRegistry] 已注册 {len(self.service_route_map)} 个微服务: {list(self.service_route_map.keys())}")
         
-        logging.info(f"开始使用 Semgrep 扫描 {language} 项目...")
+        # 一次性扫描路由 + 漏洞点
+        logging.info(f"开始使用 Semgrep 扫描 {language} 项目（路由 + 漏洞点）...")
         scanner = SemgrepScanner(self.target_source_dir, rules_path=self.semgrep_rules)
         scan_result = scanner.scan(language)
         
-        sinks = scan_result.get("sinks", [])
-        total = scan_result.get("total", 0)
-        logging.info(f"Semgrep 扫描完成，发现 {total} 个潜在漏洞点")
+        # 处理路由结果（从 SemgrepScanner 获取）
+        routes = scan_result.get("routes", [])
+        for i, route in enumerate(routes):
+            self.tracker.add_task()
+            self.bus.write_message(
+                message_type="TaskRequest",
+                task_id=f"{task_id}_ROUTE_{i}",
+                sender="SemgrepScanner",
+                recipient="LogicAuditor",
+                payload={"action": "logic_audit", "route_details": route}
+            )
         
+        # 处理漏洞点结果
+        sinks = scan_result.get("sinks", [])
         for i, sink in enumerate(sinks):
             self.tracker.add_task()
             sink_details = sink.get("sink_details", {})
@@ -145,16 +150,6 @@ class AuditEngine:
                     "sink_details": sink_details,
                     "tracing_strategy": self.dynamic_tracing_strategy
                 }
-            )
-        
-        for i, route in enumerate(routes):
-            self.tracker.add_task()
-            self.bus.write_message(
-                message_type="TaskRequest",
-                task_id=f"{task_id}_ROUTE_{i}",
-                sender="Coordinator",
-                recipient="LogicAuditor",
-                payload={"action": "logic_audit", "route_details": route}
             )
 
     async def process_task(self, filepath: str):
