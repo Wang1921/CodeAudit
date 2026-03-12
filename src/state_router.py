@@ -40,43 +40,46 @@ class StateRouter:
         self.bus = bus
         self.tracker = tracker
     
-    def _parse_json_output(self, output):
-        """解析可能是 Markdown 格式的 JSON 输出"""
+    def _extract_json_from_str(self, text):
+        """从字符串中提取 JSON，按优先级尝试：标准 JSON → Markdown 代码块 → 文本中的 JSON 片段"""
         import re
-        import json
         
-        # 如果是 dict，检查是否包含 response字段（OpenCode Agent 格式）
-        if isinstance(output, dict):
-            if "response" in output:
-                # 解析 response 字段中的 Markdown JSON
-                response_str = output["response"]
-                json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', str(response_str), re.DOTALL)
-                if json_match:
-                    try:
-                        return json.loads(json_match.group(1))
-                    except json.JSONDecodeError:
-                        pass
-                # 如果没有 Markdown 代码块，尝试直接解析 response
-                try:
-                    return json.loads(response_str)
-                except json.JSONDecodeError:
-                    pass
-            # 如果没有原 dict（但不是 OpenCode Agent 格式），直接返回
-            return output
+        # 1. 直接尝试解析标准 JSON
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
         
-        # 如果是字符串，尝试解析
-        json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', str(output), re.DOTALL)
-        if json_match:
+        # 2. 提取 Markdown 代码块（支持 ```json 和 ```）
+        match = re.search(r'```(?:json)?\s*\n(.*?)\n```', text, re.DOTALL)
+        if match:
             try:
-                return json.loads(json_match.group(1))
+                return json.loads(match.group(1))
             except json.JSONDecodeError:
                 pass
         
-        # 如果没有 Markdown 代码块，尝试直接解析
-        try:
-            return json.loads(str(output))
-        except json.JSONDecodeError:
-            return {}
+        # 3. 从文本中提取 JSON 片段（第一个 {} 或 []）
+        # 简化版：只支持一级嵌套
+        json_pattern = r'(\{[^{}]*(?:\{[^{}]*\})*[^{}]*\})|(\[[^\[\]]*(?:\[[^\[\]]*\])*[^\[\]]*\])'
+        match = re.search(json_pattern, text, re.DOTALL)
+        if match:
+            json_str = match.group(1) or match.group(2)
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        
+        # 所有尝试失败，返回空字典
+        logging.warning(f"JSON 解析失败，返回空字典。输入预览: {text[:200]}...")
+        return {}
+    
+    def _parse_json_output(self, output):
+        """解析可能是 Markdown 格式或普通文本中包含 JSON 的输出"""
+        if isinstance(output, dict):
+            if "response" in output:
+                return self._extract_json_from_str(str(output["response"]))
+            return output
+        return self._extract_json_from_str(str(output))
 
     def route(self, completed_task: str, agent_output: Dict[str, Any]):
         """将 Agent 的输出路由到下一跳。"""

@@ -13,7 +13,7 @@ from src.semgrep_scanner import SemgrepScanner
 from src.server_manager import OpenCodeServerManager
 
 MAX_CONCURRENT_AGENTS = 20
-MAX_AGENT_TIMEOUT = 1800
+MAX_AGENT_TIMEOUT = 3600
 
 class AuditEngine:
     def __init__(self, target_source_dir: str, semgrep_rules: str = None):

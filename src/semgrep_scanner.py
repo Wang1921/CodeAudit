@@ -99,7 +99,7 @@ class SemgrepScanner:
                 cmd, 
                 capture_output=True, 
                 text=True, 
-                timeout=300
+                timeout=1200
             )
             
             if result.returncode != 0:
