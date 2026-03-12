@@ -11,34 +11,61 @@ class SemgrepScanner:
     def __init__(self, target_dir: str, rules_path: Optional[str] = None):
         """
         target_dir:  待扫描的源码目录
-        rules_path:  Semgrep 规则路径，支持：
-                     - None          → 使用内置 src/semgrep_rules/<language>.yaml
-                     - 目录路径      → 直接扫描该目录下所有 .yaml 规则文件
-                     - .yaml 文件路径 → 直接作为 --config 传给 semgrep（支持多个，逗号分隔）
+        rules_path:  用户指定的 Semgrep 规则路径（可选）
+        
+        说明：
+        - 项目内置的自定义规则（/home/CodeAudit/semgrep_rules/）始终会被包含
+        - 用户可以额外指定外部规则进行补充（逗号分隔多个）
         """
         self.target_dir = target_dir
-        self.rules_dir = Path(__file__).parent / "semgrep_rules"
         
-        # 支持多个规则路径（逗号分隔）
+        # 项目内置的自定义规则目录（固定）
+        self.builtin_rules_dir = Path(__file__).parent / "semgrep_rules"
+        
+        # 用户指定的规则路径（可能为空）
         if rules_path:
-            self._rules = [Path(p.strip()) for p in rules_path.split(',')]
+            self._user_rules = [Path(p.strip()) for p in rules_path.split(',')]
         else:
-            self._rules = None
+            self._user_rules = None
     
     def _resolve_config(self, language: Optional[str] = None) -> Optional[list]:
-        """返回规则路径列表，支持多个规则（逗号分隔）"""
-        if self._rules:
-            return self._rules
-        if language:
-            rule_file = self.rules_dir / f"{language}.yaml"
-            return [rule_file] if rule_file.exists() else []
-        return []
+        """返回规则路径列表，始终包含项目内置规则并去重"""
+        configs = []
+        
+        # 1. 首先添加用户指定的规则（如果有）
+        if self._user_rules:
+            for rule in self._user_rules:
+                if rule.exists():
+                    configs.append(rule)
+                else:
+                    logger.warning(f"用户指定的规则不存在: {rule}")
+        
+        # 2. 始终添加项目内置的自定义规则（如果存在）
+        if self.builtin_rules_dir.exists():
+            configs.append(self.builtin_rules_dir)
+        
+        # 3. 如果没有用户规则，且没有内置规则，则尝试语言特定规则
+        if not configs and language:
+            rule_file = self.builtin_rules_dir / f"{language}.yaml"
+            if rule_file.exists():
+                configs = [rule_file]
+        
+        # 4. 去重（避免用户规则与内置规则重复）
+        unique_configs = []
+        seen = set()
+        for config in configs:
+            config_str = str(config)
+            if config_str not in seen:
+                seen.add(config_str)
+                unique_configs.append(config)
+        
+        return unique_configs
  
     def scan(self, language: str = "java") -> Dict[str, Any]:
         """执行 Semgrep 扫描并返回结果"""
         configs = self._resolve_config(language)
         if not configs or len(configs) == 0:
-            logger.warning(f"规则文件不存在: {self.rules_dir / (language + '.yaml')}")
+            logger.warning(f"规则文件不存在: {self.builtin_rules_dir}")
             return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}
  
         cmd = [
@@ -306,6 +333,6 @@ class SemgrepScanner:
     
     def get_supported_languages(self) -> List[str]:
         """获取支持的语言列表"""
-        if self._rules:
-            return [p.stem for p in self._rules]
-        return sorted(f.stem for f in self.rules_dir.glob("*.yaml"))
+        if self._user_rules:
+            return [p.stem for p in self._user_rules]
+        return sorted(f.stem for f in self.builtin_rules_dir.glob("*.yaml"))
