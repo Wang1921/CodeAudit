@@ -19,8 +19,11 @@ class SemgrepScanner:
         """
         self.target_dir = target_dir
         
-        # 项目内置的自定义规则目录（固定）
-        self.builtin_rules_dir = Path(__file__).parent / "semgrep_rules"
+        # 修正内置规则路径计算：从文件所在位置向上两级到项目根目录
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        self.builtin_rules_dir = Path(project_root) / "semgrep_rules"
         
         # 用户指定的规则路径（可能为空）
         if rules_path:
@@ -37,18 +40,23 @@ class SemgrepScanner:
             for rule in self._user_rules:
                 if rule.exists():
                     configs.append(rule)
+                    logger.info(f"添加用户规则: {rule}")
                 else:
-                    logger.warning(f"用户指定的规则不存在: {rule}")
+                    logger.warning(f"用户规则不存在: {rule}")
         
         # 2. 始终添加项目内置的自定义规则（如果存在）
         if self.builtin_rules_dir.exists():
             configs.append(self.builtin_rules_dir)
+            logger.info(f"添加内置规则: {self.builtin_rules_dir}")
+        else:
+            logger.warning(f"内置规则目录不存在: {self.builtin_rules_dir}")
         
         # 3. 如果没有用户规则，且没有内置规则，则尝试语言特定规则
         if not configs and language:
             rule_file = self.builtin_rules_dir / f"{language}.yaml"
             if rule_file.exists():
                 configs = [rule_file]
+                logger.info(f"添加语言特定规则: {rule_file}")
         
         # 4. 去重（避免用户规则与内置规则重复）
         unique_configs = []
@@ -58,6 +66,12 @@ class SemgrepScanner:
             if config_str not in seen:
                 seen.add(config_str)
                 unique_configs.append(config)
+            else:
+                logger.debug(f"跳过重复规则: {config_str}")
+        
+        logger.info(f"去重后的规则数量: {len(unique_configs)}")
+        for i, config in enumerate(unique_configs):
+            logger.info(f"  [{i+1}] {config}")
         
         return unique_configs
  
