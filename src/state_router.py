@@ -165,12 +165,17 @@ class StateRouter:
                     "entry_route": entry_route
                 }
                 self.tracker.update_kanban("red", task_id, vuln_type, entry_route, details=details)
+            
+            # 合并原始 payload 和 agent_output，保留 sink_details 等上下文信息
+            original_payload = orig_env.get("payload", {})
+            merged_payload = {**original_payload, **agent_output}
+            
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
                 sender="ReverseTracer",
                 recipient="RedValidator",
-                payload=agent_output
+                payload=merged_payload
             )
 
     def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
@@ -181,12 +186,17 @@ class StateRouter:
         if "vuln_type" in agent_output:
             if self.tracker: self.tracker.add_task()
             if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "未知"))
+            
+            # 合并原始 payload 和 agent_output，保留 route_details 等上下文信息
+            original_payload = orig_env.get("payload", {})
+            merged_payload = {**original_payload, **agent_output}
+            
             self.bus.write_message(
                 message_type="VulnCandidate",
                 task_id=task_id,
                 sender="LogicAuditor",
                 recipient="RedValidator",
-                payload=agent_output
+                payload=merged_payload
             )
         else:
             if self.tracker: self.tracker.update_kanban("resolved", task_id, "LOGIC", "审计通过", status="DEFENDED")
@@ -198,14 +208,9 @@ class StateRouter:
         status = parsed_output.get("status")
         logging.info(f"[路由] RedValidator -> ? | status={status} | attack_vector={'attack_vector' in parsed_output}")
         if status == "EXPLOITABLE" or "attack_vector" in parsed_output:
-            payload = parsed_output.copy()
-            orig_payload = orig_env.get("payload", {})
-            if "vuln_type" not in payload and "vuln_type" in orig_payload:
-                payload["vuln_type"] = orig_payload.get("vuln_type")
-            if "entry_route" not in payload and "entry_route" in orig_payload:
-                payload["entry_route"] = orig_payload.get("entry_route")
-            if "call_chain" not in payload and "call_chain" in orig_payload:
-                payload["call_chain"] = orig_payload.get("call_chain")
+            # 合并原始 payload 和 agent_output，保留完整的上下文信息
+            original_payload = orig_env.get("payload", {})
+            payload = {**original_payload, **parsed_output}
             
             if self.tracker: self.tracker.add_task()
             if self.tracker:
@@ -235,27 +240,31 @@ class StateRouter:
         parsed_output = self._parse_json_output(agent_output)
         status = parsed_output.get("status")
         if status == "VULNERABLE" or "mitigation_advice" in parsed_output:
+            # 合并原始 payload 和 agent_output，保留完整的上下文信息
+            original_payload = orig_env.get("payload", {})
+            payload = {**original_payload, **parsed_output}
+            
             if self.tracker:
                 details = {
-                    "call_chain": parsed_output.get("call_chain"),
-                    "attack_vector": parsed_output.get("attack_vector"),
-                    "defense_analysis": parsed_output.get("defense_analysis"),
-                    "mitigation_advice": parsed_output.get("mitigation_advice"),
-                    "suspicion_reason": parsed_output.get("suspicion_reason"),
-                    "cwe": parsed_output.get("cwe"),
-                    "poc_payload": parsed_output.get("poc_payload"),
-                    "max_impact": parsed_output.get("max_impact"),
-                    "vulnerability": parsed_output.get("vulnerability"),
-                    "cwe_id": parsed_output.get("cwe_id"),
-                    "severity": parsed_output.get("severity"),
-                    "description": parsed_output.get("description"),
-                    "remediation": parsed_output.get("remediation")
+                    "call_chain": payload.get("call_chain"),
+                    "attack_vector": payload.get("attack_vector"),
+                    "defense_analysis": payload.get("defense_analysis"),
+                    "mitigation_advice": payload.get("mitigation_advice"),
+                    "suspicion_reason": payload.get("suspicion_reason"),
+                    "cwe": payload.get("cwe"),
+                    "poc_payload": payload.get("poc_payload"),
+                    "max_impact": payload.get("max_impact"),
+                    "vulnerability": payload.get("vulnerability"),
+                    "cwe_id": payload.get("cwe_id"),
+                    "severity": payload.get("severity"),
+                    "description": payload.get("description"),
+                    "remediation": payload.get("remediation")
                 }
                 self.tracker.update_kanban(
                     "resolved", 
                     task_id, 
-                    parsed_output.get("vuln_type", "未知"), 
-                    parsed_output.get("entry_route", "未知"), 
+                    payload.get("vuln_type", "未知"), 
+                    payload.get("entry_route", "未知"), 
                     status="CONFIRMED",
                     details=details
                 )
@@ -264,7 +273,7 @@ class StateRouter:
                 task_id=task_id,
                 sender="BlueValidator",
                 recipient="ReportGenerator",
-                payload=parsed_output
+                payload=payload
             )
         else:
             if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "防御有效", status="DEFENDED")
