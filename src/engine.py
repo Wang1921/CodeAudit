@@ -230,12 +230,15 @@ class AuditEngine:
         else:
             root_path = Path(self.target_source_dir)
             service_dirs = [d for d in root_path.iterdir() if d.is_dir() and not d.name.startswith('.')]
-
+        
         if not service_dirs:
             logging.warning("未发现其他微服务目录，跨界追踪终止。")
             self.bus.mark_failed(filepath)
             return
-
+        
+        # 保留原始 tracing_strategy
+        original_tracing_strategy = env.get("payload", {}).get("tracing_strategy", "")
+        
         cross_tracing_strategy = (
             f"【最高优先级跨界任务】: 你的前序特工在另一个微服务发现了漏洞，"
             f"你需要接力追踪！请全局搜索当前代码库，找到所有向 {protocol} 目标 `{target_id}` "
@@ -244,14 +247,26 @@ class AuditEngine:
             f"【历史调用链参考】: {json.dumps(payload.get('historical_chain', []), ensure_ascii=False)}"
         )
 
+        # 保留原始 sink_details，只更新必要字段
+        original_sink_details = env.get("payload", {}).get("sink_details", {})
+        
         relay_payload = {
             "action": "trace_call_chain",
             "sink_details": {
                 "vuln_class": payload.get("vuln_type", "CROSS_SERVICE_VULN"),
-                "filepath": "Cross-Boundary Discovery",
-                "line_number": 0,
-                "taint_variable": payload.get("taint_variable", "payload")
-            }
+                "filepath": original_sink_details.get("filepath", "Cross-Boundary Discovery"),
+                "line_number": original_sink_details.get("line_number", 0),
+                "taint_variable": payload.get("taint_variable", "payload"),
+                "cwe": original_sink_details.get("cwe", []),
+                "check_id": original_sink_details.get("check_id", ""),
+                "severity": original_sink_details.get("severity", "WARNING"),
+                "end_line": original_sink_details.get("end_line", 0),
+                "column": original_sink_details.get("column", 1),
+                "end_column": original_sink_details.get("end_column", 1),
+                "dangerous_code": original_sink_details.get("dangerous_code", ""),
+                "message": original_sink_details.get("message", "")
+            },
+            "tracing_strategy": original_tracing_strategy
         }
         prompt = self._get_prompt_for_agent(
             "ReverseTracer",
