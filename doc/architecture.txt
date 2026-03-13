@@ -1,0 +1,97 @@
+                        CodeAudit System Architecture
+                   Dual-Track Multi-Agent Code Audit Engine
+                        
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                        │
+│  ┌─────────────┐                                                    │
+│  │ Project     │                                                    │
+│  │  Code       │                                                    │
+│  └──────┬──────┘                                                    │
+│         │                                                             │
+│         ▼                                                             │
+│         ┌────────────────────────────────────────────────────────────────────┐     │
+│         │                                                            │     │
+│  ┌──────┴──────┐  ┌────────────────────────────────────────────────────┐  │     │
+│  │             │  │ Python Engine                               │  │     │
+│  │  ┌──────────┴──┼─────────────────────────────────────────────────┐  │     │
+│  │  │           │  │                                             │  │     │
+│  │  │ HTTP     │  │ • StateRouter                               │  │     │
+│  │  │ Sandbox   │  │. StateTracker                              │  │     │
+│  │  │ Pool     │  │ • AuditEngine                               │  │     │
+│  │  │           │  │ • SemgrepScanner                            │  │     │
+│  │  │           │  │ • A2ABusManager                            │  │     │
+│  │  │           │  └─────────────────────────────────────────────────┘  │     │
+│  │  └──────┬──────┘                                              │     │
+│  │         │                                                      │     │
+│  │         ▼                                                      │     │
+│  │         ┌────────────────────────────────────────────────────────────┐   │     │
+│  │         │          A2A Bus                               │   │     │
+│  │         │  ┌──────────────────────────────────────────────────┐   │     │
+│  │         │  │ pending/  - TaskRequest                │   │     │
+│  │         │  │ processing/  - Running tasks             │   │     │
+│  │         │  │ completed/ - Finished results            │   │     │
+│  │         │  │ failed/    - Dead letters                │   │     │
+│  │         │  │ help/      - Cross-service requests        │   │     │
+│  │         │  └──────────────────────────────────────────────────┘   │     │
+│  │         └────────────────────────────────────────────────────────────┘   │     │
+│  └─────────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                        │
+│                            ┌─────────────────────────────────────┐            │
+│                            │  Agent Pipeline               │            │
+│                            │                                 │            │
+│  ┌───────────────────────┐    │ 1. Coordinator               │            │
+│  │    Coordinator      │────┼─────────────────────────────┼─────────────┐            │
+│  └─────────┬──────────┘    │     ▼                        │             │            │
+│              ▼              │ 2. SemgrepScanner            │             │            │
+│         ┌──────────────────────┐    ├─────────────────────────────┼─────────────┐            │
+│         │  SemgrepScanner    │────┤     ▼                    │             │            │
+│         └─────────┬──────────┘    │ 3. ReverseTracer & LogicAuditor  │             │            │
+│                   ▼              ├─────────────────────────────┼─────────────┐            │
+│         ┌─────────────────────────────────────────────┐   │     ▼                    │             │            │
+│         │ 4. ReverseTracer & LogicAuditor    │   │ 5. RedValidator (Red Team)    │            │
+│         └─────────────────┬───────────────────────┘   ├─────────────────────────────┼─────────────┐            │
+│                           ▼                    │     ▼                    │             │            │
+│         ┌───────────────────────────────┐    │ 6. Blue Validator           │             │            │
+│         │ 5. Red Validator (Red Team)│────┼─────────────────────────────┼─────────────┐            │
+│         └─────────────────┬────────────┘    │     ▼                        │             │            │
+│                           ▼              │ 7. ReportGenerator            │             │            │
+│         ┌───────────────────────────────┐    ├─────────────────────────────┼─────────────┐            │
+│         │ 6. Blue Validator (Blue Team)│────┤     ▼                        │             │            │
+│         └─────────────────┬────────────────┘    │ 8. Final Reports              │             │            │
+│                           ▼              └─────────────────────────────┘─────────────┘            │
+│         ┌───────────────────────────────┐                                            │            │
+│         │ 7. ReportGenerator        │                                            │            │
+│         └──────────────────────────────┘                                            │            │
+│                            └─────────────────────────────────────┘            │
+│                                                                        │
+│   ┌─────────────────────────────────────────────────────────────────────────────────┐     │
+│   │  OpenCode Servers (HTTP Sandbox Pool)                        │     │
+│   │  ┌────────────────────────────────────────────────────────────────┐   │     │
+│   │  │  Server 1  (user)       │  Server 2  (processor) │   │     │
+│   │  │  Port: 33043             │  Port: 51893             │   │     │
+│   │  │  LRU Cache Pool            │                           │   │     │
+│   │  │  Max: 5 concurrent        │                           │   │     │
+│   │  └──────────────────────────────┴─────────────────────────────┘   │     │
+│   └─────────────────────────────────────────────────────────────────────────────────┘     │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+───────────
+1. User Input → Coordinator → Python Engine
+2. Python Engine triggers SemgrepScanner
+3. SemgrepScanner finds routes & sinks → A2A Bus
+4. A2A Bus dispatches to LogicAuditor & ReverseTracer
+5. Agents output → A2A Bus → Python Engine
+6. Python Engine routes to RedValidator & BlueValidator
+7. Final results → ReportGenerator → reports/ directory
+
+Key Features:
+─────────────
+✓ Dual-Track: Bottom-up (Sinks) + Top-down (Routes)
+✓ Cross-Service Tracing: Automatic service boundary detection
+✓ Adversarial Validation: Red Team vs Blue Team
+✓ HTTP Sandbox Pool: LRU cache, max 5 concurrent
+✓ Dynamic Prompt Loading: From prompts/core/*.yaml
+✓ A2A File System Bus: Atomic operations, fault tolerance
+✓ Web Real-time Dashboard: Vue.js at port 8080
