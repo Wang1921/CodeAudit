@@ -30,10 +30,10 @@ class AuditEngine:
 
     def _get_service_dir(self, filepath: str) -> str:
         """根据文件路径，推断其所属的微服务根目录。
-        优先从 Coordinator 建立的 service_route_map 中查找，
+        优先从已发现的服务映射表中查找，
         回退到启发式逻辑：寻找包含 pom.xml / go.mod / package.json 的最近父目录。
         """
-        # 优先使用 Coordinator 建立的服务映射表
+        # 优先使用已发现的服务映射表
         if self.service_route_map:
             for service_name, service_dir in self.service_route_map.items():
                 if service_dir in filepath:
@@ -255,7 +255,15 @@ class AuditEngine:
             if tokens_used > 0:
                 self.tracker.add_tokens(tokens_used)
 
-            if result.get("status") != "NOT_EXPLOITABLE":
+            # 解析 result 中的 response 字段
+            parsed_result = result
+            if isinstance(result, dict) and "response" in result:
+                try:
+                    parsed_result = json.loads(result["response"])
+                except json.JSONDecodeError:
+                    parsed_result = result
+            
+            if parsed_result.get("status") != "NOT_EXPLOITABLE":
                 logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
                 self.tracker.add_task()
                 self.bus.write_message(
@@ -263,7 +271,7 @@ class AuditEngine:
                     task_id=f"{base_task_id}_HIT_{service_name}",
                     sender="ReverseTracer",
                     recipient="RedValidator",
-                    payload=result
+                    payload=parsed_result
                 )
             else:
                 logging.debug(f"微服务 [{service_name}] 中未发现调用链路。")

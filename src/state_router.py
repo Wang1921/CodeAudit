@@ -1,17 +1,12 @@
 import logging
 import json
 import os
+import re
 from datetime import datetime
 from src.a2a_bus import A2ABusManager
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 NEXT_HOP_ROUTING = {
-    "System": {
-        "TaskRequest": "Coordinator"
-    },
-    "Coordinator": {
-        "Coordinator_Output": "Fan-out (SemgrepScanner + LogicAuditor)"
-    },
     "SemgrepScanner": {
         "ScanResult": "ReverseTracer"
     },
@@ -40,9 +35,15 @@ class StateRouter:
         self.bus = bus
         self.tracker = tracker
     
-    def _extract_json_from_str(self, text):
-        """从字符串中提取 JSON，按优先级尝试：标准 JSON → Markdown 代码块 → 文本中的 JSON 片段"""
-        import re
+    def _extract_json_from_str(self, text: str) -> Dict[str, Any]:
+        """从字符串中提取 JSON，按优先级尝试多种策略"""
+        
+        if not text or not isinstance(text, str):
+            return {}
+        
+        text = text.strip()
+        if not text:
+            return {}
         
         # 1. 直接尝试解析标准 JSON
         try:
@@ -50,26 +51,42 @@ class StateRouter:
         except json.JSONDecodeError:
             pass
         
-        # 2. 提取 Markdown 代码块（支持 ```json 和 ```）
-        match = re.search(r'```(?:json)?\s*\n(.*?)\n```', text, re.DOTALL)
+        # 2. 提取 Markdown 代码块（支持 ```json ... ``` 和 ``` ... ```）
+        match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group(1))
             except json.JSONDecodeError:
                 pass
         
-        # 3. 从文本中提取 JSON 片段（第一个 {} 或 []）
-        # 简化版：只支持一级嵌套
-        json_pattern = r'(\{[^{}]*(?:\{[^{}]*\})*[^{}]*\})|(\[[^\[\]]*(?:\[[^\[\]]*\])*[^\[\]]*\])'
-        match = re.search(json_pattern, text, re.DOTALL)
-        if match:
-            json_str = match.group(1) or match.group(2)
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError:
-                pass
+        # 3. 查找以 { 或 [ 开始的 JSON（从左到右扫描）
+        for i, char in enumerate(text):
+            if char == '{':
+                try:
+                    return json.loads(text[i:])
+                except json.JSONDecodeError:
+                    continue
+            elif char == '[':
+                try:
+                    return json.loads(text[i:])
+                except json.JSONDecodeError:
+                    continue
         
-        # 所有尝试失败，返回空字典
+        # 4. 从文本末尾向前查找 JSON（有些 LLM 把 JSON 放在最后）
+        text_rev = text[::-1]
+        for i, char in enumerate(text_rev):
+            if char == '}':
+                try:
+                    return json.loads(text_rev[i::-1][::-1])
+                except json.JSONDecodeError:
+                    continue
+            elif char == ']':
+                try:
+                    return json.loads(text_rev[i::-1][::-1])
+                except json.JSONDecodeError:
+                    continue
+        
+        # 所有尝试失败
         logging.warning(f"JSON 解析失败，返回空字典。输入预览: {text[:200]}...")
         return {}
     
@@ -103,9 +120,7 @@ class StateRouter:
             self._route_cross_service_request(task_id, parsed_output, orig_env)
             return
   
-        if sender == "Coordinator" or message_type == "Coordinator_Output":
-            self._route_coordinator_output(task_id, agent_output, orig_env)
-        elif sender == "SemgrepScanner":
+        if sender == "SemgrepScanner":
             pass
         elif sender == "ReverseTracer":
             self._route_reverse_tracer_output(task_id, parsed_output, orig_env)
@@ -138,10 +153,6 @@ class StateRouter:
             payload=agent_output,
             priority="high"
         )
-
-    def _route_coordinator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """处理包含裂变（Fan-out）逻辑的 Coordinator 输出。"""
-        pass
 
     def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
         """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
