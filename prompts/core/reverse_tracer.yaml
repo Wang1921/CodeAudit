@@ -8,7 +8,7 @@ system_prompt_template: |
   {payload_json}
 
   ## 🌟 【动态追踪策略】(由首席架构师针对本项目量身定制)
-  {dynamic_tracing_strategy}
+  # 注意：大模型自己识别追踪策略，不需要预设策略
 
   ## Action Guidelines
   1. 确认触点：读取 `sink_details` 中的坐标（filepath, line_number）。

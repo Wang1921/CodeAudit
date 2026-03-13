@@ -51,12 +51,9 @@ class SemgrepScanner:
         else:
             logger.warning(f"内置规则目录不存在: {self.builtin_rules_dir}")
         
-        # 3. 如果没有用户规则，且没有内置规则，则尝试语言特定规则
-        if not configs and language:
-            rule_file = self.builtin_rules_dir / f"{language}.yaml"
-            if rule_file.exists():
-                configs = [rule_file]
-                logger.info(f"添加语言特定规则: {rule_file}")
+        # 3. 如果没有用户规则，且没有内置规则，则返回空列表
+        if not configs:
+            logger.warning("没有找到任何有效的规则配置")
         
         # 4. 去重（避免用户规则与内置规则重复）
         unique_configs = []
@@ -75,9 +72,12 @@ class SemgrepScanner:
         
         return unique_configs
  
-    def scan(self, language: str = "java") -> Dict[str, Any]:
-        """执行 Semgrep 扫描并返回结果"""
-        configs = self._resolve_config(language)
+    def scan(self) -> Dict[str, Any]:
+        """
+        执行 Semgrep 扫描并返回结果
+        移除 language 参数，扫描所有规则
+        """
+        configs = self._resolve_config(None)
         if not configs or len(configs) == 0:
             logger.warning(f"规则文件不存在: {self.builtin_rules_dir}")
             return {"routes": [], "sinks": [], "total_routes": 0, "total_sinks": 0}

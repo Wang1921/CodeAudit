@@ -18,7 +18,6 @@ def load_yaml_template(relative_path: str) -> str:
     
     return data.get('system_prompt_template', '')
 
-COORDINATOR_PROMPT_TEMPLATE = load_yaml_template("core/coordinator.yaml")
 REVERSE_TRACER_PROMPT_TEMPLATE = load_yaml_template("core/reverse_tracer.yaml")
 LOGIC_AUDITOR_PROMPT_TEMPLATE = load_yaml_template("core/logic_auditor.yaml")
 RED_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/red_validator.yaml")
@@ -26,13 +25,8 @@ BLUE_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/blue_validator.yaml")
 REPORT_GENERATOR_PROMPT_TEMPLATE = load_yaml_template("core/report_generator.yaml")
 RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
 
-def format_coordinator_prompt(payload_json: str) -> str:
-    return COORDINATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
-
-def format_reverse_tracer_prompt(payload_json: str, dynamic_tracing_strategy: str = "") -> str:
-    s = REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
-    s = s.replace("{dynamic_tracing_strategy}", dynamic_tracing_strategy or "使用标准逆向追踪方法")
-    return s
+def format_reverse_tracer_prompt(payload_json: str) -> str:
+    return REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_logic_auditor_prompt(payload_json: str) -> str:
     return LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
