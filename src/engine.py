@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 import os
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from src.a2a_bus import A2ABusManager
@@ -14,6 +15,7 @@ from src.server_manager import OpenCodeServerManager
 
 MAX_CONCURRENT_AGENTS = 20
 MAX_AGENT_TIMEOUT = 3600
+ACTIVE_SERVER_TTL = 2.0  # 任务完成后2秒才清理活跃服务器记录（给同微服务任务复用机会）
 
 class AuditEngine:
     def __init__(self, target_source_dir: str, semgrep_rules: str = None):
@@ -28,6 +30,9 @@ class AuditEngine:
         self.service_route_map: dict = {}
         # 沙盒池管理器
         self.server_manager = OpenCodeServerManager(max_active_servers=5)
+        # 活跃服务器追踪（用于智能调度）：service_name -> (port, last_used_time)
+        self._active_service_servers: Dict[str, Dict[str, Any]] = {}
+        self._active_servers_lock = asyncio.Lock()
 
     def _get_service_dir(self, filepath: str) -> str:
         """根据文件路径，推断其所属的微服务根目录。
@@ -75,29 +80,32 @@ class AuditEngine:
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
 
     def _fan_out_coordinator_output(self, task_id: str, coordinator_output: str):
-        """解析 Coordinator 的输出并触发 Semgrep 扫描"""
+        """
+        解析 Coordinator 的输出并触发 Semgrep 扫描
+        改进：按微服务分组任务，写入对应的队列，实现智能调度
+        """
         import re
         
         # 从 Markdown 代码块中提取 JSON
         json_match = re.search(r'```(?:json)?\s*\n(.*?)\n```', coordinator_output, re.DOTALL)
         if json_match:
-            coordinator_output = json.loads(json_match.group(1))
+            coordinator_data = json.loads(json_match.group(1))
         else:
             # 如果没有 Markdown 代码块，尝试直接解析
             try:
-                coordinator_output = json.loads(coordinator_output)
+                coordinator_data = json.loads(coordinator_output)
             except:
                 logging.error(f"无法解析 Coordinator 输出: {coordinator_output[:500]}")
                 return
         
         # Coordinator 不再返回 routes，只返回这些信息
-        language = coordinator_output.get("language_stack", "java")
+        language = coordinator_data.get("language_stack", "java")
         self._language_stack = language
-        self.dynamic_tracing_strategy = coordinator_output.get("tracing_strategy", "")
+        self.dynamic_tracing_strategy = coordinator_data.get("tracing_strategy", "")
         
         # 注册微服务（从 rpc_providers）
         self.service_route_map = {}
-        rpc_providers = coordinator_output.get("rpc_providers", [])
+        rpc_providers = coordinator_data.get("rpc_providers", [])
         for provider in rpc_providers:
             svc = provider.get("service_name", "")
             if svc and svc not in self.service_route_map:
@@ -113,46 +121,89 @@ class AuditEngine:
         scanner = SemgrepScanner(self.target_source_dir, rules_path=self.semgrep_rules)
         scan_result = scanner.scan(language)
         
-        # 处理路由结果（从 SemgrepScanner 获取）
-        routes = scan_result.get("routes", [])
-        for i, route in enumerate(routes):
-            self.tracker.add_task()
-            self.bus.write_message(
-                message_type="TaskRequest",
-                task_id=f"{task_id}_ROUTE_{i}",
-                sender="SemgrepScanner",
-                recipient="LogicAuditor",
-                payload={"action": "logic_audit", "route_details": route}
-            )
+        # ===== 改进：按微服务分组任务 =====
         
-        # 处理漏洞点结果
+        # 1. 处理路由结果 - 按微服务分组
+        routes = scan_result.get("routes", [])
+        routes_by_service = {}
+        
+        for route in routes:
+            handler_file = route.get("handler_file", "")
+            service_dir = self._get_service_dir(handler_file)
+            service_name = os.path.basename(service_dir)
+            
+            if service_name not in routes_by_service:
+                routes_by_service[service_name] = []
+            routes_by_service[service_name].append(route)
+        
+        # 分批次写入路由任务到对应的微服务队列
+        for service_name, service_routes in routes_by_service.items():
+            logging.info(f"📦 [队列分组] 微服务 {service_name}: {len(service_routes)} 个路由审计任务")
+            
+            for i, route in enumerate(service_routes):
+                self.tracker.add_task()
+                self.bus.write_message(
+                    message_type="TaskRequest",
+                    task_id=f"{task_id}_ROUTE_{i}",
+                    sender="SemgrepScanner",
+                    recipient="LogicAuditor",
+                    payload={"action": "logic_audit", "route_details": route},
+                    service_name=service_name  # 关键：指定微服务队列
+                )
+        
+        # 2. 处理漏洞点结果 - 按微服务分组
         sinks = scan_result.get("sinks", [])
-        for i, sink in enumerate(sinks):
-            self.tracker.add_task()
+        sinks_by_service = {}
+        
+        for sink in sinks:
             sink_details = sink.get("sink_details", {})
-            vuln_class = sink_details.get("vuln_class", "Unknown")
-            filepath = sink_details.get("filepath", "Unknown")
+            filepath = sink_details.get("filepath", "")
+            service_dir = self._get_service_dir(filepath)
+            service_name = os.path.basename(service_dir)
             
-            self.tracker.update_kanban(
-                "suspicious", 
-                f"{task_id}_SINK_{i}", 
-                vuln_class,
-                filepath
-            )
+            if service_name not in sinks_by_service:
+                sinks_by_service[service_name] = []
+            sinks_by_service[service_name].append(sink)
+        
+        # 分批次写入sink任务到对应的微服务队列
+        for service_name, service_sinks in sinks_by_service.items():
+            logging.info(f"📦 [队列分组] 微服务 {service_name}: {len(service_sinks)} 个sink任务")
             
-            self.bus.write_message(
-                message_type="TaskRequest",
-                task_id=f"{task_id}_SINK_{i}_TRACE",
-                sender="SemgrepScanner",
-                recipient="ReverseTracer",
-                payload={
-                    "action": "trace_call_chain",
-                    "sink_details": sink_details,
-                    "tracing_strategy": self.dynamic_tracing_strategy
-                }
-            )
+            for i, sink in enumerate(service_sinks):
+                self.tracker.add_task()
+                sink_details = sink.get("sink_details", {})
+                vuln_class = sink_details.get("vuln_class", "Unknown")
+                filepath = sink_details.get("filepath", "Unknown")
+                
+                self.tracker.update_kanban(
+                    "suspicious", 
+                    f"{task_id}_SINK_{i}", 
+                    vuln_class,
+                    filepath
+                )
+                
+                self.bus.write_message(
+                    message_type="TaskRequest",
+                    task_id=f"{task_id}_SINK_{i}_TRACE",
+                    sender="SemgrepScanner",
+                    recipient="ReverseTracer",
+                    payload={
+                        "action": "trace_call_chain",
+                        "sink_details": sink_details,
+                        "tracing_strategy": self.dynamic_tracing_strategy
+                    },
+                    service_name=service_name  # 关键：指定微服务队列
+                )
 
-    async def process_task(self, filepath: str):
+    async def process_task(self, filepath: str, service_name: str):
+        """
+        处理单个任务
+        改进：追踪活跃服务器，实现智能调度
+        
+        Args:
+            filepath: 任务文件路径
+            service_name: 任务所属微服务名称
+        """
         async with self.semaphore:
             try:
                 env = self.bus.read_message(filepath)
@@ -170,7 +221,7 @@ class AuditEngine:
                 elif hasattr(self, 'dynamic_tracing_strategy'):
                     context["dynamic_tracing_strategy"] = self.dynamic_tracing_strategy
 
-                logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
+                logging.info(f"Agent {recipient} 开始任务 {env['task_id']} (微服务: {service_name})")
                 self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
                 prompt = self._get_prompt_for_agent(recipient, payload_json, context)
 
@@ -178,6 +229,7 @@ class AuditEngine:
                 if recipient == "Coordinator":
                     target_cwd = self.target_source_dir  # 上帝视角：锁定根目录
                     allowed_tools = "codesearch,glob,grep,read" # 绝对不给 lsp
+                    actual_service = "global"
                 else:
                     # 同时检查 sink_details 和 route_details
                     sink_file = env.get("payload", {}).get("sink_details", {}).get("filepath", "")
@@ -185,33 +237,57 @@ class AuditEngine:
                         sink_file = env.get("payload", {}).get("route_details", {}).get("handler_file", "")
                     target_cwd = self._get_service_dir(sink_file) # 局部空投：进入微服务子目录
                     allowed_tools = "lsp,read,codesearch" # 开启重型武器 lsp
+                    # 确定实际的微服务名称（用于活跃服务器追踪）
+                    actual_service = service_name if service_name and service_name != "legacy" else os.path.basename(target_cwd)
 
                 # 通过 Server Pool 获取端口
                 port = await self.server_manager.get_or_start_server(target_cwd)
 
-                # 使用上下文管理器确保资源释放
-                async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
-                    # 设置 tracker
-                    agent.set_session_tracker(self.tracker)
-                    agent.set_current_task(env["task_id"])
+                # 记录活跃服务器（用于智能调度）
+                async with self._active_servers_lock:
+                    self._active_service_servers[actual_service] = {
+                        "port": port,
+                        "cwd": target_cwd,
+                        "last_used": time.time()
+                    }
+                    logging.debug(f"[活跃服务器] 记录 {actual_service} -> port {port}")
+
+                try:
+                    # 使用上下文管理器确保资源释放
+                    async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                        # 设置 tracker
+                        agent.set_session_tracker(self.tracker)
+                        agent.set_current_task(env["task_id"])
+                        
+                        result = await agent.execute(prompt, allowed_tools=allowed_tools)
+
+                    logging.info(f"Agent {recipient} 执行完成。输出: {result}")
+
+                    tokens_used = result.pop('_tokens', 0)
+                    if tokens_used > 0:
+                        self.tracker.add_tokens(tokens_used)
+                        logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
+
+                    message_type = env.get("message_type", "")
+                    if recipient == "Coordinator":
+                        self._fan_out_coordinator_output(env["task_id"], result["response"])
+
+                    self.router.route(filepath, result)
+                    self.bus.mark_completed(filepath, result)
+                    self.tracker.agent_finish(env["task_id"])
+                    logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
+                finally:
+                    # 任务完成后，延迟清理活跃服务器记录
+                    # 给后续同微服务任务复用服务器的机会
+                    await asyncio.sleep(ACTIVE_SERVER_TTL)
                     
-                    result = await agent.execute(prompt, allowed_tools=allowed_tools)
-
-                logging.info(f"Agent {recipient} 执行完成。输出: {result}")
-
-                tokens_used = result.pop('_tokens', 0)
-                if tokens_used > 0:
-                    self.tracker.add_tokens(tokens_used)
-                    logging.info(f"Agent {recipient} 消耗了 {tokens_used} tokens")
-
-                message_type = env.get("message_type", "")
-                if recipient == "Coordinator":
-                    self._fan_out_coordinator_output(env["task_id"], result["response"])
-
-                self.router.route(filepath, result)
-                self.bus.mark_completed(filepath, result)
-                self.tracker.agent_finish(env["task_id"])
-                logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
+                    async with self._active_servers_lock:
+                        # 只清理同一个端口的服务器记录（避免覆盖新的记录）
+                        if actual_service in self._active_service_servers:
+                            if self._active_service_servers[actual_service]["port"] == port:
+                                del self._active_service_servers[actual_service]
+                                logging.debug(f"[活跃服务器] 清理 {actual_service} (port {port})")
+                            
             except Exception as e:
                 logging.error(f"处理消息失败 {filepath}: {e}", exc_info=True)
 
@@ -310,11 +386,17 @@ class AuditEngine:
             logging.error(f"微服务 [{service_name}] 接力追踪异常: {e}")
 
     async def run(self):
+        """
+        引擎主循环
+        改进：智能调度优先从活跃服务器对应的微服务队列取任务
+        """
         try:
             logging.info("正在启动代码审计引擎...")
-            is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
-                self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
-            ])
+            is_fresh_start = all(
+                len(os.listdir(d)) == 0 
+                for d in [self.bus.pending_dir, self.bus.processing_dir, 
+                          self.bus.completed_dir, self.bus.help_req_dir]
+            )
 
             if is_fresh_start:
                 self.tracker.add_task()
@@ -328,6 +410,7 @@ class AuditEngine:
                 logging.info("已注入初始 Coordinator 任务。")
 
             async def update_tracker_loop():
+                """后台任务：定期更新tracker状态"""
                 while True:
                     self.tracker.update_agent_times()
                     await asyncio.sleep(1)
@@ -335,12 +418,30 @@ class AuditEngine:
             asyncio.create_task(update_tracker_loop())
 
             while True:
-                tasks = self.bus.get_pending_tasks()
-                if not tasks:
+                # ===== 智能调度逻辑 =====
+                
+                # 1. 获取当前活跃的微服务列表（这些服务器的服务器已启动，优先复用）
+                async with self._active_servers_lock:
+                    preferred_services = list(self._active_service_servers.keys())
+                
+                # 2. 优先从这些微服务队列取任务
+                # get_pending_tasks 返回 List[Tuple[filepath, service_name]]
+                task_pairs = self.bus.get_pending_tasks(preferred_services=preferred_services)
+                
+                if not task_pairs:
+                    # 没有任务，强制清理空闲服务器
+                    # 即使未达到 max_active_servers，也回收长时间空闲的服务器
+                    evicted = await self.server_manager.evict_idle_servers(force=True)
+                    if evicted > 0:
+                        logging.info(f"[主循环] 强制回收了 {evicted} 个空闲服务器")
                     await asyncio.sleep(1)
                     continue
-
-                for coro in tasks:
-                    asyncio.create_task(self.process_task(coro))
+                
+                # 3. 处理任务
+                for filepath, service_name in task_pairs:
+                    asyncio.create_task(self.process_task(filepath, service_name))
+                
+                # 4. 短暂休眠避免CPU过度占用
+                await asyncio.sleep(0.1)
         finally:
             await self.server_manager.shutdown_all()
