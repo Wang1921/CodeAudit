@@ -3,7 +3,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 from src.a2a_bus import A2ABusManager
 from src.agent import OpenCodeAgent
 from src.state_router import StateRouter
@@ -54,9 +54,7 @@ class AuditEngine:
         logging.info(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
         return self.target_source_dir
     
-    def _get_prompt_for_agent(self, agent_name: str, payload_json: str, context: Optional[Dict[str, Any]] = None) -> str:
-        ctx: dict = context if context is not None else {}
-        
+    def _get_prompt_for_agent(self, agent_name: str, payload_json: str) -> str:
         if agent_name == "ReverseTracer":
             return prompts.format_reverse_tracer_prompt(payload_json)
         elif agent_name == "LogicAuditor":
@@ -202,22 +200,17 @@ class AuditEngine:
             self.bus.mark_failed(filepath)
             return
         
-        cross_tracing_strategy = (
-            f"【最高优先级跨界任务】: 你的前序特工在另一个微服务发现了漏洞，"
-            f"你需要接力追踪！请全局搜索当前代码库，找到所有向 {protocol} 目标 `{target_id}` "
-            f"发起请求或发送消息的代码点（如 RestTemplate.postForObject('{target_id}') 或 kafkaTemplate.send('{target_id}')）。"
-            f"以这些发送点为 Sink 坐标，继续向上逆向追踪到当前微服务的外部可控 API 入口！\n"
-            f"【历史调用链参考】: {json.dumps(payload.get('historical_chain', []), ensure_ascii=False)}"
-        )
-
-        # 保留原始 sink_details，只更新必要字段
+        # 保留原始 sink_details
         original_sink_details = env.get("payload", {}).get("sink_details", {})
+        
+        # 从 payload 直接提取关键信息作为备份
+        historical_chain = payload.get("historical_chain", [])
         
         relay_payload = {
             "action": "trace_call_chain",
             "sink_details": {
                 "vuln_class": payload.get("vuln_type", "CROSS_SERVICE_VULN"),
-                "filepath": original_sink_details.get("filepath", "Cross-Boundary Discovery"),
+                "filepath": original_sink_details.get("filepath") or f"{protocol}://{target_id}",
                 "line_number": original_sink_details.get("line_number", 0),
                 "taint_variable": payload.get("taint_variable", "payload"),
                 "cwe": original_sink_details.get("cwe", []),
@@ -228,6 +221,11 @@ class AuditEngine:
                 "end_column": original_sink_details.get("end_column", 1),
                 "dangerous_code": original_sink_details.get("dangerous_code", ""),
                 "message": original_sink_details.get("message", "")
+            },
+            "historical_chain": historical_chain,
+            "cross_service_info": {
+                "protocol": protocol,
+                "target_identifier": target_id
             }
         }
         prompt = self._get_prompt_for_agent(
