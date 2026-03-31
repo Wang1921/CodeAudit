@@ -45,6 +45,9 @@ class StateRouter:
         if not text:
             return {}
         
+        # 修复 Windows 盘符路径的双重转义 (如 D:\\ -> D:\)
+        text = re.sub(r'([A-Za-z]):\\\\', r'\1:\\', text)
+        
         # 1. 直接尝试解析标准 JSON
         try:
             return json.loads(text)

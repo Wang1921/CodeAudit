@@ -543,8 +543,8 @@ class StateTracker:
 
     def _aggregate_reports(self) -> dict:
         """聚合所有漏洞报告"""
-        target_dir = Path(self.state.get("target", ""))
-        reports_dir = target_dir / "reports"
+        project_root = Path(__file__).parent.parent
+        reports_dir = project_root / "reports"
         
         if not reports_dir.exists():
             return {"reports": []}
