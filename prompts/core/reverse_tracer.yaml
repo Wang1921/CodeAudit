@@ -74,30 +74,25 @@ system_prompt_template: |
   绝对禁止遗漏任何必填字段！绝对禁止修改 vuln_type！
 
 output_schema:
-  oneOf:
-    - type: object
-      required: [vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason]
-      properties:
-        vuln_type: { type: string, minLength: 1 }
-        entry_route: { type: string }
-        filepath: { type: string }
-        line_number: { type: [integer, string] }
-        call_chain:
-          type: array
-          items: { type: string }
-        suspicion_reason: { type: string }
-    - type: object
-      required: [action, vuln_type, protocol, target_identifier, historical_chain, taint_variable]
-      properties:
-        action: { const: cross_service_trace }
-        vuln_type: { type: string, minLength: 1 }
-        protocol: { type: string }
-        target_identifier: { type: string }
-        historical_chain:
-          type: array
-          items: { type: string }
-        taint_variable: { type: string }
-    - type: object
-      required: [status]
-      properties:
-        status: { const: NOT_EXPLOITABLE }
+  type: object
+  properties:
+    status:
+      type: string
+      enum: [NOT_EXPLOITABLE]
+    action:
+      type: string
+      enum: [cross_service_trace]
+    vuln_type: { type: string }
+    entry_route: { type: string }
+    filepath: { type: string }
+    line_number: { type: [integer, string] }
+    call_chain:
+      type: array
+      items: { type: string }
+    suspicion_reason: { type: string }
+    protocol: { type: string }
+    target_identifier: { type: string }
+    historical_chain:
+      type: array
+      items: { type: string }
+    taint_variable: { type: string }

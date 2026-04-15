@@ -100,27 +100,40 @@ class OpenCodeAgent:
                 result_text = await response.text()
                 try:
                     # opencode 返回格式: {info: Message, parts: Part[]}
-                    # 当声明 format 时，info.structured_output 为服务端已校验的 JSON 对象
                     data = json.loads(result_text)
                     info = data.get("info", {}) or {}
-                    structured_output = info.get("structured_output")
+                    parts = data.get("parts", []) or []
 
-                    parts = data.get("parts", [])
-                    content = ""
+                    # 结构化输出实现方式：opencode 内部生成一次 StructuredOutput tool call，
+                    # 校验通过的 JSON 放在 part.state.input（type=="tool" && tool=="StructuredOutput"）
+                    structured_output = None
                     for part in parts:
-                        if part.get("type") == "text":
-                            content = part.get("text", "")
-                            break
+                        if part.get("type") == "tool" and part.get("tool") == "StructuredOutput":
+                            state = part.get("state", {}) or {}
+                            if state.get("status") == "completed":
+                                structured_output = state.get("input")
+                                break
 
-                    # 如果服务端给了结构化输出，response 同步序列化为 JSON 字符串，
-                    # 方便下游 state_router._parse_json_output 零改动地复用解析路径。
-                    if structured_output is not None and not content:
+                    # 结构化输出优先：当服务端产出 StructuredOutput 时，以它为准
+                    # （text part 里往往是 reasoning 前言，不可作为最终 JSON）
+                    if structured_output is not None:
                         content = json.dumps(structured_output, ensure_ascii=False)
+                    else:
+                        content = ""
+                        for part in parts:
+                            if part.get("type") == "text":
+                                content = part.get("text", "")
+                                if content:
+                                    break
+
+                    # opencode 1.4.x 的 token 统计在 info.tokens（非 info.usage）
+                    tokens = info.get("tokens") or {}
+                    total_tokens = tokens.get("total", 0) if isinstance(tokens, dict) else 0
 
                     return {
                         "response": content,
-                        "usage": info.get("usage", {}),
-                        "_tokens": info.get("usage", {}).get("total_tokens", 0),
+                        "usage": tokens,
+                        "_tokens": total_tokens,
                         "structured_output": structured_output,
                     }
                 except json.JSONDecodeError as e:

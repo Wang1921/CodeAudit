@@ -52,34 +52,22 @@ system_prompt_template: |
   绝对禁止输出多余的 Markdown 标记！绝对禁止遗漏任何字段！绝对禁止修改 vuln_type！
 
 output_schema:
-  oneOf:
-    - type: object
-      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis]
-      properties:
-        status: { const: DEFENDED }
-        vuln_type: { type: string, minLength: 1 }
-        entry_route: { type: string }
-        filepath: { type: string }
-        line_number: { type: [integer, string] }
-        call_chain:
-          type: [array, string]
-          items: { type: string }
-        suspicion_reason: { type: string }
-        defense_analysis: { type: string }
-    - type: object
-      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, attack_vector, poc_payload, max_impact, defense_analysis, mitigation_advice]
-      properties:
-        status: { const: VULNERABLE }
-        vuln_type: { type: string, minLength: 1 }
-        entry_route: { type: string }
-        filepath: { type: string }
-        line_number: { type: [integer, string] }
-        call_chain:
-          type: [array, string]
-          items: { type: string }
-        suspicion_reason: { type: string }
-        attack_vector: { type: string }
-        poc_payload: { type: string }
-        max_impact: { type: string }
-        defense_analysis: { type: string }
-        mitigation_advice: { type: string }
+  type: object
+  required: [status]
+  properties:
+    status:
+      type: string
+      enum: [DEFENDED, VULNERABLE]
+    vuln_type: { type: string }
+    entry_route: { type: string }
+    filepath: { type: string }
+    line_number: { type: [integer, string] }
+    call_chain:
+      type: [array, string]
+      items: { type: string }
+    suspicion_reason: { type: string }
+    attack_vector: { type: string }
+    poc_payload: { type: string }
+    max_impact: { type: string }
+    defense_analysis: { type: string }
+    mitigation_advice: { type: string }

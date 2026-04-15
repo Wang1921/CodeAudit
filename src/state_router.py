@@ -121,9 +121,19 @@ class StateRouter:
                 self.tracker.update_kanban("resolved", task_id, sender, "无效输出", status="DEFENDED")
             return
 
-        if status in TERMINAL_STATES:
+        # 终态判定：仅当 Agent 明确表达"无事"（仅 status 字段或完全无业务字段）时才终止链路。
+        # 若同时出现业务字段（vuln_type / action），说明模型给了真实发现，status 可能是噪音。
+        has_business_fields = any(
+            k in parsed_output for k in ("vuln_type", "vuln_class", "action", "attack_vector")
+        )
+        if status in TERMINAL_STATES and not has_business_fields:
             logging.info(f"任务 {task_id} 达到终态: {status}")
             return
+        if status in TERMINAL_STATES and has_business_fields:
+            logging.warning(
+                f"[路由] {sender} 任务 {task_id} 同时返回 status={status} 与业务字段，"
+                f"以业务字段为准继续派发"
+            )
   
         # 拦截跨界追踪求救信号
         if sender == "ReverseTracer" and parsed_output.get("action") == "cross_service_trace":
