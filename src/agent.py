@@ -63,20 +63,32 @@ class OpenCodeAgent:
     async def execute(
         self,
         prompt: str,
-        allowed_tools: str = "read,grep,lsp,codesearch"
+        allowed_tools: str = "read,grep,lsp,codesearch",
+        output_schema: Optional[Dict[str, Any]] = None,
+        format_retry_count: int = 2,
     ) -> Dict[str, Any]:
         """
-        发送消息并等待响应
-        返回格式: {"response": str, "usage": dict}
+        发送消息并等待响应。
+
+        当 output_schema 提供时，向 OpenCode 服务端声明 JSON Schema 结构化输出
+        （POST body 的 format 字段），服务端会自行校验模型输出并按 retryCount 重试。
+        服务端校验通过的 JSON 会以 structured_output 字段返回，优先使用。
+
+        返回格式: {"response": str, "usage": dict, "_tokens": int, "structured_output": dict|None}
         """
         session_id = await self._ensure_session()
         url = f"{self._base_url}/session/{session_id}/message"
         session = await self._get_http_session()
 
-        # 构建请求体
-        payload = {
+        payload: Dict[str, Any] = {
             "parts": [{"type": "text", "text": prompt}]
         }
+        if output_schema is not None:
+            payload["format"] = {
+                "type": "json_schema",
+                "schema": output_schema,
+                "retryCount": format_retry_count,
+            }
 
         try:
             client_timeout = aiohttp.ClientTimeout(total=self.timeout)
@@ -88,21 +100,28 @@ class OpenCodeAgent:
                 result_text = await response.text()
                 try:
                     # opencode 返回格式: {info: Message, parts: Part[]}
+                    # 当声明 format 时，info.structured_output 为服务端已校验的 JSON 对象
                     data = json.loads(result_text)
-                    # 提取回复内容 - 新格式使用 type/text 而不是 role/content
+                    info = data.get("info", {}) or {}
+                    structured_output = info.get("structured_output")
+
                     parts = data.get("parts", [])
                     content = ""
                     for part in parts:
-                        # 查找 text 类型的 part
                         if part.get("type") == "text":
                             content = part.get("text", "")
                             break
 
-                    # 构造兼容返回格式
+                    # 如果服务端给了结构化输出，response 同步序列化为 JSON 字符串，
+                    # 方便下游 state_router._parse_json_output 零改动地复用解析路径。
+                    if structured_output is not None and not content:
+                        content = json.dumps(structured_output, ensure_ascii=False)
+
                     return {
                         "response": content,
-                        "usage": data.get("info", {}).get("usage", {}),
-                        "_tokens": data.get("info", {}).get("usage", {}).get("total_tokens", 0)
+                        "usage": info.get("usage", {}),
+                        "_tokens": info.get("usage", {}).get("total_tokens", 0),
+                        "structured_output": structured_output,
                     }
                 except json.JSONDecodeError as e:
                     return await self._retry(session, result_text, str(e), allowed_tools)

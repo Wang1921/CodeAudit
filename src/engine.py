@@ -161,13 +161,20 @@ class AuditEngine:
                 # 通过 Server Pool 获取端口
                 port = await self.server_manager.get_or_start_server(target_cwd)
 
+                # 加载当前 Agent 的输出 Schema，启用服务端结构化 JSON 校验
+                output_schema = prompts.get_output_schema(recipient)
+
                 # 使用上下文管理器确保资源释放
                 async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
                     # 设置 tracker
                     agent.set_session_tracker(self.tracker)
                     agent.set_current_task(env["task_id"])
-                    
-                    result = await agent.execute(prompt, allowed_tools=allowed_tools)
+
+                    result = await agent.execute(
+                        prompt,
+                        allowed_tools=allowed_tools,
+                        output_schema=output_schema,
+                    )
 
                 logging.info(f"Agent {recipient} 执行完成。输出: {result}")
 
@@ -325,8 +332,13 @@ class AuditEngine:
         """
         logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
         port = await self.server_manager.get_or_start_server(service_dir)
+        output_schema = prompts.get_output_schema("ReverseTracer")
         async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
-            result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
+            result = await agent.execute(
+                prompt,
+                allowed_tools="lsp,read,codesearch",
+                output_schema=output_schema,
+            )
         tokens_used = result.pop('_tokens', 0)
         if tokens_used > 0:
             self.tracker.add_tokens(tokens_used)

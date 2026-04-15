@@ -1,22 +1,45 @@
 import os
 import yaml
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
 
-def load_yaml_template(relative_path: str) -> str:
-    """Load a YAML template file and return system_prompt_template."""
+
+def _load_yaml_doc(relative_path: str) -> Dict[str, Any]:
+    """Load the full YAML doc so callers can read any top-level key."""
     full_path = os.path.join(PROMPTS_DIR, relative_path)
     if not os.path.exists(full_path):
         raise FileNotFoundError(f"Template not found: {full_path}")
-    
     with open(full_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
-    
-    return data.get('system_prompt_template', '')
+        return yaml.safe_load(f) or {}
+
+
+def load_yaml_template(relative_path: str) -> str:
+    """Load a YAML template file and return system_prompt_template."""
+    return _load_yaml_doc(relative_path).get('system_prompt_template', '')
+
+
+_AGENT_FILES = {
+    "ReverseTracer": "core/reverse_tracer.yaml",
+    "LogicAuditor": "core/logic_auditor.yaml",
+    "RedValidator": "core/red_validator.yaml",
+    "BlueValidator": "core/blue_validator.yaml",
+    "ReportGenerator": "core/report_generator.yaml",
+}
+
+_AGENT_SCHEMAS: Dict[str, Optional[dict]] = {
+    name: _load_yaml_doc(path).get("output_schema")
+    for name, path in _AGENT_FILES.items()
+}
+
+
+def get_output_schema(agent_name: str) -> Optional[dict]:
+    """Return the JSON Schema for an Agent's output, or None if undefined."""
+    return _AGENT_SCHEMAS.get(agent_name)
+
 
 REVERSE_TRACER_PROMPT_TEMPLATE = load_yaml_template("core/reverse_tracer.yaml")
 LOGIC_AUDITOR_PROMPT_TEMPLATE = load_yaml_template("core/logic_auditor.yaml")

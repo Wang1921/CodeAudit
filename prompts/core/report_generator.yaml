@@ -42,3 +42,24 @@ system_prompt_template: |
   }
   
   绝对禁止遗漏任何字段！绝对禁止修改 vuln_type 或将其转换为其他字段名！
+
+output_schema:
+  type: object
+  required: [vuln_type, cwe_id, severity, location, call_chain, description, remediation]
+  properties:
+    vuln_type: { type: string, minLength: 1 }
+    cwe_id: { type: string }
+    severity:
+      type: string
+      enum: [Critical, High, Medium, Low]
+    location:
+      type: object
+      required: [file, line]
+      properties:
+        file: { type: string }
+        line: { type: [integer, string] }
+    call_chain:
+      type: [array, string]
+      items: { type: string }
+    description: { type: string }
+    remediation: { type: string }

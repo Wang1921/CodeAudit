@@ -41,3 +41,19 @@ system_prompt_template: |
   }
   
   如果逻辑严密，输出: {"status": "DEFENDED"}
+
+output_schema:
+  oneOf:
+    - type: object
+      required: [vuln_type, entry_route, call_chain, suspicion_reason]
+      properties:
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        call_chain:
+          type: array
+          items: { type: string }
+        suspicion_reason: { type: string }
+    - type: object
+      required: [status]
+      properties:
+        status: { const: DEFENDED }
