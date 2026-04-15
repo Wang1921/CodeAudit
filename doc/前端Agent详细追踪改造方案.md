@@ -196,7 +196,7 @@ OpenCode Server                    StateTracker                    前端
 │              │   Agent Details       │                         │
 │   Agents     │   ──────────────    │      Kanban             │
 │              │   Session Status:    │                         │
-│  ● Coordinator│   ● busy           │   1. Suspicious         │
+│  ● SemgrepSc │   ● busy           │   1. Suspicious         │
 │  ● ReverseT  │   Token Usage:      │   2. Red Team          │
 │  ● LogicA    │     Total: 1,234   │   3. Blue Team         │
 │              │     Input: 500      │   4. Resolved           │

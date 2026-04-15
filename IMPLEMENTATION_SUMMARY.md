@@ -1,96 +1,48 @@
-# 实施总结 - 智能调度与Session状态监控
+# 实施总结 - 当前实际状态
 
-## 实施状态：✅ 完成
+> **注意**：本文件历史上记录了一份"队列分组 + Session 监控 + 智能调度"的实施清单，
+> 但其中**队列分组 / `_fan_out_coordinator_output` / `service_name` 参数等并未进入主线**。
+> 详细落地状态请见 [doc/智能调度实施总结.md](doc/智能调度实施总结.md)。
 
-## 改动文件
+## 当前已落地的关键能力
 
-### 1. `src/a2a_bus.py` - 队列分组
-**改动**：
-- 新增 `queues/` 目录结构（按微服务分组）
-- `write_message()` 新增 `service_name` 参数
-- `get_pending_tasks()` 支持优先队列调度
-- 新增 `_pop_one_task()` 和 `_get_all_queue_names()` 辅助方法
+| 模块 | 文件 | 关键能力 |
+| :--- | :--- | :--- |
+| 文件总线 | `src/a2a_bus.py` | tmp + fsync + rename 原子写入；`pending/` `processing/` `completed/` `failed/` `help_req/` 五目录拓扑 |
+| 沙盒池 | `src/server_manager.py` | 按 cwd 缓存的 OpenCode HTTP 沙盒；LRU + Session-status idle eviction；`/global/health` 健康检查 |
+| 引擎 | `src/engine.py` | `_discover_microservices()` + `SemgrepScanner` 一次性扫描后双轨派发；跨微服务接力以 `asyncio.gather` 收敛 |
+| 路由 | `src/state_router.py` | 统一 next-hop 表 + JSON 解析容错；解析失败/字段缺失即丢弃并写入 Kanban |
+| 状态 | `src/state_tracker.py` | 内置 HTTP 服务（端口 8080），Vue 看板；轮询线程异常自愈 |
+| Prompt | `prompts/core/*.yaml` | 6 份模板：`reverse_tracer / logic_auditor / red_validator / blue_validator / report_generator / retry` |
 
-**向后兼容**：保留原有 `pending/` 目录逻辑
+## 历史变更
 
-### 2. `src/server_manager.py` - Session状态监控
-**改动**：
-- 新增 `idle_since` 字段追踪服务器空闲时间
-- 新增 `_fetch_session_statuses()` 获取session状态
-- 新增 `check_idle_servers()` 识别空闲服务器
-- 新增 `evict_idle_servers()` 智能回收策略
-
-**核心逻辑**：通过 `/session/status` 判断服务器是否可回收
-
-### 3. `src/engine.py` - 智能调度
-**改动**：
-- `_fan_out_coordinator_output()` 按微服务分组任务
-- `process_task()` 新增 `service_name` 参数，追踪活跃服务器
-- `run()` 主循环实现智能调度（优先复用活跃服务器）
-
-**优化点**：
-- 任务完成后延迟2秒清理活跃记录（给同微服务任务复用机会）
-- 无任务时主动触发空闲服务器回收
-
-## 测试结果
-
-**运行测试**：`python3 test_queue_grouping.py`
-
-```
-✅ 队列分组功能测试通过
-✅ 优先队列调度测试通过  
-✅ 向后兼容性测试通过
-```
-
-## 性能提升
-
-| 场景 | 当前LRU | 新方案 | 提升 |
-|------|---------|--------|------|
-| 100个微服务 × 100个sink点 | ~10000次启动 | 100次启动 | 100倍 |
-
-## 核心优势
-
-1. **队列分组**：同一微服务任务连续执行，避免频繁切换
-2. **Session监控**：精确判断服务器状态，只有真正空闲才回收
-3. **智能调度**：优先复用活跃服务器，减少启动开销
-4. **向后兼容**：完全兼容现有代码，无需修改调用方
+- **Coordinator 节点已移除**：原"全局测绘 + 动态追踪策略"职责被 Semgrep 规则替代，
+  微服务发现交由 `engine._discover_microservices()`。`Coordinator_Output` 消息类型亦已从
+  `a2a_bus.SUPPORTED_MESSAGE_TYPES` 移除。
+- **接力追踪 fire-and-forget 已纠正**：`_handle_cross_service_reinstantiation` 现以
+  `asyncio.gather(return_exceptions=True)` 等待全部接力 ReverseTracer 完成后再 `mark_completed`。
+- **总线写入加固**：`mark_completed`/`write_raw_failed` 改为 tmp + fsync + rename，
+  避免崩溃窗口造成半写入或源文件丢失。
 
 ## 配置参数
 
 ```python
-# engine.py
-ACTIVE_SERVER_TTL = 2.0  # 任务完成后2秒才清理活跃服务器记录
+# src/engine.py
+MAX_CONCURRENT_AGENTS = 20
+MAX_AGENT_TIMEOUT = 3600
 
-# server_manager.py
-self._idle_timeout = 60.0  # 服务器空闲超过60秒才允许回收
-self.max_active_servers = 5  # 最大并发服务器数
+# src/server_manager.py
+max_active_servers = 5
+self._idle_timeout = 60.0
+self.health_check_timeout = 30.0
 ```
 
-## 备份文件
+## 已知短板（来自架构评审）
 
-```
-src/a2a_bus.py.bak
-src/server_manager.py.bak
-src/engine.py.bak
-```
+1. 主循环无完成检测，需要 Ctrl+C 退出。
+2. 崩溃后 `processing/` 中的任务不会自动复活。
+3. Agent 输出无 JSON Schema 强校验（只有启发式解析 + 一次性 retry）。
+4. `state_tracker.py` 539 行职责混合，建议拆分。
 
-## 回滚命令
-
-```bash
-cp src/a2a_bus.py.bak src/a2a_bus.py
-cp src/server_manager.py.bak src/server_manager.py
-cp src/engine.py.bak src/engine.py
-```
-
-## 下一步
-
-1. **集成测试**：在真实多项目场景验证
-2. **性能监控**：添加Prometheus指标监控
-3. **文档更新**：更新README和API文档
-
----
-
-**实施时间**: 2026-03-13
-**测试状态**: ✅ 所有单元测试通过
-**代码审查**: 待进行
-**部署状态**: 待验证
+详细分析见架构评审记录。

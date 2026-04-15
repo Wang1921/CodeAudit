@@ -1,5 +1,9 @@
 # 详细设计文档：A2A 通信 JSON Schema 规范
-**版本**: V2.0  |  **所属子系统**: 调度引擎与总线通信
+**版本**: V2.1  |  **所属子系统**: 调度引擎与总线通信
+
+> 变更说明（V2.0 → V2.1）：原 `Coordinator_Output` 消息类型与对应载荷已下线，
+> 项目测绘改由引擎自身的 `_discover_microservices()` 与 Semgrep 输出共同承担。
+> 当前在线消息类型见 §2 与 `src/a2a_bus.py: SUPPORTED_MESSAGE_TYPES`。
 
 ## 1. 规范概述
 本规范定义了双轨对抗式多智能体代码审计系统中，各个独立 Agent 节点通过文件系统总线（`.a2a_bus`）进行交互的标准数据结构。  
@@ -13,9 +17,9 @@
 | 字段名 | 数据类型 | 必填 | 描述与枚举值 |
 | :--- | :--- | :--- | :--- |
 | `a2a_version` | String | 是 | 协议版本，固定为 `"1.0"`。 |
-| `message_type` | String | 是 | 消息类型枚举：`Coordinator_Output`, `TaskRequest`, `VulnCandidate`, `ExploitAttempt`, `ConfirmedVuln`, `CrossServiceTraceRequest`。 |
+| `message_type` | String | 是 | 消息类型枚举：`TaskRequest`, `VulnCandidate`, `ExploitAttempt`, `ConfirmedVuln`, `CrossServiceTraceRequest`。 |
 | `task_id` | String | 是 | 全局唯一的任务追踪 ID（如 `TASK-RT-101`），在整条分析链路中透传，不发生改变。 |
-| `sender` | String | 是 | 发送方节点名称（如 `Coordinator`, `SemgrepScanner`, `LogicAuditor`）。 |
+| `sender` | String | 是 | 发送方节点名称（如 `SemgrepScanner`, `ReverseTracer`, `LogicAuditor`, `RedValidator`, `BlueValidator`）。 |
 | `recipient` | String | 是 | 接收方节点名称（如 `ReverseTracer`, `RedValidator`, `Orchestrator`）。 |
 | `payload` | Object | 是 | 具体业务载荷，其内部结构由 `message_type` 决定。 |
 
@@ -23,44 +27,10 @@
 
 ## 3. 业务载荷 Schema 定义 (Payloads)
 
-### 3.1 全局测绘结果 - 🟡 V6.0 核心变更
-**用途**：由 `Coordinator` 产出。这是系统裂变的起点，包含了语言识别、微服务结构、动态追踪策略。
+> 系统不再产出全局测绘消息。引擎初始化阶段直接调用 `SemgrepScanner.scan()` 取得
+> `routes` 与 `sinks`，然后按下一节 `TaskRequest` 形式将每个条目派发到对应 Agent 队列。
 
-**字段说明**：
-| 字段名 | 数据类型 | 必填 | 描述 |
-| :--- | :--- | :--- | :--- |
-| `language_stack` | String | 是 | 识别出的项目主力语言（如 `java`, `python`, `go`）。 |
-| `framework` | String | 否 | 识别出的主力框架（如 `Spring Boot`, `Django`, `OpenResty`），辅助决策。 |
-| `tracing_strategy` | String | 是 | 由 Coordinator 生成的动态追踪策略，后续将注入给 ReverseTracer。 |
-| `rpc_providers` | Array[Object] | 是 | 微服务提供者列表，包含 service_name 和 exposed_interfaces。 |
-
-**JSON 示例**：
-```json
-{
-  "a2a_version": "1.0",
-  "message_type": "Coordinator_Output",
-  "task_id": "INIT-CORE-001",
-  "sender": "Coordinator",
-  "recipient": "Engine",
-  "payload": {
-    "language_stack": "java",
-    "framework": "Spring Boot 2.7.18",
-    "tracing_strategy": "在Spring Boot框架中进行动态追踪时，应遵循以下策略...",
-    "rpc_providers": [
-      {
-        "service_name": "user-service",
-        "exposed_interfaces": ["UserController", "KafkaProducerService"]
-      },
-      {
-        "service_name": "processor-service",
-        "exposed_interfaces": ["KafkaConsumerService"]
-      }
-    ]
-  }
-}
-```
-
-### 3.2 任务请求
+### 3.1 任务请求
 **用途**：用于 SemgrepScanner 向执行层派发任务，或 ReverseTracer 向 Orchestrator 发出跨服务追踪请求。
 
 **字段说明**：
@@ -115,7 +85,7 @@
 }
 ```
 
-### 3.3 疑似漏洞候选
+### 3.2 疑似漏洞候选
 **用途**：由执行层的 `ReverseTracer` 或 `LogicAuditor` 产出，标志着成功连通了内外数据流或发现逻辑缺陷，移交给红队。
 
 **字段说明**：
@@ -146,7 +116,7 @@
 }
 ```
 
-### 3.4 攻击推演记录
+### 3.3 攻击推演记录
 **用途**：由 `RedValidator` 产出，记录了针对疑似漏洞的具体攻击手段和 Payload，移交给蓝队。
 
 **字段说明**：
@@ -178,7 +148,7 @@
 }
 ```
 
-### 3.5 最终确认漏洞
+### 3.4 最终确认漏洞
 **用途**：由 `BlueValidator` 产出，标志着防御被红队击穿，正式作为真实漏洞输出至报告系统。
 
 **字段说明**：
@@ -204,7 +174,7 @@
 }
 ```
 
-### 3.6 跨微服务追踪请求 - 🟢 V6.0 新增
+### 3.5 跨微服务追踪请求
 **用途**：由 `ReverseTracer` 发出，当发现微服务边界时，向 Orchestrator 请求跨服务追踪。
 
 **字段说明**：

@@ -116,7 +116,7 @@ curl -X GET "http://127.0.0.1:8888/session/status?directory=/home/user/project"
 
 在代码审计系统中，该接口被用于：
 - `src/agent.py`: 查询会话状态以确定是否可以继续处理任务
-- 监控多个 Agent（Coordinator、ReverseTracer 等）的运行状态
+- 监控多个 Agent（ReverseTracer、LogicAuditor、RedValidator、BlueValidator 等）的运行状态
 
 ---
 
