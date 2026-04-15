@@ -111,9 +111,16 @@ class StateRouter:
         # 首先解析 agent_output 中的 response 字段（如果有 Markdown 包装）
         parsed_output = self._parse_json_output(agent_output)
         status = parsed_output.get("status")
-        
+
         logging.info(f"[路由] {sender} -> ? | task_id={task_id} | parsed keys: {list(parsed_output.keys())}")
-        
+
+        # 解析失败或 Agent 返回空输出：视作非法输出并兜底记录，避免任务静默消失
+        if not parsed_output:
+            logging.warning(f"[路由] {sender} 任务 {task_id} 输出无法解析为 JSON，丢弃路由")
+            if self.tracker:
+                self.tracker.update_kanban("resolved", task_id, sender, "无效输出", status="DEFENDED")
+            return
+
         if status in TERMINAL_STATES:
             logging.info(f"任务 {task_id} 达到终态: {status}")
             return
@@ -163,6 +170,12 @@ class StateRouter:
         # 支持 vuln_type 或 vuln_class 字段
         # 注意: agent_output 已经在 route() 方法中解析过了
         vuln_type = agent_output.get("vuln_type") or agent_output.get("vuln_class")
+        if not vuln_type:
+            # ReverseTracer 未返回明确漏洞类型且未声明终态，记录后丢弃，避免任务静默停滞
+            logging.warning(f"[路由] ReverseTracer 任务 {task_id} 缺少 vuln_type/vuln_class，丢弃")
+            if self.tracker:
+                self.tracker.update_kanban("resolved", task_id, "ReverseTracer", "输出字段缺失", status="DEFENDED")
+            return
         if vuln_type:
             # 获取 entry_route，优先从 agent_output 获取，其次从 sink_details。
             entry_route = agent_output.get("entry_route")

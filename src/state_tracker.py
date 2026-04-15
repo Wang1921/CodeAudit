@@ -339,10 +339,12 @@ class StateTracker:
             asyncio.set_event_loop(loop)
             try:
                 while True:
-                    loop.run_until_complete(self.update_sessions_from_opencode())
+                    try:
+                        loop.run_until_complete(self.update_sessions_from_opencode())
+                    except Exception as e:
+                        # 单次异常不应终止整个轮询线程，记录后继续
+                        logging.error(f"会话轮询任务单次异常: {e}")
                     time.sleep(2)
-            except Exception as e:
-                logging.error(f"会话轮询任务异常: {e}")
             finally:
                 loop.close()
         
@@ -389,42 +391,6 @@ class StateTracker:
         matches = re.findall(r'([a-z]+-service)', task_id.lower())
         if matches:
             return matches[0]
-        
-        # 默认值
-        return 'unknown'
-        
-        task_id_upper = task_id.upper()
-        
-        # 规则1: 从 TRACE_CROSS_HIT 提取
-        if 'TRACE_CROSS_HIT_' in task_id_upper:
-            parts = task_id.upper().split('TRACE_CROSS_HIT_')
-            if len(parts) > 1:
-                service = parts[1].split('_')[0]
-                if service:
-                    return service.lower()
-        
-        # 规则2: 从 _SERVICE_ 提取
-        if '_SERVICE_' in task_id_upper:
-            parts = task_id_upper.split('_SERVICE_')
-            if len(parts) > 1:
-                service = parts[1].split('_')[0]
-                if service:
-                    return service.lower()
-        
-        # 规则3: 从 ROUTE_ 或 SINK_ 之后提取
-        for marker in ['_ROUTE_', '_SINK_']:
-            if marker in task_id_upper:
-                parts = task_id_upper.split(marker)
-                if len(parts) > 1:
-                    service = parts[1].split('_')[0]
-                    if service and service not in ['TRACE', 'CROSS', 'HIT']:
-                        return service.lower()
-        
-        # 规则4: 从 task_id 中查找常见服务名模式
-        common_services = ['user-service', 'admin-service', 'api-service', 'processor-service', 'eval-service', 'auth-service']
-        for service in common_services:
-            if service.upper() in task_id_upper:
-                return service
         
         # 默认值
         return 'unknown'

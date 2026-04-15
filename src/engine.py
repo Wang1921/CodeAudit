@@ -3,7 +3,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Tuple
 from src.a2a_bus import A2ABusManager
 from src.agent import OpenCodeAgent
 from src.state_router import StateRouter
@@ -27,6 +27,10 @@ class AuditEngine:
         self.service_route_map: dict = {}
         # 沙盒池管理器
         self.server_manager = OpenCodeServerManager(max_active_servers=5)
+        # 跨微服务追踪结果缓存：(protocol, target_identifier) -> Future[Dict[service_name, parsed_result|None]]
+        # 使用 Future 实现 in-flight coalescing：并发同 key 请求共享同一次计算
+        self._cross_service_cache: Dict[Tuple[str, str], asyncio.Future] = {}
+        self._cross_service_cache_lock = asyncio.Lock()
 
     def _get_service_dir(self, filepath: str) -> str:
         """根据文件路径，推断其所属的微服务根目录。
@@ -180,32 +184,95 @@ class AuditEngine:
                 logging.error(f"处理消息失败 {filepath}: {e}", exc_info=True)
 
     async def _handle_cross_service_reinstantiation(self, env: dict, filepath: str):
-        """接管跨界请求：在所有微服务沙盒中并发拉起接力 ReverseTracer。"""
+        """接管跨界请求：按 (protocol, target_identifier) 去重共享接力追踪结果。
+
+        缓存语义：
+        - 首个发起者为 owner，负责实际拉起所有微服务的接力 ReverseTracer。
+        - 同 key 的并发/后续请求共享同一个 Future，命中后只重放 VulnCandidate 写入。
+        - owner 失败时从缓存中移除该 key，允许后续请求重试。
+        """
         payload = env["payload"]
         task_id = env["task_id"]
         protocol = payload.get("protocol", "HTTP")
         target_id = payload.get("target_identifier", "unknown")
+        cache_key = (protocol, target_id)
 
-        logging.info(f"引擎接管跨界请求: 全局搜寻 {protocol} -> '{target_id}' 的调用方")
+        # in-flight coalescing：决定本次是 owner 还是 follower
+        async with self._cross_service_cache_lock:
+            future = self._cross_service_cache.get(cache_key)
+            is_owner = future is None
+            if is_owner:
+                future = asyncio.get_event_loop().create_future()
+                self._cross_service_cache[cache_key] = future
 
-        # 微服务发现：优先使用已注册的服务目录，否则枚举根目录一级子目录
+        if is_owner:
+            logging.info(f"引擎接管跨界请求: 全局搜寻 {protocol} -> '{target_id}' 的调用方 (task={task_id})")
+            try:
+                relay_results = await self._compute_cross_service_results(env, payload)
+                future.set_result(relay_results)
+            except Exception as e:
+                logging.error(f"跨界追踪 {cache_key} 计算失败: {e}", exc_info=True)
+                future.set_exception(e)
+                # owner 失败：清出缓存，允许后来者重试
+                async with self._cross_service_cache_lock:
+                    self._cross_service_cache.pop(cache_key, None)
+                self.bus.mark_failed(filepath)
+                return
+        else:
+            logging.info(f"跨界追踪命中缓存 {cache_key} (task={task_id})，复用 owner 结果")
+            try:
+                relay_results = await future
+            except Exception:
+                # owner 已失败，本次请求也算失败
+                self.bus.mark_failed(filepath)
+                return
+
+        # 派发 VulnCandidate：每个命中的微服务都注入一条新任务，task_id 带本请求 base
+        hit_count = 0
+        for service_name, parsed_result in relay_results.items():
+            if parsed_result is None:
+                continue
+            self.tracker.add_task()
+            self.bus.write_message(
+                message_type="VulnCandidate",
+                task_id=f"{task_id}_HIT_{service_name}",
+                sender="ReverseTracer",
+                recipient="RedValidator",
+                payload=parsed_result,
+            )
+            hit_count += 1
+
+        self.bus.mark_completed(filepath, {
+            "status": "DISPATCHED_GLOBALLY",
+            "cache_hit": not is_owner,
+            "services_searched": len(relay_results),
+            "hits": hit_count,
+        })
+
+    async def _compute_cross_service_results(
+        self, env: dict, payload: dict
+    ) -> Dict[str, Optional[dict]]:
+        """实际执行：在所有微服务沙盒中并发拉起接力 ReverseTracer，收集 parsed_result。
+
+        返回 {service_name: parsed_result_or_None}。None 表示该服务返回 NOT_EXPLOITABLE 或解析异常。
+        本方法不写总线，写入由调用方负责，以便缓存命中时复用结果。
+        """
+        protocol = payload.get("protocol", "HTTP")
+        target_id = payload.get("target_identifier", "unknown")
+
         if self.service_route_map:
             service_dirs = [Path(d) for d in self.service_route_map.values()]
         else:
             root_path = Path(self.target_source_dir)
             service_dirs = [d for d in root_path.iterdir() if d.is_dir() and not d.name.startswith('.')]
-        
+
         if not service_dirs:
             logging.warning("未发现其他微服务目录，跨界追踪终止。")
-            self.bus.mark_failed(filepath)
-            return
-        
-        # 保留原始 sink_details
+            return {}
+
         original_sink_details = env.get("payload", {}).get("sink_details", {})
-        
-        # 从 payload 直接提取关键信息作为备份
         historical_chain = payload.get("historical_chain", [])
-        
+
         relay_payload = {
             "action": "trace_call_chain",
             "sink_details": {
@@ -233,48 +300,50 @@ class AuditEngine:
             json.dumps(relay_payload, ensure_ascii=False)
         )
 
-        for service_dir in service_dirs:
-            asyncio.create_task(
-                self._run_relay_agent(str(service_dir), prompt, task_id, service_dir.name, payload.get("vuln_type"))
-            )
+        coros = [
+            self._run_relay_agent(str(sd), prompt, sd.name)
+            for sd in service_dirs
+        ]
+        gathered = await asyncio.gather(*coros, return_exceptions=True)
 
-        self.bus.mark_completed(filepath, {"status": "DISPATCHED_GLOBALLY"})
-
-    async def _run_relay_agent(self, service_dir: str, prompt: str, base_task_id: str, service_name: str, vuln_type: str):
-        """在指定微服务目录异地执行接力 ReverseTracer，将贯通结果注入红蓝流水线。"""
-        logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
-        try:
-            # 通过 Server Pool 获取端口
-            port = await self.server_manager.get_or_start_server(service_dir)
-            # 使用上下文管理器确保资源释放
-            async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
-                result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
-            tokens_used = result.pop('_tokens', 0)
-            if tokens_used > 0:
-                self.tracker.add_tokens(tokens_used)
-
-            # 解析 result 中的 response 字段
-            parsed_result = result
-            if isinstance(result, dict) and "response" in result:
-                try:
-                    parsed_result = json.loads(result["response"])
-                except json.JSONDecodeError:
-                    parsed_result = result
-            
-            if parsed_result.get("status") != "NOT_EXPLOITABLE":
-                logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
-                self.tracker.add_task()
-                self.bus.write_message(
-                    message_type="VulnCandidate",
-                    task_id=f"{base_task_id}_HIT_{service_name}",
-                    sender="ReverseTracer",
-                    recipient="RedValidator",
-                    payload=parsed_result
-                )
+        output: Dict[str, Optional[dict]] = {}
+        for sd, res in zip(service_dirs, gathered):
+            if isinstance(res, Exception):
+                logging.error(f"微服务 [{sd.name}] 接力追踪异常: {res}")
+                output[sd.name] = None
             else:
-                logging.debug(f"微服务 [{service_name}] 中未发现调用链路。")
-        except Exception as e:
-            logging.error(f"微服务 [{service_name}] 接力追踪异常: {e}")
+                output[sd.name] = res  # parsed_result 或 None
+        return output
+
+    async def _run_relay_agent(
+        self, service_dir: str, prompt: str, service_name: str
+    ) -> Optional[dict]:
+        """在指定微服务目录异地执行接力 ReverseTracer。
+
+        返回：parsed_result（贯通成功）或 None（NOT_EXPLOITABLE / 无链路）。
+        异常向上抛出，由调用方 gather(return_exceptions=True) 汇总。
+        """
+        logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
+        port = await self.server_manager.get_or_start_server(service_dir)
+        async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+            result = await agent.execute(prompt, allowed_tools="lsp,read,codesearch")
+        tokens_used = result.pop('_tokens', 0)
+        if tokens_used > 0:
+            self.tracker.add_tokens(tokens_used)
+
+        parsed_result = result
+        if isinstance(result, dict) and "response" in result:
+            try:
+                parsed_result = json.loads(result["response"])
+            except json.JSONDecodeError:
+                parsed_result = result
+
+        if parsed_result.get("status") == "NOT_EXPLOITABLE":
+            logging.debug(f"微服务 [{service_name}] 中未发现调用链路。")
+            return None
+
+        logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
+        return parsed_result
 
     async def run(self):
         try:

@@ -7,7 +7,6 @@ from typing import Optional, Dict
 class A2ABusManager:
     SUPPORTED_MESSAGE_TYPES = [
         "TaskRequest",
-        "Coordinator_Output",
         "VulnCandidate",
         "ExploitAttempt",
         "ConfirmedVuln",
@@ -34,7 +33,7 @@ class A2ABusManager:
             logging.warning(f"未知的 message_type: {message_type}, 但仍然添加")
         
         msg = {
-            "a2a_version": "5.0" if message_type == "Coordinator_Output" else "1.0",
+            "a2a_version": "1.0",
             "message_type": message_type,
             "task_id": task_id,
             "sender": sender,
@@ -87,14 +86,23 @@ class A2ABusManager:
     def mark_completed(self, filepath: str, agent_result: dict = None):
         basename = os.path.basename(filepath)
         dest = os.path.join(self.completed_dir, basename)
-        
-        # 如果有 Agent 执行结果，更新 JSON 文件
+
+        # 如果有 Agent 执行结果，更新 JSON 文件（tmp + fsync + rename，保证崩溃安全）
         if agent_result:
             msg = self.read_message(filepath)
             msg["agent_result"] = agent_result
-            with open(dest, "w", encoding="utf-8") as f:
-                json.dump(msg, f, ensure_ascii=False, indent=2)
-            # 删除原文件
+            tmp_path = dest + ".tmp"
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(msg, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.rename(tmp_path, dest)
+            except Exception:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
+            # 目标文件已成功原子落盘，再删除源文件
             os.remove(filepath)
         else:
             os.rename(filepath, dest)
@@ -107,6 +115,15 @@ class A2ABusManager:
     def write_raw_failed(self, raw_content: str, reason: str):
         filename = f"malformed_{uuid.uuid4().hex[:8]}.txt"
         dest = os.path.join(self.failed_dir, filename)
-        with open(dest, "w", encoding="utf-8") as f:
-            f.write(f"原因: {reason}\n\n")
-            f.write(raw_content)
+        tmp_path = dest + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                f.write(f"原因: {reason}\n\n")
+                f.write(raw_content)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_path, dest)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
