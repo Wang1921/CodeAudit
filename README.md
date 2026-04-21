@@ -13,19 +13,20 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   采用本地文件系统目录（`.a2a_bus/`）作为异步消息总线。
     *   Agent 之间通过读写强类型的 JSON 信封 (TaskRequest / TaskResult) 进行任务流转，具备极强的可观测性和容错性。
 *   **HTTP 沙盒池 (HTTP Sandbox Pool)**
-    *   Python 引擎管理多个 OpenCode 服务器实例，采用 LRU 缓存策略（默认最大 5 个并发）。
-    *   自动健康检查 (`/global/health`)，失败时自动重启。
-    *   达到并发上限时自动回收最旧的沙盒服务器。
-*   **动态工具权限分配 (Dynamic Tool Permissions)**
-    *   所有 Agent 拥有 `lsp, read, codesearch` 权限，开启重型武器 LSP 进行代码跳转。
-    *   动态推断每个 Agent 的工作目录（根目录 vs 微服务子目录），按需在对应沙盒中拉起。
+    *   Python 引擎管理多个 OpenCode 服务器实例。默认最大 5 个并发，**引擎启动时按发现的微服务数自动扩容**至 `max(5, 服务数)`。
+    *   细粒度锁：不同 `cwd` 的冷启动并行，同 `cwd` 的热路径查询无全局串行。
+    *   双回收策略：LRU（容量满时淘汰最旧）+ Session 空闲监控（所有 session 持续 idle 超过 60 秒即可回收）。
+    *   自动健康检查 (`/global/health`)，失败时自动 dispose 并重启。
+*   **结构化输出与工具白名单 (Structured Output & Tool Whitelist)**
+    *   每个 Agent 的 `output_schema` 由 OpenCode server 做 **JSON Schema 强校验**，校验通过的结果放在 `structured_output` 字段，引擎直接读取，避免脆弱的字符串解析。
+    *   所有 Agent 仅赋 `lsp, read, codesearch` 工具，不赋 `write / bash`。依据文件路径归属动态推断工作目录（根目录 vs 微服务子目录）。
 *   **红蓝对抗验证 (Adversarial Validation)**
     *   **RedValidator**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。
     *   **BlueValidator**: 负责审查代码库中的过滤器、拦截器或业务后置熔断机制。
     *   通过左右互搏，系统能最大程度消除传统 SAST 工具的**高误报率**。
 *   **动态 Prompt 模板加载 (Dynamic Prompt Templates)**
-    *   所有智能体 Prompt 存储于 `prompts/core/` 目录下的 YAML 文件中。
-    *   引擎根据 Agent 类型动态加载对应的模板，支持变量替换（如 `{payload_json}`, `{dynamic_tracing_strategy}`）。
+    *   所有智能体 Prompt 存储于 `prompts/core/` 目录下的 YAML 文件中，同时携带 `output_schema`。
+    *   引擎按 Agent 名加载模板，只做 `{payload_json}` 一处变量替换；追踪策略由大模型自行识别。
 *   **Semgrep 静态扫描集成 (Semgrep Integration)**
     *   支持自定义 Semgrep 规则目录或单文件规则（项目内置规则始终包含）。
     *   一次性扫描产出 `routes`（API 路由）和 `sinks`（危险点）两类结构化结果。
@@ -85,26 +86,27 @@ python -m src.main ./dummy_project --semgrep-rules ./semgrep_rules/
 2. 在目标目录下重建 `.a2a_bus/` 消息总线目录
 3. 启动 Web 看板（默认端口 8080）
 4. 开始审计流程：
-   - 通过 `_discover_microservices()` 扫描目标目录第一层子目录构建微服务映射
+   - 通过 `_discover_microservices()` 扫描目标目录第一层子目录构建微服务映射，并按服务数自动扩容沙盒池
    - Semgrep 一次性扫描 API 路由（`routes`）和漏洞点（`sinks`）
    - 并发派发：每个 sink → ReverseTracer，每个 route → LogicAuditor
    - 命中后进入红蓝对抗（RedValidator → BlueValidator → ReportGenerator）
+5. **全部任务处理完毕后自然退出**（主循环追踪 in-flight 协程，连续 2 轮空闲即收尾），无需 Ctrl+C。
 
 ### 目录结构
 ```
 CodeAudit/
 ├── src/                    # 核心引擎代码
-│   ├── main.py             # CLI 入口 (73 行)
-│   ├── engine.py           # 异步调度引擎 (327 行)
-│   ├── agent.py            # OpenCode HTTP 客户端 (227 行)
-│   ├── server_manager.py   # HTTP 沙盒池管理器 (341 行)
-│   ├── a2a_bus.py          # 文件系统消息总线 (130 行)
-│   ├── state_router.py     # 状态路由与任务裂变 (358 行)
-│   ├── state_tracker.py    # Web 前端状态追踪 (539 行)
-│   ├── semgrep_scanner.py  # Semgrep 静态扫描器 (352 行)
-│   └── prompts.py          # 动态模板加载器 (44 行)
+│   ├── main.py             # CLI 入口
+│   ├── engine.py           # 异步调度引擎（主循环 + 跨服务接力 + in-flight 追踪）
+│   ├── agent.py            # OpenCode HTTP 客户端（结构化输出 + 同 session 重试）
+│   ├── server_manager.py   # HTTP 沙盒池管理器（细粒度锁 + LRU + 空闲回收）
+│   ├── a2a_bus.py          # 文件系统消息总线（tmp+fsync+rename 原子写）
+│   ├── state_router.py     # 数据驱动路由（ROUTE_RULES 规则表）
+│   ├── state_tracker.py    # Web 前端状态追踪 + session 轮询
+│   ├── semgrep_scanner.py  # Semgrep 静态扫描器
+│   └── prompts.py          # Prompt + output_schema 加载器
 ├── prompts/                # 智能体 Prompt 模板库
-│   └── core/               # 核心智能体模板
+│   └── core/               # 核心智能体模板（每份含 system_prompt_template + output_schema）
 │       ├── reverse_tracer.yaml
 │       ├── logic_auditor.yaml
 │       ├── red_validator.yaml
@@ -113,9 +115,10 @@ CodeAudit/
 │       └── retry.yaml
 ├── semgrep_rules/          # Semgrep 规则集合
 │   └── custom/
-│       └── spring-api.yaml
+│       ├── spring-api.yaml    # Spring API 路由提取
+│       └── spel-injection.yaml # SpEL 注入 sink 检测
 ├── web/                    # Web 前端界面
-│   └── index.html          # Vue.js 实时看板 (449 行)
+│   └── index.html          # Vue.js 实时看板
 ├── doc/                    # 详细设计文档
 ├── reports/                # 漏洞报告输出目录（自动生成）
 └── dummy_project/          # 测试项目（多微服务架构）
@@ -127,11 +130,19 @@ CodeAudit/
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `max_active_servers` | 最大并发沙盒数 | 5 |
+| `max_active_servers` | 最大并发沙盒数；引擎启动时会按微服务数自动上调至 `max(5, 服务数)` | 5 |
 | `hostname` | 监听主机名 | 127.0.0.1 |
 | `cors_origins` | CORS 允许的来源列表 | [] |
-| `health_check_timeout` | 健康检查超时(秒) | 30.0 |
+| `health_check_timeout` | 启动健康检查超时(秒) | 30.0 |
 | `health_check_interval` | 健康检查重试间隔(秒) | 0.5 |
+| `_idle_timeout` | 所有 session 持续 idle 超过此时长才回收(秒) | 60.0 |
+
+### 引擎配置
+
+| 常量 | 说明 | 默认值 |
+|------|------|--------|
+| `MAX_CONCURRENT_AGENTS` | `process_task` 同时在跑的上限（`asyncio.Semaphore`） | 20 |
+| `MAX_AGENT_TIMEOUT` | 单次 OpenCode HTTP 调用超时(秒) | 3600 |
 
 ### 环境变量
 
