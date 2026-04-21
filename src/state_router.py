@@ -2,163 +2,303 @@ import logging
 import json
 import os
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
-from src.a2a_bus import A2ABusManager
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
-NEXT_HOP_ROUTING = {
-    "SemgrepScanner": {
-        "ScanResult": "ReverseTracer"
-    },
-    "ReverseTracer": {
-        "VulnCandidate": "RedValidator",
-        "CrossServiceTraceRequest": "Orchestrator"
-    },
-    "LogicAuditor": {
-        "VulnCandidate": "RedValidator"
-    },
-    "RedValidator": {
-        "ExploitAttempt": "BlueValidator"
-    },
-    "BlueValidator": {
-        "ConfirmedVuln": "ReportGenerator"
-    }
+from src.a2a_bus import A2ABusManager
+
+# 终止状态：Agent 明确声明"无事"。注意：若同时返回业务字段，由上层优先业务字段。
+TERMINAL_STATES = ("NOT_EXPLOITABLE", "DEFENDED")
+
+# 判定"Agent 其实给了业务信号"的字段集合
+_BUSINESS_FIELDS = ("vuln_type", "vuln_class", "action", "attack_vector", "mitigation_advice")
+
+
+@dataclass(frozen=True)
+class RouteRule:
+    """描述"某个 sender 完成后"的单条路由规则（数据驱动替代原先的 6 个方法）。
+
+    - next_* 为 None 表示这是终点（ReportGenerator）
+    - success_add_task=False 表示"同一漏洞在链内接力"（BlueValidator → ReportGenerator）
+    - on_success_hook(router, task_id, merged_payload) 用于保留个别副作用（如报告落盘）
+    """
+    sender: str
+    success_check: Callable[[Dict[str, Any]], bool]
+    next_message_type: Optional[str] = None
+    next_recipient: Optional[str] = None
+    success_kanban_category: Optional[str] = None          # "red" / "blue" / "resolved"
+    success_kanban_status: str = "PENDING"
+    success_details_fields: Tuple[str, ...] = field(default_factory=tuple)
+    success_add_task: bool = True
+    miss_kanban_label: Optional[str] = None                # 第一列显示的"类型"
+    miss_kanban_reason: Optional[str] = None               # 第二列显示的"原因"
+    miss_kanban_status: str = "DEFENDED"
+    on_success_hook: Optional[Callable[["StateRouter", str, Dict[str, Any]], None]] = None
+
+
+# 红队/蓝队/报告阶段看板 details 的字段顺序
+_RED_DETAILS = ("call_chain", "suspicion_reason", "vuln_type", "entry_route")
+_BLUE_DETAILS = (
+    "attack_vector", "poc_payload", "max_impact",
+    "call_chain", "suspicion_reason", "vuln_type", "entry_route",
+)
+_RESOLVED_DETAILS = (
+    "call_chain", "attack_vector", "defense_analysis", "mitigation_advice",
+    "suspicion_reason", "cwe", "poc_payload", "max_impact",
+    "vulnerability", "cwe_id", "severity", "description", "remediation",
+    "vuln_type", "entry_route",
+)
+
+
+def _has_vuln_type(p: Dict[str, Any]) -> bool:
+    return bool(p.get("vuln_type") or p.get("vuln_class"))
+
+
+def _red_hit(p: Dict[str, Any]) -> bool:
+    return p.get("status") == "EXPLOITABLE" or "attack_vector" in p
+
+
+def _blue_hit(p: Dict[str, Any]) -> bool:
+    return p.get("status") == "VULNERABLE" or "mitigation_advice" in p
+
+
+def _save_report_hook(router: "StateRouter", task_id: str, payload: Dict[str, Any]) -> None:
+    router._save_vulnerability_report(task_id, payload)
+
+
+ROUTE_RULES: Dict[str, RouteRule] = {
+    "ReverseTracer": RouteRule(
+        sender="ReverseTracer",
+        success_check=_has_vuln_type,
+        next_message_type="VulnCandidate",
+        next_recipient="RedValidator",
+        success_kanban_category="red",
+        success_details_fields=_RED_DETAILS,
+        miss_kanban_label="ReverseTracer",
+        miss_kanban_reason="输出字段缺失",
+    ),
+    "LogicAuditor": RouteRule(
+        sender="LogicAuditor",
+        success_check=lambda p: "vuln_type" in p,
+        next_message_type="VulnCandidate",
+        next_recipient="RedValidator",
+        success_kanban_category="red",
+        success_details_fields=_RED_DETAILS,
+        miss_kanban_label="LOGIC",
+        miss_kanban_reason="审计通过",
+    ),
+    "RedValidator": RouteRule(
+        sender="RedValidator",
+        success_check=_red_hit,
+        next_message_type="ExploitAttempt",
+        next_recipient="BlueValidator",
+        success_kanban_category="blue",
+        success_details_fields=_BLUE_DETAILS,
+        miss_kanban_label="RED-FAIL",
+        miss_kanban_reason="不可利用",
+    ),
+    "BlueValidator": RouteRule(
+        sender="BlueValidator",
+        success_check=_blue_hit,
+        next_message_type="ConfirmedVuln",
+        next_recipient="ReportGenerator",
+        success_kanban_category="resolved",
+        success_kanban_status="CONFIRMED",
+        success_details_fields=_RESOLVED_DETAILS,
+        success_add_task=False,  # 接力同一漏洞，不再增加任务计数
+        miss_kanban_label="BLUE-FAIL",
+        miss_kanban_reason="防御有效",
+    ),
+    "ReportGenerator": RouteRule(
+        sender="ReportGenerator",
+        success_check=lambda _p: True,
+        on_success_hook=_save_report_hook,
+    ),
+    "SemgrepScanner": RouteRule(
+        # 语义完整性：SemgrepScanner 的任务由 engine 初始化时直接派发，不会走到 route()
+        # 保留占位让未知 sender 检查更严格
+        sender="SemgrepScanner",
+        success_check=lambda _p: False,
+    ),
 }
 
-TERMINAL_STATES = [
-    "NOT_EXPLOITABLE",
-    "DEFENDED"
-]
 
 class StateRouter:
     def __init__(self, bus: A2ABusManager, tracker=None):
         self.bus = bus
         self.tracker = tracker
-    
-    def _extract_json_from_str(self, text: str) -> Dict[str, Any]:
-        """从字符串中提取 JSON，按优先级尝试多种策略"""
-        
-        if not text or not isinstance(text, str):
-            return {}
-        
+
+    # ---------- JSON 提取（权威值优先） ----------
+
+    def _extract_parsed(self, agent_output: Any) -> Optional[Dict[str, Any]]:
+        """提取解析后的 JSON dict。
+        1) agent_output["structured_output"]：OpenCode 服务端 JSON Schema 校验通过的权威值
+        2) agent_output["response"] 字符串：轻量 JSON / Markdown 代码块
+        3) agent_output 本身含业务字段：直接使用（兼容历史）
+        失败返回 None，由上层按死信处理。
+        """
+        if isinstance(agent_output, str):
+            return self._parse_json_string(agent_output)
+        if not isinstance(agent_output, dict):
+            return None
+
+        structured = agent_output.get("structured_output")
+        if isinstance(structured, dict):
+            return structured
+
+        response = agent_output.get("response")
+        if isinstance(response, str) and response.strip():
+            parsed = self._parse_json_string(response)
+            if parsed is not None:
+                return parsed
+
+        if any(k in agent_output for k in (*_BUSINESS_FIELDS, "status")):
+            return agent_output
+
+        return None
+
+    @staticmethod
+    def _parse_json_string(text: str) -> Optional[Dict[str, Any]]:
+        """轻量 JSON 提取：直接 parse → Markdown 代码块。失败返回 None。"""
         text = text.strip()
         if not text:
-            return {}
-        
-        # 修复 Windows 盘符路径的双重转义 (如 D:\\ -> D:\)
-        text = re.sub(r'([A-Za-z]):\\\\', r'\1:\\', text)
-        
-        # 1. 直接尝试解析标准 JSON
+            return None
+
         try:
-            return json.loads(text)
+            parsed = json.loads(text)
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             pass
-        
-        # 2. 提取 Markdown 代码块（支持 ```json ... ``` 和 ``` ... ```）
-        match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', text, re.DOTALL)
-        if match:
+
+        m = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
+        if m:
             try:
-                return json.loads(match.group(1))
+                parsed = json.loads(m.group(1))
+                return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
-                pass
-        
-        # 3. 查找以 { 或 [ 开始的 JSON（从左到右扫描）
-        for i, char in enumerate(text):
-            if char == '{':
-                try:
-                    return json.loads(text[i:])
-                except json.JSONDecodeError:
-                    continue
-            elif char == '[':
-                try:
-                    return json.loads(text[i:])
-                except json.JSONDecodeError:
-                    continue
-        
-        # 4. 从文本末尾向前查找 JSON（有些 LLM 把 JSON 放在最后）
-        text_rev = text[::-1]
-        for i, char in enumerate(text_rev):
-            if char == '}':
-                try:
-                    return json.loads(text_rev[i::-1][::-1])
-                except json.JSONDecodeError:
-                    continue
-            elif char == ']':
-                try:
-                    return json.loads(text_rev[i::-1][::-1])
-                except json.JSONDecodeError:
-                    continue
-        
-        # 所有尝试失败
-        logging.warning(f"JSON 解析失败，返回空字典。输入预览: {text[:200]}...")
-        return {}
-    
-    def _parse_json_output(self, output):
-        """解析可能是 Markdown 格式或普通文本中包含 JSON 的输出"""
-        if isinstance(output, dict):
-            if "response" in output:
-                return self._extract_json_from_str(str(output["response"]))
-            return output
-        return self._extract_json_from_str(str(output))
+                return None
+        return None
+
+    @staticmethod
+    def _resolve_entry_route(merged_payload: Dict[str, Any]) -> str:
+        """统一的 entry_route 提取：agent 自报 → sink_details.filepath → route_details.path。"""
+        if merged_payload.get("entry_route"):
+            return merged_payload["entry_route"]
+        sink = merged_payload.get("sink_details") or {}
+        if sink.get("filepath"):
+            return sink["filepath"]
+        route = merged_payload.get("route_details") or {}
+        if route.get("path"):
+            return route["path"]
+        return "未知"
+
+    # ---------- 主路由入口 ----------
 
     def route(self, completed_task: str, agent_output: Dict[str, Any]):
         """将 Agent 的输出路由到下一跳。"""
         orig_env = self.bus.read_message(completed_task)
         sender = orig_env["recipient"]
         task_id = orig_env["task_id"]
-        message_type = orig_env.get("message_type", "TaskRequest")
-  
-        # 首先解析 agent_output 中的 response 字段（如果有 Markdown 包装）
-        parsed_output = self._parse_json_output(agent_output)
-        status = parsed_output.get("status")
 
-        logging.info(f"[路由] {sender} -> ? | task_id={task_id} | parsed keys: {list(parsed_output.keys())}")
+        parsed = self._extract_parsed(agent_output)
+        logging.info(
+            f"[路由] {sender} | task_id={task_id} | "
+            f"parsed_keys={list(parsed.keys()) if parsed else None}"
+        )
 
-        # 解析失败或 Agent 返回空输出：视作非法输出并兜底记录，避免任务静默消失
-        if not parsed_output:
+        # 解析失败：兜底记录，避免任务静默消失
+        if not parsed:
             logging.warning(f"[路由] {sender} 任务 {task_id} 输出无法解析为 JSON，丢弃路由")
             if self.tracker:
                 self.tracker.update_kanban("resolved", task_id, sender, "无效输出", status="DEFENDED")
             return
 
-        # 终态判定：仅当 Agent 明确表达"无事"（仅 status 字段或完全无业务字段）时才终止链路。
-        # 若同时出现业务字段（vuln_type / action），说明模型给了真实发现，status 可能是噪音。
-        has_business_fields = any(
-            k in parsed_output for k in ("vuln_type", "vuln_class", "action", "attack_vector")
-        )
-        if status in TERMINAL_STATES and not has_business_fields:
-            logging.info(f"任务 {task_id} 达到终态: {status}")
+        # 特判 1：跨微服务追踪求救 —— 走 Orchestrator 而不是正常路由表
+        if sender == "ReverseTracer" and parsed.get("action") == "cross_service_trace":
+            self._route_cross_service_request(task_id, parsed, orig_env)
             return
-        if status in TERMINAL_STATES and has_business_fields:
+
+        # 特判 2：终态。仅当 Agent 只声明"无事"时终止链路；若同时带业务字段，以业务字段为准。
+        status = parsed.get("status")
+        has_business = any(k in parsed for k in _BUSINESS_FIELDS)
+        if status in TERMINAL_STATES:
+            if not has_business:
+                logging.info(f"任务 {task_id} 达到终态: {status}")
+                return
             logging.warning(
                 f"[路由] {sender} 任务 {task_id} 同时返回 status={status} 与业务字段，"
                 f"以业务字段为准继续派发"
             )
-  
-        # 拦截跨界追踪求救信号
-        if sender == "ReverseTracer" and parsed_output.get("action") == "cross_service_trace":
-            self._route_cross_service_request(task_id, parsed_output, orig_env)
-            return
-  
-        if sender == "SemgrepScanner":
-            pass
-        elif sender == "ReverseTracer":
-            self._route_reverse_tracer_output(task_id, parsed_output, orig_env)
-        elif sender == "LogicAuditor":
-            self._route_logic_auditor_output(task_id, parsed_output, orig_env)
-        elif sender == "RedValidator":
-            self._route_red_validator_output(task_id, agent_output, orig_env)
-        elif sender == "BlueValidator":
-            self._route_blue_validator_output(task_id, agent_output, orig_env)
-        elif sender == "ReportGenerator":
-            self._route_report_generator_output(task_id, agent_output, orig_env)
-        else:
-            logging.warning(f"未知的发送者路由: {sender}")
 
-    def _route_cross_service_request(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
+        rule = ROUTE_RULES.get(sender)
+        if rule is None:
+            logging.warning(f"未知的发送者: {sender}")
+            return
+        self._apply_rule(rule, task_id, parsed, orig_env)
+
+    # ---------- 通用规则应用 ----------
+
+    def _apply_rule(
+        self,
+        rule: RouteRule,
+        task_id: str,
+        parsed: Dict[str, Any],
+        orig_env: Dict[str, Any],
+    ) -> None:
+        merged_payload = {**orig_env.get("payload", {}), **parsed}
+
+        if not rule.success_check(parsed):
+            if self.tracker and rule.miss_kanban_label:
+                self.tracker.update_kanban(
+                    "resolved",
+                    task_id,
+                    rule.miss_kanban_label,
+                    rule.miss_kanban_reason or "",
+                    status=rule.miss_kanban_status,
+                )
+            return
+
+        # 命中路径
+        entry_route = self._resolve_entry_route(merged_payload)
+        vuln_type = merged_payload.get("vuln_type") or merged_payload.get("vuln_class") or "未知"
+
+        if self.tracker and rule.success_add_task:
+            self.tracker.add_task()
+
+        if self.tracker and rule.success_kanban_category:
+            details = {f: merged_payload.get(f) for f in rule.success_details_fields}
+            self.tracker.update_kanban(
+                rule.success_kanban_category,
+                task_id,
+                vuln_type,
+                entry_route,
+                status=rule.success_kanban_status,
+                details=details,
+            )
+
+        if rule.next_recipient and rule.next_message_type:
+            self.bus.write_message(
+                message_type=rule.next_message_type,
+                task_id=task_id,
+                sender=rule.sender,
+                recipient=rule.next_recipient,
+                payload=merged_payload,
+            )
+
+        if rule.on_success_hook is not None:
+            try:
+                rule.on_success_hook(self, task_id, merged_payload)
+            except Exception as e:
+                logging.error(f"on_success_hook({rule.sender}) 执行失败: {e}", exc_info=True)
+
+    # ---------- 特判：跨微服务追踪 ----------
+
+    def _route_cross_service_request(
+        self, task_id: str, parsed: Dict[str, Any], orig_env: Dict[str, Any]
+    ) -> None:
         """将跨微服务追踪请求路由给 Orchestrator（引擎主循环特殊处理）。"""
-        # agent_output 已经在 route() 中解析过了
-        target = agent_output.get("target_identifier", "unknown")
+        target = parsed.get("target_identifier", "unknown")
         logging.info(f"触发跨微服务追踪求救信号: {task_id} -> 目标: {target}")
 
         if self.tracker:
@@ -170,200 +310,43 @@ class StateRouter:
             task_id=f"{task_id}_CROSS",
             sender="ReverseTracer",
             recipient="Orchestrator",
-            payload=agent_output,
-            priority="high"
+            payload=parsed,
+            priority="high",
         )
 
-    def _route_reverse_tracer_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """ReverseTracer 输出进入 RedValidator 进行攻击验证。"""
-        logging.info(f"[路由] ReverseTracer -> RedValidator | vuln_type={agent_output.get('vuln_type')}")
-        # 支持 vuln_type 或 vuln_class 字段
-        # 注意: agent_output 已经在 route() 方法中解析过了
-        vuln_type = agent_output.get("vuln_type") or agent_output.get("vuln_class")
-        if not vuln_type:
-            # ReverseTracer 未返回明确漏洞类型且未声明终态，记录后丢弃，避免任务静默停滞
-            logging.warning(f"[路由] ReverseTracer 任务 {task_id} 缺少 vuln_type/vuln_class，丢弃")
-            if self.tracker:
-                self.tracker.update_kanban("resolved", task_id, "ReverseTracer", "输出字段缺失", status="DEFENDED")
-            return
-        if vuln_type:
-            # 获取 entry_route，优先从 agent_output 获取，其次从 sink_details。
-            entry_route = agent_output.get("entry_route")
-            if not entry_route:
-                sink_details = agent_output.get("sink_details", {})
-                entry_route = sink_details.get("filepath", "未知")
-            
-            if self.tracker: self.tracker.add_task()
-            if self.tracker:
-                details = {
-                    "call_chain": agent_output.get("call_chain"),
-                    "suspicion_reason": agent_output.get("suspicion_reason"),
-                    "vuln_type": agent_output.get("vuln_type") or agent_output.get("vuln_class"),
-                    "entry_route": entry_route
-                }
-                self.tracker.update_kanban("red", task_id, vuln_type, entry_route, details=details)
-            
-            # 合并原始 payload 和 agent_output，保留 sink_details 等上下文信息
-            original_payload = orig_env.get("payload", {})
-            merged_payload = {**original_payload, **agent_output}
-            
-            self.bus.write_message(
-                message_type="VulnCandidate",
-                task_id=task_id,
-                sender="ReverseTracer",
-                recipient="RedValidator",
-                payload=merged_payload
-            )
+    # ---------- 终点副作用：报告落盘 ----------
 
-    def _route_logic_auditor_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """LogicAuditor 输出进入 RedValidator 进行攻击验证。"""
-        logging.info(f"[路由] LogicAuditor -> ? | vuln_type={agent_output.get('vuln_type')} | keys={list(agent_output.keys())}")
-        # 注意: agent_output 已经在 route() 方法中解析过了
-        
-        if "vuln_type" in agent_output:
-            if self.tracker: self.tracker.add_task()
-            if self.tracker: self.tracker.update_kanban("red", task_id, agent_output.get("vuln_type"), agent_output.get("entry_route", "未知"))
-            
-            # 合并原始 payload 和 agent_output，保留 route_details 等上下文信息
-            original_payload = orig_env.get("payload", {})
-            merged_payload = {**original_payload, **agent_output}
-            
-            self.bus.write_message(
-                message_type="VulnCandidate",
-                task_id=task_id,
-                sender="LogicAuditor",
-                recipient="RedValidator",
-                payload=merged_payload
-            )
-        else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "LOGIC", "审计通过", status="DEFENDED")
-
-    def _route_red_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """RedValidator 输出进入 BlueValidator 进行防御验证。"""
-        # 解析可能包含 Markdown 的 JSON 输出
-        parsed_output = self._parse_json_output(agent_output)
-        status = parsed_output.get("status")
-        logging.info(f"[路由] RedValidator -> ? | status={status} | attack_vector={'attack_vector' in parsed_output}")
-        if status == "EXPLOITABLE" or "attack_vector" in parsed_output:
-            # 合并原始 payload 和 agent_output，保留完整的上下文信息
-            original_payload = orig_env.get("payload", {})
-            payload = {**original_payload, **parsed_output}
-            
-            if self.tracker: self.tracker.add_task()
-            if self.tracker:
-                details = {
-                    "attack_vector": payload.get("attack_vector"),
-                    "poc_payload": payload.get("poc_payload"),
-                    "max_impact": payload.get("max_impact"),
-                    "call_chain": payload.get("call_chain"),
-                    "suspicion_reason": payload.get("suspicion_reason"),
-                    "vuln_type": payload.get("vuln_type"),
-                    "entry_route": payload.get("entry_route")
-                }
-                self.tracker.update_kanban("blue", task_id, payload.get("vuln_type", "未知"), payload.get("entry_route", "未知"), details=details)
-            self.bus.write_message(
-                message_type="ExploitAttempt",
-                task_id=task_id,
-                sender="RedValidator",
-                recipient="BlueValidator",
-                payload=payload
-            )
-        else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "RED-FAIL", "不可利用", status="DEFENDED")
-
-    def _route_blue_validator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """BlueValidator 输出进入 ReportGenerator 生成最终报告。"""
-        # 解析可能包含 Markdown 的 JSON 输出
-        parsed_output = self._parse_json_output(agent_output)
-        status = parsed_output.get("status")
-        if status == "VULNERABLE" or "mitigation_advice" in parsed_output:
-            # 合并原始 payload 和 agent_output，保留完整的上下文信息
-            original_payload = orig_env.get("payload", {})
-            payload = {**original_payload, **parsed_output}
-            
-            if self.tracker:
-                details = {
-                    "call_chain": payload.get("call_chain"),
-                    "attack_vector": payload.get("attack_vector"),
-                    "defense_analysis": payload.get("defense_analysis"),
-                    "mitigation_advice": payload.get("mitigation_advice"),
-                    "suspicion_reason": payload.get("suspicion_reason"),
-                    "cwe": payload.get("cwe"),
-                    "poc_payload": payload.get("poc_payload"),
-                    "max_impact": payload.get("max_impact"),
-                    "vulnerability": payload.get("vulnerability"),
-                    "cwe_id": payload.get("cwe_id"),
-                    "severity": payload.get("severity"),
-                    "description": payload.get("description"),
-                    "remediation": payload.get("remediation")
-                }
-                self.tracker.update_kanban(
-                    "resolved", 
-                    task_id, 
-                    payload.get("vuln_type", "未知"), 
-                    payload.get("entry_route", "未知"), 
-                    status="CONFIRMED",
-                    details=details
-                )
-            self.bus.write_message(
-                message_type="ConfirmedVuln",
-                task_id=task_id,
-                sender="BlueValidator",
-                recipient="ReportGenerator",
-                payload=payload
-            )
-        else:
-            if self.tracker: self.tracker.update_kanban("resolved", task_id, "BLUE-FAIL", "防御有效", status="DEFENDED")
-
-    def _route_report_generator_output(self, task_id: str, agent_output: Dict[str, Any], orig_env: Dict[str, Any]):
-        """ReportGenerator 是终点，负责生成最终审计报告。"""
-        # 解析可能包含 Markdown 的 JSON 输出
-        parsed_output = self._parse_json_output(agent_output)
-        
-        vuln_type = parsed_output.get("vuln_type", "未知")
-        entry_route = parsed_output.get("entry_route", "未知")
-        mitigation_advice = parsed_output.get("mitigation_advice", "")
-        
-        logging.info(f"ReportGenerator 已完成任务 {task_id}: {vuln_type} @ {entry_route}")
-        
-        if mitigation_advice:
-            logging.info(f"修复建议: {mitigation_advice}")
-        
-        self._save_vulnerability_report(task_id, parsed_output)
-    
-    def _save_vulnerability_report(self, task_id: str, agent_output: Dict[str, Any]):
-        """将漏洞报告保存到磁盘。"""
+    def _save_vulnerability_report(self, task_id: str, payload: Dict[str, Any]) -> None:
         try:
             output_dir = "reports"
             os.makedirs(output_dir, exist_ok=True)
-            
+
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"vulnerability_{task_id}_{timestamp}.json"
-            filepath = os.path.join(output_dir, filename)
-            
+            filepath = os.path.join(output_dir, f"vulnerability_{task_id}_{timestamp}.json")
+
             report = {
                 "task_id": task_id,
                 "timestamp": datetime.now().isoformat(),
-                "vuln_type": agent_output.get("vuln_type", "未知"),
-                "entry_route": agent_output.get("entry_route", "未知"),
-                "mitigation_advice": agent_output.get("mitigation_advice", ""),
-                "description": agent_output.get("description", ""),
-                "severity": agent_output.get("severity", ""),
-                "cwe_id": agent_output.get("cwe_id", ""),
-                "poc_payload": agent_output.get("poc_payload", ""),
-                "max_impact": agent_output.get("max_impact", ""),
-                "defense_analysis": agent_output.get("defense_analysis", ""),
-                "remediation": agent_output.get("remediation", ""),
-                "attack_vector": agent_output.get("attack_vector", ""),
-                "call_chain": agent_output.get("call_chain", []),
-                "suspicion_reason": agent_output.get("suspicion_reason", ""),
-                "cwe": agent_output.get("cwe", ""),
-                "vulnerability": agent_output.get("vulnerability", "")
+                "vuln_type": payload.get("vuln_type", "未知"),
+                "entry_route": payload.get("entry_route", "未知"),
+                "mitigation_advice": payload.get("mitigation_advice", ""),
+                "description": payload.get("description", ""),
+                "severity": payload.get("severity", ""),
+                "cwe_id": payload.get("cwe_id", ""),
+                "poc_payload": payload.get("poc_payload", ""),
+                "max_impact": payload.get("max_impact", ""),
+                "defense_analysis": payload.get("defense_analysis", ""),
+                "remediation": payload.get("remediation", ""),
+                "attack_vector": payload.get("attack_vector", ""),
+                "call_chain": payload.get("call_chain", []),
+                "suspicion_reason": payload.get("suspicion_reason", ""),
+                "cwe": payload.get("cwe", ""),
+                "vulnerability": payload.get("vulnerability", ""),
             }
-            
+
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(report, f, ensure_ascii=False, indent=2)
-            
+
             logging.info(f"漏洞报告已保存到: {filepath}")
         except Exception as e:
             logging.error(f"保存漏洞报告失败: {e}")
