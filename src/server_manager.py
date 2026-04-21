@@ -25,13 +25,20 @@ class OpenCodeServerManager:
 
         # cwd -> {
         #     "process": Process,
-        #     "port":": int,
+        #     "port": int,
         #     "stderr_task": asyncio.Task,
         #     "last_accessed": float,
-        #     "idle_since": Optional[float]  # 首次检测到所有session空闲的时间戳
+        #     "idle_since": Optional[float]
         # }
         self._servers: Dict[str, Dict[str, Any]] = {}
-        self._lock = asyncio.Lock()
+        # 细粒度锁策略：
+        # - _dict_lock: 短期持有，只保护 _servers 字典的读写
+        # - _startup_locks[cwd]: per-cwd 启动锁，串行化同目录的并发冷启动，
+        #   但允许不同 cwd 并发启动，以及热路径上的 get 完全不阻塞彼此
+        self._dict_lock = asyncio.Lock()
+        self._startup_locks: Dict[str, asyncio.Lock] = {}
+        self._startup_locks_mutex = asyncio.Lock()
+
         self._http_session: Optional[aiohttp.ClientSession] = None
         self._idle_timeout = 60.0  # 服务器空闲超过60秒才允许回收
 
@@ -47,8 +54,6 @@ class OpenCodeServerManager:
                 line = await process.stderr.readline()
                 if not line:
                     break
-                # 可选：记录 stderr 日志
-                # logging.debug(f"[opencode stderr {cwd}]: {line.decode().strip()}")
         except Exception as e:
             logging.debug(f"stderr reader stopped for {cwd}: {e}")
         finally:
@@ -56,7 +61,7 @@ class OpenCodeServerManager:
                 process.stderr.feed_eof()
 
     async def _check_server_health(self, port: int) -> bool:
-        """检查 /global/health 端点确认服务器可用"""
+        """检查 /global/health 端点确认服务器可用（锁外调用）"""
         url = f"http://{self.hostname}:{port}/global/health"
         auth = None
         if self.auth_password:
@@ -78,59 +83,123 @@ class OpenCodeServerManager:
             await asyncio.sleep(self.health_check_interval)
         return False
 
+    async def _get_startup_lock(self, cwd: str) -> asyncio.Lock:
+        """延迟分配 per-cwd 启动锁。"""
+        async with self._startup_locks_mutex:
+            lock = self._startup_locks.get(cwd)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._startup_locks[cwd] = lock
+            return lock
+
+    async def _dispose_server_info(self, info: Dict[str, Any], cwd: str) -> None:
+        """仅做进程与 stderr 回收，不触碰字典。调用者必须先把 info 从字典 pop 出来。"""
+        process = info["process"]
+        stderr_task = info.get("stderr_task")
+
+        if stderr_task and not stderr_task.done():
+            stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logging.debug(f"stderr_task 关闭异常 {cwd}: {e}")
+
+        try:
+            if process.returncode is None:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            process.kill()
+            try:
+                await process.wait()
+            except Exception:
+                pass
+        except Exception as e:
+            logging.debug(f"dispose_server_info({cwd}) 失败: {e}")
+
+    async def _evict_oldest_locked(self) -> Optional[tuple]:
+        """在已持有 _dict_lock 的前提下，pop 最旧的 server。返回 (cwd, info) 或 None。"""
+        if not self._servers:
+            return None
+        oldest_cwd = min(self._servers.keys(), key=lambda k: self._servers[k]["last_accessed"])
+        info = self._servers.pop(oldest_cwd)
+        return oldest_cwd, info
+
     async def get_or_start_server(self, cwd: str) -> int:
-        async with self._lock:
-            # 检查现有服务器是否存活
-            if cwd in self._servers:
-                server_info = self._servers[cwd]
-                process = server_info["process"]
+        """获取 cwd 对应的 OpenCode server 端口。不存在则启动新的。
 
-                # 验证进程是否仍在运行
-                if process.returncode is None:
-                    # 可选：再次进行健康检查
-                    if await self._check_server_health(server_info["port"]):
-                        server_info["last_accessed"] = time.time()
-                        return server_info["port"]
-                    else:
-                        # 健康检查失败，清理
-                        logging.warning(f"⚠️ 服务器健康检查失败，重新启动: {cwd}")
-                        await self._cleanup_server(cwd)
+        锁策略：
+        - 快路径（已存在 + 进程存活）：只短期持字典锁记录 last_accessed，
+          健康检查放在锁外，这样 N 个协程查同一个健康 server 不再互相阻塞。
+        - 慢路径（需要启动）：用 per-cwd 启动锁串行同目录并发，但不会阻塞其他 cwd。
+        """
+        # Phase 1: 快路径 —— 锁内只做字典查找
+        port: Optional[int] = None
+        async with self._dict_lock:
+            info = self._servers.get(cwd)
+            if info is not None and info["process"].returncode is None:
+                port = info["port"]
+                info["last_accessed"] = time.time()
 
-            # 达到上限时回收最旧的服务器
-            if len(self._servers) >= self.max_active_servers:
-                await self._evict_oldest_server()
+        # Phase 2: 锁外健康检查
+        if port is not None:
+            if await self._check_server_health(port):
+                return port
+            logging.warning(f"⚠️ 服务器健康检查失败，重新启动: {cwd}")
+            # 健康检查失败：移出字典并回收（锁外 dispose 长操作）
+            async with self._dict_lock:
+                stale = self._servers.pop(cwd, None)
+            if stale is not None:
+                await self._dispose_server_info(stale, cwd)
 
+        # Phase 3: 启动新 server，per-cwd 串行化同目录的并发启动
+        startup_lock = await self._get_startup_lock(cwd)
+        async with startup_lock:
+            # 双重检查：可能另一个协程刚刚启动完成
+            async with self._dict_lock:
+                info = self._servers.get(cwd)
+                if info is not None and info["process"].returncode is None:
+                    info["last_accessed"] = time.time()
+                    return info["port"]
+                evicted = None
+                if len(self._servers) >= self.max_active_servers:
+                    evicted = await self._evict_oldest_locked()
+
+            # 锁外：回收被淘汰的旧 server
+            if evicted is not None:
+                old_cwd, old_info = evicted
+                logging.info(f"♻️ [LRU Pool] 达到并发上限，回收闲置沙盒: {old_cwd}")
+                await self._dispose_server_info(old_info, old_cwd)
+
+            # 锁外：启动新 subprocess + 健康检查
             port = self._get_free_port()
             cmd = ["opencode", "serve", "--port", str(port), "--hostname", self.hostname]
-
-            # 添加 CORS 配置
             for origin in self.cors_origins:
                 cmd.extend(["--cors", origin])
-
             if sys.platform == "win32":
                 cmd[0] = "opencode.exe"
 
             logging.info(f"🚀 [LRU Pool] 启动常驻沙盒 Server: {cwd} (端口: {port})")
 
-            # 启动进程，将 stderr 重定向到后台任务读取
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=cwd,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE
             )
-
-            # 启动后台任务读取 stderr 避免缓冲区填满
             stderr_task = asyncio.create_task(self._read_stderr(process, cwd))
 
-            # 健康检查
             if not await self._check_server_health(port):
-                # 启动失败，清理进程
-                process.terminate()
+                # 启动失败，回收进程再抛错
                 try:
+                    process.terminate()
                     await asyncio.wait_for(process.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
                     process.kill()
+                except Exception:
+                    pass
                 stderr_task.cancel()
                 try:
                     await stderr_task
@@ -138,70 +207,33 @@ class OpenCodeServerManager:
                     pass
                 raise RuntimeError(f"服务器启动失败或健康检查超时: {cwd}")
 
-            self._servers[cwd] = {
+            # 注册到字典
+            new_info = {
                 "process": process,
                 "port": port,
                 "stderr_task": stderr_task,
-                "last_accessed": time.time()
+                "last_accessed": time.time(),
             }
+            async with self._dict_lock:
+                self._servers[cwd] = new_info
             return port
 
     async def _cleanup_server(self, cwd: str):
-        """清理指定 cwd 的服务器资源"""
-        if cwd not in self._servers:
+        """清理指定 cwd 的服务器资源（保留公共 API，内部走新 dispose 路径）。"""
+        async with self._dict_lock:
+            info = self._servers.pop(cwd, None)
+        if info is None:
             return
+        await self._dispose_server_info(info, cwd)
 
-        server_info = self._servers.pop(cwd)
-        process = server_info["process"]
-        stderr_task = server_info.get("stderr_task")
-
-        # 取消 stderr 读取任务
-        if stderr_task and not stderr_task.done():
-            stderr_task.cancel()
-            try:
-                await stderr_task
-            except asyncio.CancelledError:
-                pass
-
-        # 终止进程
-        try:
-            process.terminate()
-            await asyncio.wait_for(process.wait(), timeout=2.0)
-        except asyncio.TimeoutError:
-            process.kill()
-        except Exception:
-            pass
-
-    async def _evict_oldest_server(self):
-        """
-        回收最旧的服务器（传统LRU策略）
-        注意：此方法仍保留用于向后兼容，但现在会先检查服务器是否空闲
-        """
-        # 找到最旧的服务器
-        oldest_cwd = min(self._servers.keys(), key=lambda k: self._servers[k]["last_accessed"])
-        logging.info(f"♻️ [LRU Pool] 达到并发上限，回收闲置沙盒: {oldest_cwd}")
-        await self._cleanup_server(oldest_cwd)
-    
     async def _fetch_session_statuses(self, port: int) -> Dict[str, Dict]:
-        """
-        获取指定端口的所有session状态（通过 /session/status 接口）
-        
-        Args:
-            port: OpenCode服务器端口
-        
-        Returns:
-            Dict[str, Dict]: 所有session的状态映射
-                              例如：{"session1": {"type": "idle"}, "session2": {"type": "busy"}}
-        
-        Returns:
-            空字典表示请求失败或无session
-        """
+        """获取指定端口的所有 session 状态（通过 /session/status 接口）。"""
         url = f"http://{self.hostname}:{port}/session/status"
-        
+
         try:
             if not self._http_session or self._http_session.closed:
                 self._http_session = aiohttp.ClientSession()
-            
+
             async with self._http_session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
@@ -209,133 +241,113 @@ class OpenCodeServerManager:
                     return data
         except Exception as e:
             logging.debug(f"[Session监控] 获取session状态失败 (port={port}): {e}")
-        
+
         return {}
-    
+
     async def check_idle_servers(self) -> List[str]:
-        """
-        检查所有服务器的session状态，返回可以安全回收的服务器目录列表
-        
+        """检查所有服务器的 session 状态，返回可以安全回收的服务器目录列表。
+
         判断逻辑：
         1. 进程已退出 → 立即标记为可回收
-        2. 通过 /session/status 检查所有session状态
-        3. 所有session都是 idle 状态 → 记录空闲时间
-        4. 空闲时间超过 self._idle_timeout (60秒) → 标记为可回收
-        5. 有session处于 busy 状态 → 清除空闲计时，继续使用
-        
-        Returns:
-            List[str]: 可以安全回收的服务器cwd列表
+        2. 所有 session 都是 idle → 记录/累积空闲时间；超过 `_idle_timeout` 则可回收
+        3. 有 session 忙碌 → 清除空闲计时
         """
-        idle_servers = []
+        idle_servers: List[str] = []
         current_time = time.time()
-        
-        for cwd, server_info in self._servers.items():
+
+        # 字典锁内做浅拷贝，随后遍历副本（锁外做 HTTP 探测）
+        async with self._dict_lock:
+            snapshot = list(self._servers.items())
+
+        for cwd, server_info in snapshot:
             try:
-                # 1. 检查进程是否存活
                 process = server_info["process"]
                 if process.returncode is not None:
                     logging.warning(f"[Server监控] 进程已退出: {cwd} (returncode={process.returncode})")
                     idle_servers.append(cwd)
                     continue
-                
-                # 2. 通过 /session/status 检查所有session状态
+
                 port = server_info["port"]
                 statuses = await self._fetch_session_statuses(port)
-                
-                # 3. 判断是否所有session都是空闲状态
+
                 if not statuses:
-                    # 没有session，视为空闲
-                    logging.debug(f"[Server监控] {cwd} (port={port}) 无活跃session")
                     all_idle = True
                 else:
-                    all_idle = all(
-                        status.get("type") == "idle" 
-                        for status in statuses.values()
-                    )
-                    
-                    # 记录调试信息
+                    all_idle = all(s.get("type") == "idle" for s in statuses.values())
                     busy_count = sum(1 for s in statuses.values() if s.get("type") != "idle")
                     if busy_count > 0:
                         logging.debug(f"[Server监控] {cwd} (port={port}) 有 {busy_count}/{len(statuses)} 个session忙碌")
-                
+
                 if all_idle:
-                    # 所有session都空闲（或无session）
                     idle_since = server_info.get("idle_since")
-                    
                     if idle_since is None:
-                        # 首部检测到空闲，记录时间
-                        server_info["idle_since"] = current_time
-                        logging.info(f"[Server监控] {cwd} 检测到空闲状态，开始计时")
+                        # 回写真字典（条目可能已被其他协程回收）
+                        async with self._dict_lock:
+                            live = self._servers.get(cwd)
+                            if live is not None:
+                                live["idle_since"] = current_time
+                                logging.info(f"[Server监控] {cwd} 检测到空闲状态，开始计时")
                     elif (current_time - idle_since) > self._idle_timeout:
-                        # 空闲超过60秒，标记为可回收
                         idle_duration = current_time - idle_since
                         logging.info(f"[Server监控] {cwd} 空闲 {idle_duration:.1f}秒，可回收")
                         idle_servers.append(cwd)
                 else:
-                    # 有session在忙碌，清除空闲计时
                     if server_info.get("idle_since") is not None:
-                        logging.info(f"[Server监控] {cwd} 重新进入忙碌状态，清除空闲计时")
-                        server_info["idle_since"] = None
-                    
+                        async with self._dict_lock:
+                            live = self._servers.get(cwd)
+                            if live is not None:
+                                live["idle_since"] = None
+                                logging.info(f"[Server监控] {cwd} 重新进入忙碌状态，清除空闲计时")
             except Exception as e:
                 logging.error(f"[Server监控] 检查服务器状态失败 {cwd}: {e}")
-        
+
         return idle_servers
-    
+
     async def evict_idle_servers(self, force: bool = False) -> int:
-        """
-        回收空闲服务器（智能回收策略）
-        
-        Args:
-            force: 是否强制回收（即使未达上限），用于无任务时主动清理
-        
-        调用时机：
-        - 达到 max_active_servers 上限时（force=False）
-        - 主循环检测到无任务时（force=True，强制回收）
-        
-        回收策略：
-        1. 调用 check_idle_servers() 获取可回收服务器列表
-        2. 如果 force=True 或 达到上限，则回收
-        3. 每次只回收一个（避免过度回收）
-        
-        Returns:
-            int: 回收的服务器数量（0或1）
+        """回收空闲服务器（智能回收策略）。
+
+        策略：
+        - force=True：无任务时主动清理
+        - force=False：只在达到上限时回收
+        - 每次只回收一个（避免过度回收）
         """
         idle_servers = await self.check_idle_servers()
-        
-        # 改进：支持强制回收模式
-        # - force=True: 无任务时主动清理
-        # - force=False: 只在达到上限时回收
         should_evict = force or (len(self._servers) >= self.max_active_servers and idle_servers)
-        
-        if should_evict and idle_servers:
-            # 达到上限或强制回收，且有可回收的服务器
-            # 按空闲时间排序，回收空闲最久的
-            idle_servers.sort(key=lambda cwd: self._servers[cwd].get("idle_since", 0))
-            
-            # 只回收一个服务器
-            to_evict = idle_servers[0:1]
-            for cwd in to_evict:
-                idle_duration = time.time() - self._servers[cwd].get("idle_since", 0)
-                if force:
-                    logging.info(f"♻️ [ServerPool] 强制回收空闲服务器: {cwd} (空闲 {idle_duration:.1f}s)")
-                else:
-                    logging.info(f"♻️ [ServerPool] 达到上限，回收空闲服务器: {cwd} (空闲 {idle_duration:.1f}s)")
-                await self._cleanup_server(cwd)
-            
-            return len(to_evict)
-        
-        return 0
+
+        if not (should_evict and idle_servers):
+            return 0
+
+        # 锁内选出 idle 最久的 + 原子 pop
+        async with self._dict_lock:
+            candidates = [c for c in idle_servers if c in self._servers]
+            candidates.sort(key=lambda c: self._servers[c].get("idle_since") or 0)
+            if not candidates:
+                return 0
+            to_evict_cwd = candidates[0]
+            info = self._servers.pop(to_evict_cwd)
+
+        idle_duration = time.time() - (info.get("idle_since") or 0)
+        if force:
+            logging.info(f"♻️ [ServerPool] 强制回收空闲服务器: {to_evict_cwd} (空闲 {idle_duration:.1f}s)")
+        else:
+            logging.info(f"♻️ [ServerPool] 达到上限，回收空闲服务器: {to_evict_cwd} (空闲 {idle_duration:.1f}s)")
+
+        # 锁外 dispose
+        await self._dispose_server_info(info, to_evict_cwd)
+        return 1
 
     async def shutdown_all(self):
         logging.info(f"🛑 [ServerManager] 关闭所有沙盒 Server...")
-        tasks = []
-        for cwd in list(self._servers.keys()):
-            tasks.append(self._cleanup_server(cwd))
+        # 原子清空字典，随后并发 dispose 所有 info
+        async with self._dict_lock:
+            items = list(self._servers.items())
+            self._servers.clear()
 
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        if items:
+            await asyncio.gather(
+                *(self._dispose_server_info(info, cwd) for cwd, info in items),
+                return_exceptions=True,
+            )
 
-        # 关闭 HTTP 会话
         if self._http_session and not self._http_session.closed:
             await self._http_session.close()

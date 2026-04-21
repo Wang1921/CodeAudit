@@ -3,7 +3,7 @@ import logging
 import json
 import os
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Set, Tuple
 from src.a2a_bus import A2ABusManager
 from src.agent import OpenCodeAgent
 from src.state_router import StateRouter
@@ -37,25 +37,42 @@ class AuditEngine:
         优先从已发现的服务映射表中查找，
         回退到启发式逻辑：寻找包含 pom.xml / go.mod / package.json 的最近父目录。
         """
-        # 优先使用已发现的服务映射表
+        if not filepath:
+            return self.target_source_dir
+
+        # 归一化为绝对路径：Semgrep 对 sink 给的是相对路径，对 route 给的是绝对路径
+        abs_filepath = filepath if os.path.isabs(filepath) else os.path.join(self.target_source_dir, filepath)
+        abs_filepath = os.path.normpath(abs_filepath)
+
+        # 优先使用已发现的服务映射表；用带分隔符的前缀匹配避免 "api" 误匹配 "api-gateway"
         if self.service_route_map:
+            best_match: Optional[Tuple[str, str]] = None  # (service_name, service_dir)
             for service_name, service_dir in self.service_route_map.items():
-                if service_dir in filepath:
-                    logging.info(f"[ServiceDir] '{filepath}' 归属微服务 '{service_name}' -> {service_dir}")
-                    return service_dir
- 
-        # 启发式回退：逐级向上查找构建文件
-        parts = filepath.replace("\\", "/").split("/")
+                normalized_dir = os.path.normpath(service_dir)
+                prefix = normalized_dir + os.sep
+                if abs_filepath == normalized_dir or abs_filepath.startswith(prefix):
+                    # 选最长匹配（处理嵌套服务目录）
+                    if best_match is None or len(normalized_dir) > len(best_match[1]):
+                        best_match = (service_name, normalized_dir)
+            if best_match:
+                logging.debug(f"[ServiceDir] '{filepath}' 归属微服务 '{best_match[0]}' -> {best_match[1]}")
+                return best_match[1]
+
+        # 启发式回退：从文件所在目录逐级向上查找构建文件
         build_markers = ("pom.xml", "go.mod", "package.json", "build.gradle")
-        for depth in range(1, min(len(parts), 4)):
-            candidate = os.path.join(self.target_source_dir, *parts[:depth])
-            if os.path.isdir(candidate):
-                for marker in build_markers:
-                    if os.path.exists(os.path.join(candidate, marker)):
-                        logging.info(f"[ServiceDir] '{filepath}' 启发式识别微服务目录: {candidate}")
-                        return candidate
- 
-        logging.info(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
+        root_abs = os.path.normpath(self.target_source_dir)
+        current = os.path.dirname(abs_filepath) if not os.path.isdir(abs_filepath) else abs_filepath
+        while current and current.startswith(root_abs) and current != root_abs:
+            for marker in build_markers:
+                if os.path.exists(os.path.join(current, marker)):
+                    logging.debug(f"[ServiceDir] '{filepath}' 启发式识别微服务目录: {current}")
+                    return current
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+        logging.debug(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
         return self.target_source_dir
     
     def _get_prompt_for_agent(self, agent_name: str, payload_json: str) -> str:
@@ -136,9 +153,12 @@ class AuditEngine:
 
     async def process_task(self, filepath: str):
         async with self.semaphore:
+            task_id: Optional[str] = None
+            recipient: Optional[str] = None
             try:
                 env = self.bus.read_message(filepath)
                 recipient = env["recipient"]
+                task_id = env.get("task_id")
                 payload_json = json.dumps(env["payload"], ensure_ascii=False)
 
                 # 拦截跨微服务异地重拉起请求
@@ -146,8 +166,8 @@ class AuditEngine:
                     await self._handle_cross_service_reinstantiation(env, filepath)
                     return
 
-                logging.info(f"Agent {recipient} 开始任务 {env['task_id']}")
-                self.tracker.agent_start(env["task_id"], recipient, f"正在处理 {env['task_id']}")
+                logging.info(f"Agent {recipient} 开始任务 {task_id}")
+                self.tracker.agent_start(task_id, recipient, f"正在处理 {task_id}")
                 prompt = self._get_prompt_for_agent(recipient, payload_json)
 
                 # 动态推断目录与分配工具权限
@@ -168,7 +188,7 @@ class AuditEngine:
                 async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
                     # 设置 tracker
                     agent.set_session_tracker(self.tracker)
-                    agent.set_current_task(env["task_id"])
+                    agent.set_current_task(task_id)
 
                     result = await agent.execute(
                         prompt,
@@ -185,10 +205,24 @@ class AuditEngine:
 
                 self.router.route(filepath, result)
                 self.bus.mark_completed(filepath, result)
-                self.tracker.agent_finish(env["task_id"])
-                logging.info(f"Agent {recipient} 已完成任务 {env['task_id']}")
+                self.tracker.agent_finish(task_id)
+                logging.info(f"Agent {recipient} 已完成任务 {task_id}")
             except Exception as e:
                 logging.error(f"处理消息失败 {filepath}: {e}", exc_info=True)
+                # 让任务离开 processing 目录，并对冲 tracker 计数，避免进度永远卡不满
+                try:
+                    if os.path.exists(filepath):
+                        self.bus.mark_failed(filepath)
+                except Exception as move_err:
+                    logging.error(f"移动失败任务到 failed/ 目录出错 {filepath}: {move_err}")
+                if task_id:
+                    try:
+                        self.tracker.update_kanban(
+                            "resolved", task_id, recipient or "UNKNOWN", "执行异常", status="ERROR"
+                        )
+                        self.tracker.agent_finish(task_id)
+                    except Exception:
+                        pass
 
     async def _handle_cross_service_reinstantiation(self, env: dict, filepath: str):
         """接管跨界请求：按 (protocol, target_identifier) 去重共享接力追踪结果。
@@ -196,7 +230,9 @@ class AuditEngine:
         缓存语义：
         - 首个发起者为 owner，负责实际拉起所有微服务的接力 ReverseTracer。
         - 同 key 的并发/后续请求共享同一个 Future，命中后只重放 VulnCandidate 写入。
-        - owner 失败时从缓存中移除该 key，允许后续请求重试。
+        - in-flight 期间命中缓存；owner 一旦 set_result/set_exception 就立即清出字典，
+          避免 Future 常驻内存以及后续派发拿到陈旧结果。follower 通过局部变量持有 Future，
+          不受字典清理影响。
         """
         payload = env["payload"]
         task_id = env["task_id"]
@@ -209,20 +245,26 @@ class AuditEngine:
             future = self._cross_service_cache.get(cache_key)
             is_owner = future is None
             if is_owner:
-                future = asyncio.get_event_loop().create_future()
+                future = asyncio.get_running_loop().create_future()
                 self._cross_service_cache[cache_key] = future
 
         if is_owner:
             logging.info(f"引擎接管跨界请求: 全局搜寻 {protocol} -> '{target_id}' 的调用方 (task={task_id})")
+            compute_failed = False
             try:
                 relay_results = await self._compute_cross_service_results(env, payload)
                 future.set_result(relay_results)
             except Exception as e:
                 logging.error(f"跨界追踪 {cache_key} 计算失败: {e}", exc_info=True)
                 future.set_exception(e)
-                # owner 失败：清出缓存，允许后来者重试
+                compute_failed = True
+            finally:
+                # 结果已通过 Future 交付给所有 follower（它们握有局部引用），
+                # 字典无需再保留，否则会内存泄漏 + 后续派发复用过期结果。
                 async with self._cross_service_cache_lock:
                     self._cross_service_cache.pop(cache_key, None)
+
+            if compute_failed:
                 self.bus.mark_failed(filepath)
                 return
         else:
@@ -357,7 +399,18 @@ class AuditEngine:
         logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
         return parsed_result
 
+    async def _update_tracker_loop(self):
+        """后台刷新 Agent 用时显示，随 run() 生命周期一起终止。"""
+        try:
+            while True:
+                self.tracker.update_agent_times()
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            raise
+
     async def run(self):
+        tracker_task: Optional[asyncio.Task] = None
+        inflight: Set[asyncio.Task] = set()
         try:
             logging.info("正在启动代码审计引擎...")
             is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
@@ -367,30 +420,79 @@ class AuditEngine:
             if is_fresh_start:
                 # 发现微服务
                 self.service_route_map = self._discover_microservices()
-                
+
+                # 让沙盒池容量至少覆盖所有微服务，避免并发落到不同服务时反复 LRU 淘汰
+                service_count = len(self.service_route_map) or 1
+                desired_pool_size = max(self.server_manager.max_active_servers, service_count)
+                if desired_pool_size != self.server_manager.max_active_servers:
+                    logging.info(
+                        f"[Pool] 按发现的 {service_count} 个微服务扩容沙盒池: "
+                        f"{self.server_manager.max_active_servers} → {desired_pool_size}"
+                    )
+                    self.server_manager.max_active_servers = desired_pool_size
+
                 # 直接调用 Semgrep 扫描
                 logging.info("开始 Semgrep 扫描...")
                 scanner = SemgrepScanner(self.target_source_dir, rules_path=self.semgrep_rules)
                 scan_result = scanner.scan()
-                
+
                 # 分发扫描结果
                 self._dispatch_scan_results("TASK-INIT-001", scan_result)
                 logging.info("已注入初始扫描任务。")
 
-            async def update_tracker_loop():
-                while True:
-                    self.tracker.update_agent_times()
-                    await asyncio.sleep(1)
+            tracker_task = asyncio.create_task(self._update_tracker_loop())
 
-            asyncio.create_task(update_tracker_loop())
+            # 主循环 —— 完成判定:
+            # 先 get_pending_tasks() 再检查 inflight。
+            # process_task 的顺序是 "写下游消息 → mark_completed → 协程结束"，
+            # 所以 "inflight 非空" 或 "pending 非空" 任一成立都说明系统未稳定。
+            # 连续 2 轮完全空闲才退出，额外缓冲一次防御极端调度 race。
+            idle_ticks = 0
+            IDLE_TICKS_TO_EXIT = 2
 
             while True:
                 tasks = self.bus.get_pending_tasks()
-                if not tasks:
-                    await asyncio.sleep(1)
-                    continue
+                for filepath in tasks:
+                    t = asyncio.create_task(self.process_task(filepath))
+                    inflight.add(t)
+                    t.add_done_callback(inflight.discard)
 
-                for coro in tasks:
-                    asyncio.create_task(self.process_task(coro))
+                if not tasks and not inflight:
+                    idle_ticks += 1
+                    if idle_ticks >= IDLE_TICKS_TO_EXIT:
+                        logging.info("所有任务已完成，引擎正常退出。")
+                        break
+                else:
+                    idle_ticks = 0
+
+                await asyncio.sleep(1)
         finally:
+            # 1) 停掉 tracker 后台任务
+            if tracker_task is not None and not tracker_task.done():
+                tracker_task.cancel()
+                try:
+                    await tracker_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logging.error(f"tracker 后台任务退出异常: {e}")
+
+            # 2) 处理在途任务：Ctrl+C 或异常退出时 inflight 可能仍有协程。
+            # 优雅等待 5 秒，超时则取消剩余任务。正常退出路径下 inflight 已为空，直接通过。
+            if inflight:
+                pending_count = len(inflight)
+                logging.info(f"等待 {pending_count} 个在途任务收尾（最长 5 秒）...")
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*inflight, return_exceptions=True),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    still_alive = [t for t in inflight if not t.done()]
+                    logging.warning(f"{len(still_alive)} 个在途任务超时未收尾，取消中...")
+                    for t in still_alive:
+                        t.cancel()
+                    await asyncio.gather(*still_alive, return_exceptions=True)
+
+            # 3) 关闭沙盒池
             await self.server_manager.shutdown_all()
