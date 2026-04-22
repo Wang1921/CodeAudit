@@ -1,0 +1,31 @@
+rules:
+  - id: java-command-injection
+    message: |
+      🚨 Command Injection (CWE-78) Sink: 命令执行接口接收非字面量参数。
+      若参数来自外部输入，攻击者可注入 shell 元字符（如 `; rm -rf /` 或 `$(whoami)`）
+      实现任意命令执行 (RCE)。
+
+      修复建议：
+      1. 避免直接拼接用户输入到命令字符串；
+      2. 使用 `ProcessBuilder` 的 `List<String>` 重载并逐参数传递；
+      3. 对参数做严格白名单（仅允许文件名/数字等可枚举形态）；
+      4. 特权操作走 sudoers / capability 精确授权。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://owasp.org/www-community/attacks/Command_Injection
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec($CMD, ...)
+          - pattern: new ProcessBuilder($CMD, ...)
+      # 字面量排除：所有参数都是字符串常量
+      - pattern-not: Runtime.getRuntime().exec("...", ...)
+      - pattern-not: new ProcessBuilder("...")
+      - pattern-not: new ProcessBuilder("...", ...)

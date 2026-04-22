@@ -1,0 +1,54 @@
+rules:
+  - id: java-unsafe-deserialization
+    message: |
+      🚨 Unsafe Deserialization (CWE-502) Sink: 反序列化接口接收非字面量数据。
+      Java 原生 `readObject` 链路存在大量 gadget（CommonsCollections、ROME、
+      Spring AOP 等），攻击者构造恶意字节流可直接 RCE；YAML / XStream 同理。
+
+      修复建议：
+      1. 避免对不可信数据做原生反序列化；
+      2. 改用结构化、Schema 严格的协议（JSON + 具体类型）；
+      3. SnakeYAML 改用 `new Yaml(new SafeConstructor())`；
+      4. XStream 显式 `addPermission(NoTypePermission.NONE)` + 白名单允许类；
+      5. `ObjectInputStream` 配合 `ObjectInputFilter` 做类白名单校验。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/502.html
+        - https://owasp.org/www-community/vulnerabilities/Deserialization_of_untrusted_data
+    patterns:
+      - pattern-either:
+          # Java 原生反序列化
+          - pattern: new ObjectInputStream($STREAM).readObject()
+          - patterns:
+              - pattern: $OIS.readObject()
+              - pattern-either:
+                  - pattern-inside: |
+                      ObjectInputStream $OIS = ...;
+                      ...
+                  - pattern-inside: |
+                      ObjectInput $OIS = ...;
+                      ...
+          # XStream
+          - pattern: $XSTREAM.fromXML($DATA, ...)
+          # SnakeYAML
+          - pattern: new Yaml().load($DATA, ...)
+          - pattern: new Yaml(...).load($DATA, ...)
+          - pattern: new Yaml().loadAs($DATA, ...)
+          - pattern: new Yaml(...).loadAs($DATA, ...)
+          - pattern: new Yaml().loadAll($DATA, ...)
+          - pattern: new Yaml(...).loadAll($DATA, ...)
+      # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
+      - pattern-not: $XS.fromXML("...", ...)
+      - pattern-not: new Yaml().load("...", ...)
+      - pattern-not: new Yaml(...).load("...", ...)
+      - pattern-not: new Yaml().loadAs("...", ...)
+      - pattern-not: new Yaml(...).loadAs("...", ...)
+      - pattern-not: new Yaml().loadAll("...", ...)
+      - pattern-not: new Yaml(...).loadAll("...", ...)

@@ -110,11 +110,50 @@ class AuditEngine:
         
         return service_map
 
+    @staticmethod
+    def _deduplicate(items: list, key_fn, kind: str) -> list:
+        """按 key_fn 产出的元组去重，保留首次出现的条目。kind 仅用于日志。"""
+        seen = set()
+        unique = []
+        for item in items:
+            key = key_fn(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        dropped = len(items) - len(unique)
+        if dropped > 0:
+            logging.info(f"[Dedupe] {kind}: {len(items)} → {len(unique)}（丢弃 {dropped} 条重复）")
+        return unique
+
     def _dispatch_scan_results(self, task_id: str, scan_result: dict):
-        """分发 Semgrep 扫描结果到各个 Agent"""
-        
+        """分发 Semgrep 扫描结果到各个 Agent（入口统一去重，避免同一 sink/route 被多规则命中重复派发）"""
+
+        # 去重：sinks 以 (vuln_class, filepath, line) 为 key，处理嵌套表达式 / 多规则同行命中
+        sinks_raw = scan_result.get("sinks", [])
+        sinks = self._deduplicate(
+            sinks_raw,
+            key_fn=lambda s: (
+                s.get("sink_details", {}).get("vuln_class", ""),
+                s.get("sink_details", {}).get("filepath", ""),
+                s.get("sink_details", {}).get("line_number", 0),
+            ),
+            kind="sinks",
+        )
+
+        # 去重：routes 以 (method, path, handler_file) 为 key，覆盖 spring-api 两条规则的潜在重叠
+        routes_raw = scan_result.get("routes", [])
+        routes = self._deduplicate(
+            routes_raw,
+            key_fn=lambda r: (
+                r.get("method", ""),
+                r.get("path", ""),
+                r.get("handler_file", ""),
+            ),
+            kind="routes",
+        )
+
         # 处理路由结果
-        routes = scan_result.get("routes", [])
         for i, route in enumerate(routes):
             self.tracker.add_task()
             self.bus.write_message(

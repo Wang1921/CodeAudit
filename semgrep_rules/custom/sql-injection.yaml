@@ -1,0 +1,46 @@
+rules:
+  - id: java-sql-injection
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: JDBC 查询接口接收非字面量 SQL 语句。
+      若字符串通过拼接用户输入构造，攻击者可注入 `' OR 1=1 --` 等 SQL 片段
+      绕过鉴权、读/写/删任意数据，严重时扩展到 RCE（视数据库能力）。
+
+      修复建议：
+      1. 改用 `PreparedStatement` 并通过 `setXxx()` 绑定参数；
+      2. Spring 项目改用 `JdbcTemplate.query(sql, Object[] args, ...)` 带占位符；
+      3. MyBatis 使用 `#{}` 而非 `${}`；
+      4. 对 `LIMIT / ORDER BY` 等确实需要动态拼接的片段做严格白名单。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+        - https://owasp.org/www-community/attacks/SQL_Injection
+    patterns:
+      - pattern-either:
+          # java.sql.Statement 系列
+          - pattern: $STMT.executeQuery($SQL)
+          - pattern: $STMT.executeUpdate($SQL)
+          - pattern: $STMT.addBatch($SQL)
+          # Spring JdbcTemplate 动态 SQL（无参数占位）
+          - pattern: $JDBC.queryForList($SQL, ...)
+          - pattern: $JDBC.queryForObject($SQL, ...)
+          - pattern: $JDBC.queryForMap($SQL, ...)
+          - pattern: $JDBC.query($SQL, ...)
+          - pattern: $JDBC.update($SQL, ...)
+          - pattern: $JDBC.execute($SQL, ...)
+      # 字面量排除
+      - pattern-not: $STMT.executeQuery("...")
+      - pattern-not: $STMT.executeUpdate("...")
+      - pattern-not: $STMT.addBatch("...")
+      - pattern-not: $JDBC.queryForList("...", ...)
+      - pattern-not: $JDBC.queryForObject("...", ...)
+      - pattern-not: $JDBC.queryForMap("...", ...)
+      - pattern-not: $JDBC.query("...", ...)
+      - pattern-not: $JDBC.update("...", ...)
+      - pattern-not: $JDBC.execute("...", ...)
