@@ -14,43 +14,70 @@ system_prompt_template: |
   3. 寻找硬编码后门：是否存在类似于 `if (token == "debug_admin")` 的逻辑绕过？
   4. 审查是否存在死循环：是否存在循环条件可被外部控制？
   
-  ## 🚨 漏洞类型命名要求（必须遵循 Semgrep 标准）
-  【重要】LogicAuditor 发现的业务逻辑缺陷必须使用以下标准类型名称，**禁止随意命名**：
-  
-  **允许的漏洞类型（必须严格使用）**：
-  - "IDOR" - 不安全的直接对象引用
-  - "Race Condition" - 条件竞争/TOCTOU
-  - "Hardcoded Backdoor" - 硬编码后门
-  - "Business Logic Flaw" - 业务逻辑缺陷
-  - "Privilege Escalation" - 权限提升
-  - "Authentication Bypass" - 认证绕过
-  - "Insecure Direct Object Reference" - IDOR（与 IDOR 同义）
-  
-  ❌ **禁止使用的类型**：
-  - "缺少身份认证与权限校验" - 太长，不够标准化
-  - "漏洞1"、"漏洞2" - 无意义的编号
-  - 自定义的不标准名称
+  ## 🚨 漏洞类型命名要求（必须从下面白名单挑一个，禁止自创）
+  【重要】本列表与 Semgrep 的 `metadata.vuln_class` 共享同一命名空间，使用"大写首字母英文词组"风格，
+  方便 ReportGenerator 做统一聚合与 CWE 映射。
+
+  **允许的业务逻辑漏洞类型（严格使用）**：
+  - `IDOR`                     → 路径/查询参数里的对象 id 未经归属校验直接读写（任意用户/订单/文件）
+  - `Missing Authorization`    → 接口完全无鉴权注解或 filter（匿名即可访问本应鉴权的资源）
+  - `Privilege Escalation`     → 登录态下低权限用户能触达/调用高权限接口或数据
+  - `Authentication Bypass`    → 有鉴权但逻辑可绕（token 校验缺失、条件分支错写、JWT 算法被降级等）
+  - `Hardcoded Backdoor`       → 形如 `if (token.equals("debug_admin"))` 的白名单后门
+  - `Mass Assignment`          → `@ModelAttribute` / `@RequestBody` 自动绑定未过滤敏感字段（如 isAdmin/balance）
+  - `Workflow Bypass`          → 业务状态机可被跳步（未付款直接跳到"已发货"、注册时越过手机验证）
+  - `Race Condition`           → TOCTOU / 并发扣减未加锁 / 重复提交拿到多份资源
+  - `Open Redirect`            → `response.sendRedirect(userInput)` 类跳转被控
+  - `Insufficient Anti-Automation` → 爆破/撞库无限速、敏感操作缺少验证码/二次确认
+
+  ❌ **禁止**
+  - 非白名单词条（如 "缺少身份认证与权限校验"、"漏洞1"、"Business Logic Flaw" 这种 catch-all）
+  - 从 Semgrep 技术类命名空间复用（如 SQL Injection / XSS / SSRF 等，那些由 Semgrep 和 ReverseTracer 负责，不该在 LogicAuditor 输出）
+  - 自造中文名或 OWASP 编号作为 vuln_type 值
+
+  若当前路由确实有问题但不属于以上任何一类 → 宁可返回 `{"status": "DEFENDED"}` 也不要乱起名。
   
   ## Output Contract (绝对契约)
   如果发现缺陷，输出纯 JSON，vuln_type 必须使用上述标准类型：
   {
     "vuln_type": "必须是上述标准类型之一（如 IDOR, Race Condition）",
-    "entry_route": "...",
-    "call_chain": ["..."],
+    "entry_route": "API URL 路径（直接使用输入 route_details.path）",
+    "filepath": "触发漏洞的关键方法所在文件的绝对路径（通常 = 输入 route_details.handler_file）",
+    "line_number": "关键漏洞点所在行号（如越权查询那一行；优先给具体行，不行则退回 route_details.handler_line）",
+    "call_chain": ["1. Controller: ...", "2. Service: ...", "3. 关键漏洞点: ..."],
     "suspicion_reason": "..."
   }
-  
+
+  【重要】`filepath` / `line_number` 字段**必填**，下游 RedValidator / BlueValidator / ReportGenerator
+  的契约要求这两个字段存在。不给，下游会无法定位。
+
   如果逻辑严密，输出: {"status": "DEFENDED"}
 
 output_schema:
-  type: object
-  properties:
-    status:
-      type: string
-      enum: [DEFENDED]
-    vuln_type: { type: string }
-    entry_route: { type: string }
-    call_chain:
-      type: array
-      items: { type: string }
-    suspicion_reason: { type: string }
+  # 两种场景严格互斥：发现漏洞 vs 审计通过
+  oneOf:
+    # 发现缺陷
+    - type: object
+      required: [vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason]
+      not: { required: [status] }
+      properties:
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: array
+          items: { type: string }
+        suspicion_reason: { type: string }
+    # 审计通过
+    - type: object
+      required: [status]
+      not:
+        anyOf:
+          - required: [vuln_type]
+          - required: [entry_route]
+          - required: [call_chain]
+      properties:
+        status:
+          type: string
+          enum: [DEFENDED]

@@ -313,15 +313,21 @@ class SemgrepScanner:
         }
     
     def _extract_vuln_class(self, result: Dict, metadata: Dict) -> str:
-        """从 Semgrep 结果提取漏洞类别"""
-        check_id = result.get("check_id", "")
-        if check_id:
-            return check_id
-        
+        """从 Semgrep 结果提取漏洞类别（用于全链路 vuln_type 统一命名）。
+        优先级：
+          1. metadata.vuln_class —— 规则作者手填的标准英文名（如 "SQL Injection"），
+             项目自带规则全部带这个字段，LogicAuditor 也复用同一命名空间。
+          2. category / technology / subcategory 拼接 —— 外部规则可能只给这些。
+          3. check_id —— 兜底（形如 semgrep_rules.custom.java-xxx 的长串，不美观但至少唯一）。
+        """
+        vuln_class = metadata.get("vuln_class", "")
+        if vuln_class:
+            return vuln_class
+
         category = metadata.get("category", "")
         technology = metadata.get("technology", [])
         subcategory = metadata.get("subcategory", "")
-        
+
         if category:
             if isinstance(technology, list) and technology:
                 tech_str = ", ".join(technology[:2])
@@ -331,7 +337,11 @@ class SemgrepScanner:
             if subcategory:
                 return f"{category}.{subcategory}"
             return category
-        
+
+        check_id = result.get("check_id", "")
+        if check_id:
+            return check_id
+
         return "unknown-vulnerability"
     
     def _extract_taint_variable(self, result: Dict, code: str) -> str:
