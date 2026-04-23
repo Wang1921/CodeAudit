@@ -43,9 +43,9 @@ system_prompt_template: |
   - 同时返回 `status=DEFENDED` 与 VULNERABLE 专有字段会被下游视为矛盾输出，直接丢弃。
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
-  `vuln_type` / `vuln_class` 已经由上游（Semgrep 或 LogicAuditor）精确分类，你**必须直接继承使用**。
-  - 技术类 sink（来自 Semgrep）：SQL Injection, Command Injection, SpEL Injection, XSS, SSRF, XXE, Weak Cryptography, Weak Random, Hardcoded Credentials 等；
-  - 逻辑类（来自 LogicAuditor）：IDOR, Race Condition, Privilege Escalation, Authentication Bypass 等。
+  `vuln_type` / `vuln_class` 已经由上游（Semgrep rule 的 `metadata.vuln_class` 或 LogicAuditor 白名单）精确分类，
+  你**必须逐字复制到输出的 `vuln_type` 字段**，不得翻译、标准化、转写或推断。
+  该字段是全链路去重、CWE 映射、报告聚合的唯一 key。
 
   ## Output Contract (绝对契约)
   路径 A 与 路径 B **共用同一套输出 Schema**，只是部分字段语义不同。
@@ -81,22 +81,47 @@ system_prompt_template: |
   绝对禁止输出多余的 Markdown 标记！绝对禁止遗漏任何字段！绝对禁止修改 vuln_type！
 
 output_schema:
-  type: object
-  required: [status]
-  properties:
-    status:
-      type: string
-      enum: [DEFENDED, VULNERABLE]
-    vuln_type: { type: string }
-    entry_route: { type: string }
-    filepath: { type: string }
-    line_number: { type: [integer, string] }
-    call_chain:
-      type: [array, string]
-      items: { type: string }
-    suspicion_reason: { type: string }
-    attack_vector: { type: string }
-    poc_payload: { type: string }
-    max_impact: { type: string }
-    defense_analysis: { type: string }
-    mitigation_advice: { type: string }
+  # 两种场景严格互斥：VULNERABLE（含完整攻击/修复字段）vs DEFENDED（仅防御分析，禁 attack 字段）
+  oneOf:
+    # VULNERABLE：漏洞成立，产出完整利用链 + 修复建议
+    - type: object
+      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, attack_vector, poc_payload, max_impact, defense_analysis, mitigation_advice]
+      properties:
+        status:
+          type: string
+          enum: [VULNERABLE]
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: [array, string]
+          items: { type: string }
+        suspicion_reason: { type: string }
+        attack_vector: { type: string, minLength: 1 }
+        poc_payload: { type: string }
+        max_impact: { type: string, minLength: 1 }
+        defense_analysis: { type: string, minLength: 1 }
+        mitigation_advice: { type: string, minLength: 1 }
+    # DEFENDED：确认防御有效或确认非漏洞，只给防御分析，禁止 attack 字段
+    - type: object
+      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis]
+      not:
+        anyOf:
+          - required: [attack_vector]
+          - required: [poc_payload]
+          - required: [max_impact]
+          - required: [mitigation_advice]
+      properties:
+        status:
+          type: string
+          enum: [DEFENDED]
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: [array, string]
+          items: { type: string }
+        suspicion_reason: { type: string }
+        defense_analysis: { type: string, minLength: 1 }

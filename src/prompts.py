@@ -27,7 +27,7 @@ _AGENT_FILES = {
     "LogicAuditor": "core/logic_auditor.yaml",
     "RedValidator": "core/red_validator.yaml",
     "BlueValidator": "core/blue_validator.yaml",
-    "ReportGenerator": "core/report_generator.yaml",
+    # ReportGenerator 已改为纯 Python 字段映射（见 state_router._build_report_fields），不再是 LLM agent。
 }
 
 _AGENT_SCHEMAS: Dict[str, Optional[dict]] = {
@@ -45,7 +45,6 @@ REVERSE_TRACER_PROMPT_TEMPLATE = load_yaml_template("core/reverse_tracer.yaml")
 LOGIC_AUDITOR_PROMPT_TEMPLATE = load_yaml_template("core/logic_auditor.yaml")
 RED_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/red_validator.yaml")
 BLUE_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/blue_validator.yaml")
-REPORT_GENERATOR_PROMPT_TEMPLATE = load_yaml_template("core/report_generator.yaml")
 RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
 
 def format_reverse_tracer_prompt(payload_json: str) -> str:
@@ -59,9 +58,6 @@ def format_red_validator_prompt(payload_json: str) -> str:
 
 def format_blue_validator_prompt(payload_json: str) -> str:
     return BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
-
-def format_report_generator_prompt(payload_json: str) -> str:
-    return REPORT_GENERATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
 
 def format_retry_prompt(error_details: str, raw_output: str) -> str:
     return RETRY_PROMPT_TEMPLATE.replace("{error_details}", error_details).replace("{raw_output}", raw_output)

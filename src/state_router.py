@@ -66,8 +66,111 @@ def _blue_hit(p: Dict[str, Any]) -> bool:
     return p.get("status") == "VULNERABLE" or "mitigation_advice" in p
 
 
+# ---------- CWE 映射表：vuln_type（Semgrep metadata.vuln_class + LogicAuditor 白名单）→ CWE 编号 ----------
+_VULN_TYPE_TO_CWE: Dict[str, str] = {
+    # 技术类（来自 Semgrep metadata.vuln_class）
+    "SQL Injection": "CWE-89",
+    "Command Injection": "CWE-78",
+    "LDAP Injection": "CWE-90",
+    "XPath Injection": "CWE-643",
+    "NoSQL Injection": "CWE-943",
+    "Template Injection": "CWE-94",
+    "SpEL Injection": "CWE-917",
+    "XXE": "CWE-611",
+    "SSRF": "CWE-918",
+    "Path Traversal": "CWE-22",
+    "Weak Cryptography": "CWE-327",
+    "Weak Random": "CWE-338",
+    "Hardcoded Credentials": "CWE-798",
+    "Unsafe Deserialization": "CWE-502",
+    # 业务逻辑类（来自 LogicAuditor 白名单）
+    "IDOR": "CWE-639",
+    "Missing Authorization": "CWE-862",
+    "Privilege Escalation": "CWE-269",
+    "Authentication Bypass": "CWE-287",
+    "Hardcoded Backdoor": "CWE-798",
+    "Mass Assignment": "CWE-915",
+    "Workflow Bypass": "CWE-840",
+    "Race Condition": "CWE-362",
+    "Open Redirect": "CWE-601",
+    "Insufficient Anti-Automation": "CWE-307",
+}
+
+
+def _extract_cwe_id(payload: Dict[str, Any]) -> str:
+    """按优先级取 CWE 编号：顶层 cwe（已被 _build_merged_payload 从 sink_details.cwe 提升）→ vuln_type 映射。"""
+    cwe = payload.get("cwe")
+    raw = ""
+    if isinstance(cwe, list) and cwe:
+        raw = str(cwe[0])
+    elif isinstance(cwe, str):
+        raw = cwe
+    m = re.match(r"(CWE-\d+)", raw)
+    if m:
+        return m.group(1)
+    vt = payload.get("vuln_type") or payload.get("vuln_class") or ""
+    return _VULN_TYPE_TO_CWE.get(vt, "")
+
+
+def _infer_severity(payload: Dict[str, Any]) -> str:
+    """优先取 payload.severity；否则按 max_impact 关键词启发式判定。"""
+    sev = payload.get("severity")
+    if isinstance(sev, str) and sev:
+        # 标准化大小写
+        sev_up = sev.strip().capitalize()
+        if sev_up in ("Critical", "High", "Medium", "Low"):
+            return sev_up
+    impact = (payload.get("max_impact") or "").lower()
+    if any(k in impact for k in ("rce", "remote code", "任意命令", "任意代码", "任意文件写")):
+        return "Critical"
+    if any(k in impact for k in ("sql", "数据泄露", "数据泄漏", "data leak", "认证绕过", "越权", "权限提升")):
+        return "High"
+    if payload.get("vuln_type") in ("Weak Random", "Open Redirect", "Insufficient Anti-Automation"):
+        return "Low"
+    return "Medium"
+
+
+def _build_description(payload: Dict[str, Any]) -> str:
+    """拼接 suspicion_reason + attack_vector + defense_analysis 为统一描述。"""
+    parts = []
+    sr = payload.get("suspicion_reason")
+    av = payload.get("attack_vector")
+    da = payload.get("defense_analysis")
+    if sr:
+        parts.append(f"[发现] {sr}")
+    if av:
+        parts.append(f"[攻击面] {av}")
+    if da:
+        parts.append(f"[防御分析] {da}")
+    return "\n\n".join(parts)
+
+
+def _build_report_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """从 BlueValidator 的 VULNERABLE 输出合成最终报告字段（原 ReportGenerator agent 的纯函数替代）。"""
+    return {
+        "vuln_type": payload.get("vuln_type") or payload.get("vuln_class") or "未知",
+        "cwe_id": _extract_cwe_id(payload),
+        "severity": _infer_severity(payload),
+        "location": {
+            "file": payload.get("filepath", "未知"),
+            "line": payload.get("line_number", 0),
+        },
+        "entry_route": payload.get("entry_route", "未知"),
+        "call_chain": payload.get("call_chain", []),
+        "description": _build_description(payload),
+        "remediation": payload.get("mitigation_advice", ""),
+        "attack_vector": payload.get("attack_vector", ""),
+        "poc_payload": payload.get("poc_payload", ""),
+        "max_impact": payload.get("max_impact", ""),
+        "defense_analysis": payload.get("defense_analysis", ""),
+        "suspicion_reason": payload.get("suspicion_reason", ""),
+    }
+
+
 def _save_report_hook(router: "StateRouter", task_id: str, payload: Dict[str, Any]) -> None:
-    router._save_vulnerability_report(task_id, payload)
+    """BlueValidator 裁决 VULNERABLE 后的接力钩子：Python 直接组装报告落盘，不再经 LLM。"""
+    report = _build_report_fields(payload)
+    router._save_vulnerability_report(task_id, report)
 
 
 ROUTE_RULES: Dict[str, RouteRule] = {
@@ -104,18 +207,16 @@ ROUTE_RULES: Dict[str, RouteRule] = {
     "BlueValidator": RouteRule(
         sender="BlueValidator",
         success_check=_blue_hit,
-        next_message_type="ConfirmedVuln",
-        next_recipient="ReportGenerator",
+        # 报告生成不再走 LLM agent：BlueValidator 裁决 VULNERABLE 后，
+        # on_success_hook 在 Python 侧直接组装并落盘报告（字段映射 + CWE 查表）。
+        next_message_type=None,
+        next_recipient=None,
         success_kanban_category="resolved",
         success_kanban_status="CONFIRMED",
         success_details_fields=_RESOLVED_DETAILS,
-        success_add_task=False,  # 接力同一漏洞，不再增加任务计数
+        success_add_task=False,
         miss_kanban_label="BLUE-FAIL",
         miss_kanban_reason="防御有效",
-    ),
-    "ReportGenerator": RouteRule(
-        sender="ReportGenerator",
-        success_check=lambda _p: True,
         on_success_hook=_save_report_hook,
     ),
     "SemgrepScanner": RouteRule(
@@ -163,17 +264,30 @@ class StateRouter:
 
     @staticmethod
     def _parse_json_string(text: str) -> Optional[Dict[str, Any]]:
-        """轻量 JSON 提取：直接 parse → Markdown 代码块。失败返回 None。"""
+        """轻量 JSON 提取：严格 parse → raw_decode 容错 → Markdown 代码块。失败返回 None。"""
         text = text.strip()
         if not text:
             return None
 
+        # ❶ 严格：整串必须是合法 JSON
         try:
             parsed = json.loads(text)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             pass
 
+        # ❷ 容错：从首个 '{' 开始 greedy 解析一个合法 JSON 对象，
+        # 忽略尾部多余字符（如 LLM 偶发输出的 `{...}}` 或 `{...}\n说明...`）
+        first_brace = text.find('{')
+        if first_brace >= 0:
+            try:
+                obj, _ = json.JSONDecoder().raw_decode(text[first_brace:])
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                pass
+
+        # ❸ 兜底：Markdown 代码块
         m = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
         if m:
             try:
@@ -217,12 +331,7 @@ class StateRouter:
                 self.tracker.update_kanban("resolved", task_id, sender, "无效输出", status="DEFENDED")
             return
 
-        # 特判 1：跨微服务追踪求救 —— 走 Orchestrator 而不是正常路由表
-        if sender == "ReverseTracer" and parsed.get("action") == "cross_service_trace":
-            self._route_cross_service_request(task_id, parsed, orig_env)
-            return
-
-        # 特判 2：终态。status 显式裁决优先级最高，链路立即终止。
+        # 特判 1：终态。status 显式裁决优先级最高，链路立即终止。
         # 若 Agent 同时返回业务字段，视为 prompt 违规的矛盾输出，业务字段忽略。
         status = parsed.get("status")
         if status in TERMINAL_STATES:
@@ -241,6 +350,34 @@ class StateRouter:
                 self.tracker.update_kanban("resolved", task_id, label, reason, status=status)
             return
 
+        # 特判 2：跨微服务追踪求救 —— 必须是"真"跨服务场景，避免 LLM echo action 导致误 fan-out。
+        # 成立条件：action=cross_service_trace + 必填的 protocol + target_identifier，
+        # 同时不得附带场景 A 的业务字段（call_chain / entry_route）。
+        # 业务字段存在意味着本地追踪已经产出结果，没必要再跨服务 hop。
+        if (
+            sender == "ReverseTracer"
+            and parsed.get("action") == "cross_service_trace"
+            and parsed.get("protocol")
+            and parsed.get("target_identifier")
+            and not parsed.get("call_chain")
+            and not parsed.get("entry_route")
+        ):
+            self._route_cross_service_request(task_id, parsed, orig_env)
+            return
+
+        # 若 LLM 输出 action=cross_service_trace 但同时有 call_chain/entry_route（常见的 echo 污染），
+        # 说明它实际走的是场景 A，只是顺手 echo 了 action 字段。
+        # 必须清洗掉场景 B 专有字段（action / protocol / target_identifier / taint_variable / historical_chain），
+        # 否则 RedValidator 看到矛盾输入会判 NOT_EXPLOITABLE，导致真漏洞丢失。
+        if sender == "ReverseTracer" and parsed.get("action") == "cross_service_trace":
+            b_only = [k for k in ("action", "protocol", "target_identifier", "taint_variable", "historical_chain") if k in parsed]
+            logging.warning(
+                f"[路由] {sender} 任务 {task_id} 输出 action=cross_service_trace 但附带业务字段"
+                f"（call_chain/entry_route 存在），视为 echo 污染。清洗场景 B 字段 {b_only} 后按场景 A 正常派发。"
+            )
+            for k in b_only:
+                parsed.pop(k, None)
+
         rule = ROUTE_RULES.get(sender)
         if rule is None:
             logging.warning(f"未知的发送者: {sender}")
@@ -249,6 +386,32 @@ class StateRouter:
 
     # ---------- 通用规则应用 ----------
 
+    @staticmethod
+    def _build_merged_payload(
+        orig_payload: Dict[str, Any], parsed: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """合并 orig payload + agent 输出，同时清洗"噪声"子结构。
+
+        - sink_details / route_details 只是 SemgrepScanner 给首跳 Agent 的原始数据，
+          后续 Agent 已经把关键字段扁平化到顶层（vuln_type / filepath / line_number / ...），
+          保留在 payload 里反而让下游 LLM 同时看到两套同名字段容易混淆。
+        - 但 sink_details.cwe 是 ReportGenerator 的 cwe_id 来源，需提升到顶层 `cwe` 字段
+          以便后续所有跳都能访问。
+        """
+        merged: Dict[str, Any] = {**orig_payload, **parsed}
+
+        sink = merged.get("sink_details")
+        if isinstance(sink, dict):
+            # 保留关键的 cwe 信息到顶层，避免随 sink_details 一起被清洗
+            if "cwe" not in merged and sink.get("cwe"):
+                merged["cwe"] = sink["cwe"]
+            merged.pop("sink_details", None)
+
+        # route_details 同样不再传给下游 Agent（顶层 entry_route / filepath 已承载需要的信息）
+        merged.pop("route_details", None)
+
+        return merged
+
     def _apply_rule(
         self,
         rule: RouteRule,
@@ -256,7 +419,9 @@ class StateRouter:
         parsed: Dict[str, Any],
         orig_env: Dict[str, Any],
     ) -> None:
-        merged_payload = {**orig_env.get("payload", {}), **parsed}
+        merged_payload = self._build_merged_payload(
+            orig_env.get("payload", {}) or {}, parsed
+        )
 
         if not rule.success_check(parsed):
             if self.tracker and rule.miss_kanban_label:
@@ -326,7 +491,8 @@ class StateRouter:
 
     # ---------- 终点副作用：报告落盘 ----------
 
-    def _save_vulnerability_report(self, task_id: str, payload: Dict[str, Any]) -> None:
+    def _save_vulnerability_report(self, task_id: str, report_fields: Dict[str, Any]) -> None:
+        """写漏洞报告到 reports/ 目录。report_fields 由 _build_report_fields 映射好，函数只负责落盘。"""
         try:
             output_dir = "reports"
             os.makedirs(output_dir, exist_ok=True)
@@ -334,28 +500,14 @@ class StateRouter:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filepath = os.path.join(output_dir, f"vulnerability_{task_id}_{timestamp}.json")
 
-            report = {
+            full_report = {
                 "task_id": task_id,
                 "timestamp": datetime.now().isoformat(),
-                "vuln_type": payload.get("vuln_type", "未知"),
-                "entry_route": payload.get("entry_route", "未知"),
-                "mitigation_advice": payload.get("mitigation_advice", ""),
-                "description": payload.get("description", ""),
-                "severity": payload.get("severity", ""),
-                "cwe_id": payload.get("cwe_id", ""),
-                "poc_payload": payload.get("poc_payload", ""),
-                "max_impact": payload.get("max_impact", ""),
-                "defense_analysis": payload.get("defense_analysis", ""),
-                "remediation": payload.get("remediation", ""),
-                "attack_vector": payload.get("attack_vector", ""),
-                "call_chain": payload.get("call_chain", []),
-                "suspicion_reason": payload.get("suspicion_reason", ""),
-                "cwe": payload.get("cwe", ""),
-                "vulnerability": payload.get("vulnerability", ""),
+                **report_fields,
             }
 
             with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(report, f, ensure_ascii=False, indent=2)
+                json.dump(full_report, f, ensure_ascii=False, indent=2)
 
             logging.info(f"漏洞报告已保存到: {filepath}")
         except Exception as e:

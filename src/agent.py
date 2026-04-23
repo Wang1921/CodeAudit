@@ -65,7 +65,7 @@ class OpenCodeAgent:
         prompt: str,
         allowed_tools: str = "read,grep,lsp,codesearch",
         output_schema: Optional[Dict[str, Any]] = None,
-        format_retry_count: int = 2,
+        format_retry_count: int = 4,
     ) -> Dict[str, Any]:
         """
         发送消息并等待响应。

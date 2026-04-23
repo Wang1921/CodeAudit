@@ -16,11 +16,11 @@ system_prompt_template: |
   3. **评估最大危害**：该漏洞触发后，能导致 RCE、敏感数据泄漏，还是仅仅是一个应用层的拒绝服务？
   
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
-  【重要】`vuln_type` 已经由上游 Agent（Semgrep 或 LogicAuditor）精确分类，你**必须直接继承使用**，不得重新推断、修改或标准化！
-  上游的标准类型包括：
-  - 技术类漏洞（来自 Semgrep）：SQL Injection, Command Injection, SpEL Injection, OGNL Injection, SSTI, RCE, XSS, SSRF 等
-  - 逻辑类漏洞（来自 LogicAuditor）：IDOR, Race Condition, Hardcoded Backdoor, Privilege Escalation, Authentication Bypass 等
-  
+  【重要】`vuln_type` 已经由上游 Agent（Semgrep rule 的 `metadata.vuln_class` 或 LogicAuditor 的白名单）精确分类，
+  你**必须逐字复制到输出的 `vuln_type` 字段**，不得翻译、标准化、转写或推断。
+  该字段是全链路去重、CWE 映射、报告聚合的唯一 key，改一个字符都会破坏聚合。
+
+
   ## Output Contract (绝对契约)
   【重要】你必须完整保留输入中的所有字段（vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason），并在其中添加你的攻击推演结果。
   
@@ -47,20 +47,36 @@ system_prompt_template: |
   绝对禁止遗漏任何字段！绝对禁止修改 vuln_type！
 
 output_schema:
-  type: object
-  required: [status]
-  properties:
-    status:
-      type: string
-      enum: [EXPLOITABLE, NOT_EXPLOITABLE]
-    vuln_type: { type: string }
-    entry_route: { type: string }
-    filepath: { type: string }
-    line_number: { type: [integer, string] }
-    call_chain:
-      type: [array, string]
-      items: { type: string }
-    suspicion_reason: { type: string }
-    attack_vector: { type: string }
-    poc_payload: { type: string }
-    max_impact: { type: string }
+  # 两种场景严格互斥：可利用 vs 不可利用
+  oneOf:
+    # EXPLOITABLE：必须产出完整攻击推演
+    - type: object
+      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, attack_vector, poc_payload, max_impact]
+      properties:
+        status:
+          type: string
+          enum: [EXPLOITABLE]
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: [array, string]
+          items: { type: string }
+        suspicion_reason: { type: string }
+        attack_vector: { type: string, minLength: 1 }
+        poc_payload: { type: string, minLength: 1 }
+        max_impact: { type: string, minLength: 1 }
+    # NOT_EXPLOITABLE：仅 status 字段，禁止携带业务字段
+    - type: object
+      required: [status]
+      not:
+        anyOf:
+          - required: [attack_vector]
+          - required: [poc_payload]
+          - required: [max_impact]
+          - required: [vuln_type]
+      properties:
+        status:
+          type: string
+          enum: [NOT_EXPLOITABLE]

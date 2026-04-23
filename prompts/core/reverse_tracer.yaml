@@ -17,33 +17,9 @@ system_prompt_template: |
   4. 如果参数在中间被硬编码写死，立刻判定为断裂，停止追踪，输出场景 C 格式。
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
-  【重要】`sink_details.vuln_class` 已经由 Semgrep 静态分析精确分类，你**必须直接继承使用**，不得重新推断或修改！
-
-  Semgrep 的标准漏洞类型包括：
-  - SQL Injection
-  - Command Injection
-  - SpEL Injection
-  - OGNL Injection
-  - Groovy Code Injection
-  - JavaScript Engine Injection
-  - FreeMarker SSTI
-  - Velocity SSTI
-  - Thymeleaf SSTI
-  - Jinja2 SSTI
-  - Django SSTI
-  - JNDI Injection
-  - Unsafe Reflection
-  - Path Traversal
-  - XXE Injection
-  - SSRF
-  - Unsafe Deserialization
-  - Unsafe Pickle
-  - Unsafe YAML Load
-  - Hardcoded Secret
-  - Hardcoded DB Connection
-  - Log Injection
-  - Open Redirect
-  - XSS
+  【重要】`sink_details.vuln_class` 已经由 Semgrep 静态分析精确分类，你**必须逐字复制到输出的 `vuln_type` 字段**，
+  不得翻译、标准化、转写或推断 —— 即便你觉得 Semgrep 分类"不够准确"，也直接照搬原文。
+  该字段是下游去重、CWE 映射、报告聚合的唯一 key。
 
   ## Output Contract (绝对契约)
   **场景 A：成功在当前服务连通至外部可控入口**
@@ -80,25 +56,54 @@ system_prompt_template: |
   绝对禁止遗漏任何必填字段！绝对禁止修改 vuln_type！
 
 output_schema:
-  type: object
-  properties:
-    status:
-      type: string
-      enum: [NOT_EXPLOITABLE]
-    action:
-      type: string
-      enum: [cross_service_trace]
-    vuln_type: { type: string }
-    entry_route: { type: string }
-    filepath: { type: string }
-    line_number: { type: [integer, string] }
-    call_chain:
-      type: array
-      items: { type: string }
-    suspicion_reason: { type: string }
-    protocol: { type: string }
-    target_identifier: { type: string }
-    historical_chain:
-      type: array
-      items: { type: string }
-    taint_variable: { type: string }
+  # 三种场景严格互斥：服务端会 JSON-Schema 校验 + retry，替代 prompt 的"绝对禁止"文字约束。
+  oneOf:
+    # 场景 A：成功在本服务追到 HTTP 入口
+    - type: object
+      required: [vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason]
+      not:
+        anyOf:
+          - required: [status]
+          - required: [action]
+      properties:
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: array
+          items: { type: string }
+        suspicion_reason: { type: string }
+    # 场景 B：遇到微服务边界，触发跨界求救
+    - type: object
+      required: [action, vuln_type, protocol, target_identifier, taint_variable]
+      not:
+        anyOf:
+          - required: [status]
+          - required: [call_chain]
+          - required: [entry_route]
+      properties:
+        action:
+          type: string
+          enum: [cross_service_trace]
+        vuln_type: { type: string, minLength: 1 }
+        protocol: { type: string }
+        target_identifier: { type: string }
+        taint_variable: { type: string }
+        historical_chain:
+          type: array
+          items: { type: string }
+    # 场景 C：链路断裂 / 参数写死 —— 仅此一个字段
+    - type: object
+      required: [status]
+      not:
+        anyOf:
+          - required: [vuln_type]
+          - required: [action]
+          - required: [entry_route]
+          - required: [call_chain]
+          - required: [filepath]
+      properties:
+        status:
+          type: string
+          enum: [NOT_EXPLOITABLE]

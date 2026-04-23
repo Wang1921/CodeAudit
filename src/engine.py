@@ -84,30 +84,77 @@ class AuditEngine:
             return prompts.format_red_validator_prompt(payload_json)
         elif agent_name == "BlueValidator":
             return prompts.format_blue_validator_prompt(payload_json)
-        elif agent_name == "ReportGenerator":
-            return prompts.format_report_generator_prompt(payload_json)
         else:
+            # ReportGenerator 已改为纯 Python 字段映射（state_router._build_report_fields），不再是 LLM agent
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
 
+    # 微服务构建文件：命中任一才认为子目录是独立服务。
+    # 避免 BenchmarkJava 这类单项目的 scorecard/results/VMs 等普通目录被误判为微服务，
+    # 从而在跨服务 fan-out 时被重复拉起造成漏洞重复上报。
+    _BUILD_MARKERS = (
+        "pom.xml", "build.gradle", "build.gradle.kts",  # Java/Kotlin
+        "package.json",                                   # Node.js
+        "go.mod",                                         # Go
+        "Cargo.toml",                                     # Rust
+        "requirements.txt", "pyproject.toml", "setup.py", # Python
+        "composer.json",                                  # PHP
+        "Gemfile",                                        # Ruby
+        "mix.exs",                                        # Elixir
+    )
+
     def _discover_microservices(self) -> dict:
-        """扫描目标目录的第一层子目录，发现微服务"""
+        """扫描目标目录的第一层子目录，识别**真正独立**的微服务。
+
+        策略（严格）：只有**自身含构建文件**且根目录**不含**构建文件的子目录才算微服务；
+        否则视为单项目（所有代码属于同一个"main"服务，避免跨服务 fan-out 重复上报）。
+
+        设计动机：在 BenchmarkJava 这类单项目上，`scorecard / results / VMs / scripts`
+        等普通顶层子目录会被旧版启发式误认为微服务，导致一次跨服务 fan-out 产生 N 份
+        重复报告。加构建文件门槛后，只有真正的多服务仓库（如 `user-service/pom.xml`、
+        `order-service/pom.xml`）才会触发 fan-out。
+        """
         service_map = {}
         root_path = Path(self.target_source_dir)
-        
+
         if not root_path.exists():
             logging.warning(f"目标目录不存在: {self.target_source_dir}")
             return service_map
-        
-        for entry in root_path.iterdir():
-            if entry.is_dir() and not entry.name.startswith('.'):
-                service_map[entry.name] = str(entry)
-        
-        if service_map:
-            logging.info(f"[ServiceDiscovery] 发现 {len(service_map)} 个微服务: {list(service_map.keys())}")
-        else:
-            logging.info(f"[ServiceDiscovery] 未发现子目录，使用根目录作为唯一服务")
+
+        # 若根目录自带构建文件（单项目常见），整仓视为一个服务，不再细分
+        root_has_build = any((root_path / m).exists() for m in self._BUILD_MARKERS)
+        if root_has_build:
+            logging.info(
+                f"[ServiceDiscovery] 根目录发现构建文件，按单项目处理 "
+                f"({', '.join(m for m in self._BUILD_MARKERS if (root_path / m).exists())})"
+            )
             service_map["main"] = self.target_source_dir
-        
+            return service_map
+
+        # 根目录无构建文件 → 检查每个一级子目录是否自带构建文件
+        skipped = []
+        for entry in root_path.iterdir():
+            if not entry.is_dir() or entry.name.startswith('.'):
+                continue
+            has_marker = any((entry / m).exists() for m in self._BUILD_MARKERS)
+            if has_marker:
+                service_map[entry.name] = str(entry)
+            else:
+                skipped.append(entry.name)
+
+        if service_map:
+            logging.info(
+                f"[ServiceDiscovery] 发现 {len(service_map)} 个微服务: {list(service_map.keys())}"
+            )
+            if skipped:
+                logging.debug(
+                    f"[ServiceDiscovery] 跳过 {len(skipped)} 个无构建文件的子目录: {skipped}"
+                )
+        else:
+            logging.info(
+                f"[ServiceDiscovery] 根目录及一级子目录均无构建文件，按单项目处理"
+            )
+            service_map["main"] = self.target_source_dir
+
         return service_map
 
     @staticmethod
@@ -154,6 +201,8 @@ class AuditEngine:
         )
 
         # 处理路由结果
+        # 注意：payload 中不塞 action 字段 —— 无消费者，且会被 LLM echo 到输出，
+        # 诱导写出 prompt 里仅见过的 cross_service_trace 值，误触发跨服务 fan-out。
         for i, route in enumerate(routes):
             self.tracker.add_task()
             self.bus.write_message(
@@ -161,9 +210,9 @@ class AuditEngine:
                 task_id=f"{task_id}_ROUTE_{i}",
                 sender="SemgrepScanner",
                 recipient="LogicAuditor",
-                payload={"action": "logic_audit", "route_details": route}
+                payload={"route_details": route}
             )
-        
+
         # 处理漏洞点结果（使用上面去重后的 sinks，不要复写为原始数据）
         # taint_required=False 的 sink（弱加密/弱随机/硬编码等无 source→sink 污点链的场景）
         # 走 fast path 直接到 BlueValidator 做静态定性，跳过 ReverseTracer 和 RedValidator。
@@ -184,21 +233,16 @@ class AuditEngine:
             if taint_required:
                 recipient = "ReverseTracer"
                 task_suffix = "TRACE"
-                action = "trace_call_chain"
             else:
                 recipient = "BlueValidator"
                 task_suffix = "STATIC"
-                action = "static_audit"
 
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=f"{task_id}_SINK_{i}_{task_suffix}",
                 sender="SemgrepScanner",
                 recipient=recipient,
-                payload={
-                    "action": action,
-                    "sink_details": sink_details,
-                },
+                payload={"sink_details": sink_details},
             )
 
     async def process_task(self, filepath: str):
@@ -373,7 +417,6 @@ class AuditEngine:
         historical_chain = payload.get("historical_chain", [])
 
         relay_payload = {
-            "action": "trace_call_chain",
             "sink_details": {
                 "vuln_class": payload.get("vuln_type", "CROSS_SERVICE_VULN"),
                 "filepath": original_sink_details.get("filepath") or f"{protocol}://{target_id}",
