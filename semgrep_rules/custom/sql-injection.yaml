@@ -23,10 +23,15 @@ rules:
         - https://owasp.org/www-community/attacks/SQL_Injection
     patterns:
       - pattern-either:
-          # java.sql.Statement 系列
+          # java.sql.Statement 系列：execute/executeQuery/executeUpdate/addBatch
           - pattern: $STMT.executeQuery($SQL)
-          - pattern: $STMT.executeUpdate($SQL)
+          - pattern: $STMT.executeUpdate($SQL, ...)
           - pattern: $STMT.addBatch($SQL)
+          - pattern: $STMT.execute($SQL, ...)
+          - pattern: $STMT.executeLargeUpdate($SQL, ...)
+          # Connection.prepareStatement / prepareCall：SQL 拼接同样危险
+          - pattern: $CONN.prepareStatement($SQL, ...)
+          - pattern: $CONN.prepareCall($SQL, ...)
           # Spring JdbcTemplate 动态 SQL（无参数占位）
           - pattern: $JDBC.queryForList($SQL, ...)
           - pattern: $JDBC.queryForObject($SQL, ...)
@@ -34,13 +39,27 @@ rules:
           - pattern: $JDBC.query($SQL, ...)
           - pattern: $JDBC.update($SQL, ...)
           - pattern: $JDBC.execute($SQL, ...)
+          - pattern: $JDBC.batchUpdate($SQL, ...)
+          - pattern: $JDBC.queryForRowSet($SQL, ...)
+          - pattern: $JDBC.queryForStream($SQL, ...)
+          - pattern: $JDBC.queryForInt($SQL, ...)
+          - pattern: $JDBC.queryForLong($SQL, ...)
       # 字面量排除
       - pattern-not: $STMT.executeQuery("...")
-      - pattern-not: $STMT.executeUpdate("...")
+      - pattern-not: $STMT.executeUpdate("...", ...)
       - pattern-not: $STMT.addBatch("...")
+      - pattern-not: $STMT.execute("...", ...)
+      - pattern-not: $STMT.executeLargeUpdate("...", ...)
+      - pattern-not: $CONN.prepareStatement("...", ...)
+      - pattern-not: $CONN.prepareCall("...", ...)
       - pattern-not: $JDBC.queryForList("...", ...)
       - pattern-not: $JDBC.queryForObject("...", ...)
       - pattern-not: $JDBC.queryForMap("...", ...)
       - pattern-not: $JDBC.query("...", ...)
       - pattern-not: $JDBC.update("...", ...)
       - pattern-not: $JDBC.execute("...", ...)
+      - pattern-not: $JDBC.batchUpdate("...", ...)
+      - pattern-not: $JDBC.queryForRowSet("...", ...)
+      - pattern-not: $JDBC.queryForStream("...", ...)
+      - pattern-not: $JDBC.queryForInt("...", ...)
+      - pattern-not: $JDBC.queryForLong("...", ...)

@@ -23,16 +23,23 @@ rules:
         - https://owasp.org/www-community/attacks/Path_Traversal
     patterns:
       - pattern-either:
-          # java.io.File 构造
+          # java.io.File 构造（短名 + FQN）
           - pattern: new File($PATH)
           - pattern: new File($PARENT, $PATH)
+          - pattern: new java.io.File($PATH)
+          - pattern: new java.io.File($PARENT, $PATH)
           # java.nio.file.Paths
           - pattern: Paths.get($PATH, ...)
+          - pattern: java.nio.file.Paths.get($PATH, ...)
           # java.io 流构造
           - pattern: new FileInputStream($PATH)
           - pattern: new FileOutputStream($PATH, ...)
           - pattern: new FileReader($PATH, ...)
           - pattern: new FileWriter($PATH, ...)
+          - pattern: new java.io.FileInputStream($PATH)
+          - pattern: new java.io.FileOutputStream($PATH, ...)
+          - pattern: new java.io.FileReader($PATH, ...)
+          - pattern: new java.io.FileWriter($PATH, ...)
           # java.nio.file.Files
           - pattern: Files.readAllBytes($PATH)
           - pattern: Files.readString($PATH, ...)
@@ -40,17 +47,36 @@ rules:
           - pattern: Files.newOutputStream($PATH, ...)
           - pattern: Files.write($PATH, ...)
           - pattern: Files.copy($PATH, ...)
-      # 字面量排除
+          - pattern: java.nio.file.Files.readAllBytes($PATH)
+          - pattern: java.nio.file.Files.readString($PATH, ...)
+          - pattern: java.nio.file.Files.newInputStream($PATH, ...)
+          - pattern: java.nio.file.Files.newOutputStream($PATH, ...)
+          - pattern: java.nio.file.Files.write($PATH, ...)
+          - pattern: java.nio.file.Files.copy($PATH, ...)
+      # 字面量排除（短名 + FQN）
       - pattern-not: new File("...")
-      - pattern-not: new File($PARENT, "...")
+      - pattern-not: new File("...", "...")
+      - pattern-not: new java.io.File("...")
+      - pattern-not: new java.io.File("...", "...")
       - pattern-not: Paths.get("...", ...)
+      - pattern-not: java.nio.file.Paths.get("...", ...)
       - pattern-not: new FileInputStream("...")
       - pattern-not: new FileOutputStream("...", ...)
       - pattern-not: new FileReader("...", ...)
       - pattern-not: new FileWriter("...", ...)
+      - pattern-not: new java.io.FileInputStream("...")
+      - pattern-not: new java.io.FileOutputStream("...", ...)
+      - pattern-not: new java.io.FileReader("...", ...)
+      - pattern-not: new java.io.FileWriter("...", ...)
       - pattern-not: Files.readAllBytes("...")
       - pattern-not: Files.readString("...", ...)
       - pattern-not: Files.newInputStream("...", ...)
       - pattern-not: Files.newOutputStream("...", ...)
       - pattern-not: Files.write("...", ...)
       - pattern-not: Files.copy("...", ...)
+      - pattern-not: java.nio.file.Files.readAllBytes("...")
+      - pattern-not: java.nio.file.Files.readString("...", ...)
+      - pattern-not: java.nio.file.Files.newInputStream("...", ...)
+      - pattern-not: java.nio.file.Files.newOutputStream("...", ...)
+      - pattern-not: java.nio.file.Files.write("...", ...)
+      - pattern-not: java.nio.file.Files.copy("...", ...)

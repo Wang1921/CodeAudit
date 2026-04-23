@@ -31,15 +31,28 @@ rules:
         - https://owasp.org/www-community/vulnerabilities/Insecure_Randomness
     patterns:
       - pattern-either:
+          # 短名
           - pattern: new Random()
           - pattern: new Random($SEED)
           - pattern: Math.random()
           - pattern: ThreadLocalRandom.current()
           - pattern: new SplittableRandom()
           - pattern: new SplittableRandom($SEED)
+          # 全限定名（BenchmarkJava 大量使用）
+          - pattern: new java.util.Random()
+          - pattern: new java.util.Random($SEED)
+          - pattern: java.lang.Math.random()
+          - pattern: java.util.concurrent.ThreadLocalRandom.current()
+          - pattern: new java.util.SplittableRandom()
+          - pattern: new java.util.SplittableRandom($SEED)
           # Apache Commons Lang
           - pattern: RandomStringUtils.random(...)
           - pattern: RandomStringUtils.randomAlphabetic(...)
           - pattern: RandomStringUtils.randomAlphanumeric(...)
           - pattern: RandomStringUtils.randomNumeric(...)
           - pattern: RandomStringUtils.randomAscii(...)
+          - pattern: org.apache.commons.lang3.RandomStringUtils.random(...)
+          - pattern: org.apache.commons.lang3.RandomStringUtils.randomAlphabetic(...)
+          - pattern: org.apache.commons.lang3.RandomStringUtils.randomAlphanumeric(...)
+          - pattern: org.apache.commons.lang3.RandomStringUtils.randomNumeric(...)
+          - pattern: org.apache.commons.lang3.RandomStringUtils.randomAscii(...)

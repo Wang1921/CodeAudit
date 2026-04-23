@@ -23,9 +23,33 @@ rules:
         - https://owasp.org/www-community/attacks/Command_Injection
     patterns:
       - pattern-either:
+          # 直接链式
           - pattern: Runtime.getRuntime().exec($CMD, ...)
+          - pattern: java.lang.Runtime.getRuntime().exec($CMD, ...)
           - pattern: new ProcessBuilder($CMD, ...)
+          - pattern: new java.lang.ProcessBuilder($CMD, ...)
+          # Runtime 变量形式（$R 是 Runtime 类型实例）
+          - patterns:
+              - pattern: $R.exec($CMD, ...)
+              - metavariable-type:
+                  metavariable: $R
+                  types:
+                    - Runtime
+                    - java.lang.Runtime
+          # ProcessBuilder.command(...) 非字面量参数
+          - patterns:
+              - pattern: $PB.command($CMD, ...)
+              - metavariable-type:
+                  metavariable: $PB
+                  types:
+                    - ProcessBuilder
+                    - java.lang.ProcessBuilder
       # 字面量排除：所有参数都是字符串常量
       - pattern-not: Runtime.getRuntime().exec("...", ...)
+      - pattern-not: java.lang.Runtime.getRuntime().exec("...", ...)
       - pattern-not: new ProcessBuilder("...")
       - pattern-not: new ProcessBuilder("...", ...)
+      - pattern-not: new java.lang.ProcessBuilder("...")
+      - pattern-not: new java.lang.ProcessBuilder("...", ...)
+      - pattern-not: $R.exec("...", ...)
+      - pattern-not: $PB.command("...", ...)

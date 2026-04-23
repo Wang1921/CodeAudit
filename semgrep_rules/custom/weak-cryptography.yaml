@@ -4,16 +4,19 @@ rules:
       🚨 Weak Cryptography (CWE-327 / CWE-328) Sink: 使用了已被破解或不再推荐的密码学算法。
       - `DES` / `DESede` / `RC2` / `RC4` / `Blowfish` 对称加密已被破解或不再安全；
       - `AES/ECB/*` 模式不具备语义安全，相同明文块 → 相同密文块（ECB penguin）；
-      - `MD5` / `SHA-1` 存在碰撞攻击，禁止用于签名、数据完整性、口令哈希。
+      - `MD5` / `SHA-1` 存在碰撞攻击，禁止用于签名、数据完整性、口令哈希；
+      - 算法参数是**变量**（如从配置文件读取）时，仍需定性 —— 默认值可能本身就弱，
+        或运行时会被替换为弱算法。
 
-      该告警**无须污点链**（算法字符串是硬编码字面量，参数本身即构成漏洞），
-      框架会将此类 sink 经 fast path 直接交给 BlueValidator 做静态定性。
+      该告警**无须污点链**（算法由代码本地决定），框架 fast path 交给 BlueValidator 做静态定性：
+      - 若参数是弱算法字面量 → VULNERABLE
+      - 若参数是变量 → BlueValidator 回溯变量定义（常量 / properties 默认值）判定
 
       修复建议：
       1. 对称加密：`AES/GCM/NoPadding` 或 `AES/CBC/PKCS5Padding` + 显式随机 IV；
       2. 哈希（非口令）：`SHA-256` / `SHA-3`；
       3. 口令哈希：`BCrypt` / `Argon2` / `PBKDF2WithHmacSHA256` 并使用 salt；
-      4. 高级协议：直接使用 `javax.crypto.Cipher` + `SecureRandom` + HKDF 组合。
+      4. 禁止将算法名写入外部可改配置文件。
     severity: ERROR
     languages: [java]
     metadata:
@@ -28,26 +31,64 @@ rules:
         - https://cwe.mitre.org/data/definitions/327.html
         - https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
     pattern-either:
-      # Cipher.getInstance(weak symmetric algorithm)
+      # ---------------- Cipher.getInstance(weak literal) ----------------
+      # 同时覆盖短名 `Cipher.getInstance(...)` 与全限定名 `javax.crypto.Cipher.getInstance(...)`
+      # 覆盖 1-arg / 2-arg / 3-arg 所有变体（$ALG, ...）。
       - patterns:
-          - pattern: Cipher.getInstance($ALG)
+          - pattern-either:
+              - pattern: Cipher.getInstance($ALG, ...)
+              - pattern: javax.crypto.Cipher.getInstance($ALG, ...)
           - metavariable-regex:
               metavariable: $ALG
-              # 匹配 "DES"、"DES/xxx/xxx"、"AES/ECB/xxx" 等
               regex: '^"(?i)(DES|DES/.*|DESede|DESede/.*|TripleDES|TripleDES/.*|RC2|RC2/.*|RC4|RC4/.*|ARCFOUR|ARCFOUR/.*|Blowfish|Blowfish/.*|AES|AES/ECB/.*)"$'
-      # MessageDigest.getInstance(weak hash)
+
+      # ---------------- Cipher.getInstance(non-literal algorithm) ----------------
+      # 算法参数不是字符串字面量（如从 properties 文件读取），BlueValidator 回溯变量定性。
       - patterns:
-          - pattern: MessageDigest.getInstance($ALG)
+          - pattern-either:
+              - pattern: Cipher.getInstance($ALG, ...)
+              - pattern: javax.crypto.Cipher.getInstance($ALG, ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^[^"].*'
+
+      # ---------------- MessageDigest.getInstance(weak literal) ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: MessageDigest.getInstance($ALG, ...)
+              - pattern: java.security.MessageDigest.getInstance($ALG, ...)
           - metavariable-regex:
               metavariable: $ALG
               regex: '^"(?i)(MD2|MD4|MD5|SHA|SHA1|SHA-1)"$'
-      # KeyGenerator.getInstance(weak cipher)
+
+      # ---------------- MessageDigest.getInstance(non-literal algorithm) ----------------
       - patterns:
-          - pattern: KeyGenerator.getInstance($ALG)
+          - pattern-either:
+              - pattern: MessageDigest.getInstance($ALG, ...)
+              - pattern: java.security.MessageDigest.getInstance($ALG, ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^[^"].*'
+
+      # ---------------- KeyGenerator.getInstance(weak literal) ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: KeyGenerator.getInstance($ALG, ...)
+              - pattern: javax.crypto.KeyGenerator.getInstance($ALG, ...)
           - metavariable-regex:
               metavariable: $ALG
               regex: '^"(?i)(DES|DESede|TripleDES|RC2|RC4|ARCFOUR|Blowfish)"$'
-      # KeyPairGenerator 过短 RSA 密钥
+
+      # ---------------- SecretKeySpec(weak algorithm literal) ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: new SecretKeySpec(..., $ALG)
+              - pattern: new javax.crypto.spec.SecretKeySpec(..., $ALG)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^"(?i)(DES|DESede|TripleDES|RC2|RC4|ARCFOUR|Blowfish)"$'
+
+      # ---------------- KeyPairGenerator 过短 RSA 密钥 ----------------
       - pattern: |
           $KPG = KeyPairGenerator.getInstance("RSA");
           ...
@@ -56,10 +97,25 @@ rules:
           $KPG = KeyPairGenerator.getInstance("RSA");
           ...
           $KPG.initialize(1024);
-      # Apache Commons Codec 弱哈希
+      - pattern: |
+          $KPG = java.security.KeyPairGenerator.getInstance("RSA");
+          ...
+          $KPG.initialize(512);
+      - pattern: |
+          $KPG = java.security.KeyPairGenerator.getInstance("RSA");
+          ...
+          $KPG.initialize(1024);
+
+      # ---------------- Apache Commons Codec 弱哈希 ----------------
       - pattern: DigestUtils.md2(...)
       - pattern: DigestUtils.md2Hex(...)
       - pattern: DigestUtils.md5(...)
       - pattern: DigestUtils.md5Hex(...)
       - pattern: DigestUtils.sha1(...)
       - pattern: DigestUtils.sha1Hex(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.md2(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.md2Hex(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.md5(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.md5Hex(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.sha1(...)
+      - pattern: org.apache.commons.codec.digest.DigestUtils.sha1Hex(...)
