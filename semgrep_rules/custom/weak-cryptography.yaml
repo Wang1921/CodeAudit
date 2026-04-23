@@ -1,0 +1,65 @@
+rules:
+  - id: java-weak-cryptography
+    message: |
+      🚨 Weak Cryptography (CWE-327 / CWE-328) Sink: 使用了已被破解或不再推荐的密码学算法。
+      - `DES` / `DESede` / `RC2` / `RC4` / `Blowfish` 对称加密已被破解或不再安全；
+      - `AES/ECB/*` 模式不具备语义安全，相同明文块 → 相同密文块（ECB penguin）；
+      - `MD5` / `SHA-1` 存在碰撞攻击，禁止用于签名、数据完整性、口令哈希。
+
+      该告警**无须污点链**（算法字符串是硬编码字面量，参数本身即构成漏洞），
+      框架会将此类 sink 经 fast path 直接交给 BlueValidator 做静态定性。
+
+      修复建议：
+      1. 对称加密：`AES/GCM/NoPadding` 或 `AES/CBC/PKCS5Padding` + 显式随机 IV；
+      2. 哈希（非口令）：`SHA-256` / `SHA-3`；
+      3. 口令哈希：`BCrypt` / `Argon2` / `PBKDF2WithHmacSHA256` 并使用 salt；
+      4. 高级协议：直接使用 `javax.crypto.Cipher` + `SecureRandom` + HKDF 组合。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+        - "CWE-328: Use of Weak Hash"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
+    pattern-either:
+      # Cipher.getInstance(weak symmetric algorithm)
+      - patterns:
+          - pattern: Cipher.getInstance($ALG)
+          - metavariable-regex:
+              metavariable: $ALG
+              # 匹配 "DES"、"DES/xxx/xxx"、"AES/ECB/xxx" 等
+              regex: '^"(?i)(DES|DES/.*|DESede|DESede/.*|TripleDES|TripleDES/.*|RC2|RC2/.*|RC4|RC4/.*|ARCFOUR|ARCFOUR/.*|Blowfish|Blowfish/.*|AES|AES/ECB/.*)"$'
+      # MessageDigest.getInstance(weak hash)
+      - patterns:
+          - pattern: MessageDigest.getInstance($ALG)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^"(?i)(MD2|MD4|MD5|SHA|SHA1|SHA-1)"$'
+      # KeyGenerator.getInstance(weak cipher)
+      - patterns:
+          - pattern: KeyGenerator.getInstance($ALG)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^"(?i)(DES|DESede|TripleDES|RC2|RC4|ARCFOUR|Blowfish)"$'
+      # KeyPairGenerator 过短 RSA 密钥
+      - pattern: |
+          $KPG = KeyPairGenerator.getInstance("RSA");
+          ...
+          $KPG.initialize(512);
+      - pattern: |
+          $KPG = KeyPairGenerator.getInstance("RSA");
+          ...
+          $KPG.initialize(1024);
+      # Apache Commons Codec 弱哈希
+      - pattern: DigestUtils.md2(...)
+      - pattern: DigestUtils.md2Hex(...)
+      - pattern: DigestUtils.md5(...)
+      - pattern: DigestUtils.md5Hex(...)
+      - pattern: DigestUtils.sha1(...)
+      - pattern: DigestUtils.sha1Hex(...)

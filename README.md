@@ -50,7 +50,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 | **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪 | `lsp, read, codesearch` |
 | **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争等）| `lsp, read, codesearch` |
 | **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量 | `lsp, read, codesearch` |
-| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞 | `lsp, read, codesearch` |
+| **BlueValidator** | 防御验证节点 | 双职责: ①扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞；②对 `taint_required:false` 的 sink（弱加密/弱随机/硬编码等）走 fast path 直接做静态定性，跳过 ReverseTracer+RedValidator | `lsp, read, codesearch` |
 | **ReportGenerator** | 报告节点 | 生成最终审计报告，保存 JSON 格式漏洞报告到 `reports/` 目录 | `lsp, read, codesearch` |
 | **RetryAgent** | 重试模板 | Agent 返回非法 JSON 时由 `OpenCodeAgent._retry` 在同会话内触发的修复提示 | `lsp, read, codesearch` |
 
@@ -88,8 +88,13 @@ python -m src.main ./dummy_project --semgrep-rules ./semgrep_rules/
 4. 开始审计流程：
    - 通过 `_discover_microservices()` 扫描目标目录第一层子目录构建微服务映射，并按服务数自动扩容沙盒池
    - Semgrep 一次性扫描 API 路由（`routes`）和漏洞点（`sinks`）
-   - 并发派发：每个 sink → ReverseTracer，每个 route → LogicAuditor
+   - 并发派发：
+     - 每个 route → LogicAuditor
+     - 每个 sink → 按规则元数据 `taint_required` 分流：
+       - `true`（默认，注入类/反序列化/SSRF/XXE 等）→ ReverseTracer（完整污点链）
+       - `false`（弱加密/弱随机/硬编码等"sink 即漏洞"）→ BlueValidator（fast path 静态定性）
    - 命中后进入红蓝对抗（RedValidator → BlueValidator → ReportGenerator）
+   - fast path 直接 BlueValidator → ReportGenerator（2 跳）
 5. **全部任务处理完毕后自然退出**（主循环追踪 in-flight 协程，连续 2 轮空闲即收尾），无需 Ctrl+C。
 
 ### 目录结构
@@ -115,8 +120,23 @@ CodeAudit/
 │       └── retry.yaml
 ├── semgrep_rules/          # Semgrep 规则集合
 │   └── custom/
-│       ├── spring-api.yaml    # Spring API 路由提取
-│       └── spel-injection.yaml # SpEL 注入 sink 检测
+│       ├── spring-api.yaml            # Spring API 路由提取（非漏洞）
+│       # 需要污点链的 sink (taint_required: true)
+│       ├── command-injection.yaml
+│       ├── sql-injection.yaml
+│       ├── nosql-injection.yaml
+│       ├── path-traversal.yaml
+│       ├── unsafe-deserialization.yaml
+│       ├── spel-injection.yaml
+│       ├── xxe.yaml
+│       ├── ssrf.yaml
+│       ├── ldap-injection.yaml
+│       ├── xpath-injection.yaml
+│       ├── template-injection.yaml
+│       # 无须污点链 (taint_required: false) — 走 fast path
+│       ├── weak-cryptography.yaml
+│       ├── weak-random.yaml
+│       └── hardcoded-credentials.yaml
 ├── web/                    # Web 前端界面
 │   └── index.html          # Vue.js 实时看板
 ├── doc/                    # 详细设计文档

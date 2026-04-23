@@ -1,0 +1,44 @@
+rules:
+  - id: java-template-injection
+    message: |
+      🚨 Template Injection (CWE-94 / CWE-1336) Sink: 模板引擎接收非字面量模板内容。
+      Velocity / FreeMarker / Pebble 等引擎支持类反射与静态方法调用，
+      若模板内容来自外部输入，攻击者可构造
+      `#set($x=$class.forName("java.lang.Runtime")...)` 或
+      `<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}` 直接 RCE。
+
+      修复建议：
+      1. 不允许用户提供完整模板，仅允许传入占位变量值；
+      2. FreeMarker：启用 `TemplateClassResolver.SAFER_RESOLVER` 限制类反射；
+      3. Velocity：使用 `SecureUberspector`，禁用 `#evaluate`；
+      4. Pebble：关闭 `allowGetClass` / `allowUnsafeMethods` 选项。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-94: Improper Control of Generation of Code"
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Template Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/1336.html
+        - https://portswigger.net/research/server-side-template-injection
+    patterns:
+      - pattern-either:
+          # Velocity：evaluate 直接执行模板字符串
+          - pattern: Velocity.evaluate($CTX, $WRITER, $TAG, $TEMPLATE)
+          - pattern: $ENGINE.evaluate($CTX, $WRITER, $TAG, $TEMPLATE)
+          # FreeMarker：通过 StringReader 或字符串构造 Template
+          - pattern: new Template($NAME, new StringReader($SRC), $CFG)
+          - pattern: new Template($NAME, new StringReader($SRC), $CFG, ...)
+          - pattern: new Template($NAME, $SRC, $CFG)
+          # Pebble：getLiteralTemplate 直接接受模板字符串
+          - pattern: $ENGINE.getLiteralTemplate($TEMPLATE)
+      # 字面量排除
+      - pattern-not: Velocity.evaluate($CTX, $WRITER, $TAG, "...")
+      - pattern-not: $ENGINE.evaluate($CTX, $WRITER, $TAG, "...")
+      - pattern-not: new Template($NAME, new StringReader("..."), $CFG)
+      - pattern-not: new Template($NAME, new StringReader("..."), $CFG, ...)
+      - pattern-not: new Template($NAME, "...", $CFG)
+      - pattern-not: $ENGINE.getLiteralTemplate("...")

@@ -1,0 +1,74 @@
+rules:
+  - id: java-nosql-injection
+    message: |
+      🚨 NoSQL Injection (CWE-943) Sink: NoSQL 查询接口接收非字面量查询内容。
+
+      MongoDB 场景：
+      - `Document.parse(userJson)` / `BasicDBObject.parse(userJson)` / `new BasicQuery(userJson)`
+        攻击者可注入 `$ne:null`、`$regex:".*"`、`$where:"..."` 等操作符绕过鉴权或枚举数据；
+      - `Criteria.where("$where").is(userInput)` 直接把用户输入作为服务器端 JS 执行 (MongoDB < 4.4)。
+
+      Cassandra CQL / Neo4j Cypher 场景：
+      - `session.execute(cql)` / `session.run(cypher)` 若拼接用户输入，
+        攻击者可注入 `; DROP ...` / `UNION MATCH ...` 等扩展语句。
+
+      修复建议：
+      1. MongoDB：使用类型化构造器 `Filters.eq(field, value)` / `Filters.in(...)`，
+         禁止将 JSON 字符串直接 `parse()` 为查询；
+      2. Spring Data MongoDB：优先用 `Query.query(Criteria.where(field).is(value))` 参数化 API，
+         避免 `new BasicQuery(json)` 接收 JSON 字符串；
+      3. 禁止在 MongoDB 查询中出现 `$where` 操作符（或服务端关闭 JS 求值）；
+      4. Cassandra：使用 `PreparedStatement` + `BoundStatement.setXxx(...)` 绑定参数；
+      5. Neo4j：使用参数化 Cypher `session.run("MATCH (n {id: $id})", parameters("id", id))`。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "NoSQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+        - https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection
+    patterns:
+      - pattern-either:
+          # MongoDB driver - JSON 字符串构造查询
+          - pattern: Document.parse($JSON)
+          - pattern: Document.parse($JSON, ...)
+          - pattern: BasicDBObject.parse($JSON)
+          - pattern: BasicDBObject.parse($JSON, ...)
+          # Spring Data MongoDB
+          - pattern: new BasicQuery($JSON)
+          - pattern: new BasicQuery($JSON, ...)
+          # Spring Data MongoDB - $where 服务端 JS
+          - pattern: Criteria.where("$where").is($CODE)
+          - pattern: $CRIT.and("$where").is($CODE)
+          # Cassandra CqlSession / Session (限定 String 参数，避免误匹配 ExecutorService.execute(Runnable))
+          - patterns:
+              - pattern-either:
+                  - pattern: $SESSION.execute($CQL)
+                  - pattern: $SESSION.executeAsync($CQL)
+                  - pattern: $SESSION.prepare($CQL)
+              - metavariable-type:
+                  metavariable: $CQL
+                  type: String
+          # Neo4j Driver
+          - patterns:
+              - pattern: $SESSION.run($CYPHER)
+              - metavariable-type:
+                  metavariable: $CYPHER
+                  type: String
+      # 字面量排除
+      - pattern-not: Document.parse("...")
+      - pattern-not: Document.parse("...", ...)
+      - pattern-not: BasicDBObject.parse("...")
+      - pattern-not: BasicDBObject.parse("...", ...)
+      - pattern-not: new BasicQuery("...")
+      - pattern-not: new BasicQuery("...", ...)
+      - pattern-not: Criteria.where("$where").is("...")
+      - pattern-not: $CRIT.and("$where").is("...")
+      - pattern-not: $SESSION.execute("...")
+      - pattern-not: $SESSION.executeAsync("...")
+      - pattern-not: $SESSION.prepare("...")
+      - pattern-not: $SESSION.run("...")

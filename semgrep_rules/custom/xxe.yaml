@@ -1,0 +1,59 @@
+rules:
+  - id: java-xxe
+    message: |
+      🚨 XXE (CWE-611) Sink: XML 解析接口接收非字面量输入。
+      若工厂未显式关闭 DTD / external-general-entities / external-parameter-entities，
+      攻击者可构造恶意 XML（`<!ENTITY xxe SYSTEM "file:///etc/passwd">`）读取
+      任意文件、发起 SSRF 或 DoS（billion laughs）。
+
+      修复建议：
+      1. 工厂层显式禁用（JAXP 共享 feature）：
+         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+         factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+         factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+      2. DocumentBuilderFactory 加 `setXIncludeAware(false)` + `setExpandEntityReferences(false)`;
+      3. 改用 JSON / Protobuf 等不支持外部实体的数据格式;
+      4. 对照 OWASP XXE Prevention Cheat Sheet 逐项套用。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          # JAXP DOM: DocumentBuilder
+          - pattern: $DB.parse($INPUT)
+          - pattern: $DB.parse($INPUT, ...)
+          # JAXP SAX: SAXParser
+          - pattern: $SP.parse($INPUT, $HANDLER)
+          # StAX: XMLInputFactory
+          - pattern: $XIF.createXMLStreamReader($INPUT, ...)
+          - pattern: $XIF.createXMLEventReader($INPUT, ...)
+          # org.xml.sax.XMLReader
+          - pattern: $XR.parse($SOURCE)
+          # TRAX / Schema
+          - pattern: $TF.newTransformer($SRC)
+          - pattern: $SF.newSchema($SRC)
+          # dom4j
+          - pattern: new SAXReader().read($INPUT)
+          - pattern: new SAXReader().read($INPUT, ...)
+          # jdom2
+          - pattern: new SAXBuilder().build($INPUT)
+          - pattern: new SAXBuilder().build($INPUT, ...)
+      # 字面量排除
+      - pattern-not: $DB.parse("...")
+      - pattern-not: $DB.parse("...", ...)
+      - pattern-not: $SP.parse("...", $HANDLER)
+      - pattern-not: $XIF.createXMLStreamReader("...", ...)
+      - pattern-not: $XIF.createXMLEventReader("...", ...)
+      - pattern-not: $XR.parse("...")
+      - pattern-not: new SAXReader().read("...")
+      - pattern-not: new SAXReader().read("...", ...)
+      - pattern-not: new SAXBuilder().build("...")
+      - pattern-not: new SAXBuilder().build("...", ...)

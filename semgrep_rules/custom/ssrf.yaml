@@ -1,0 +1,83 @@
+rules:
+  - id: java-ssrf
+    message: |
+      🚨 SSRF (CWE-918) Sink: HTTP/URL 客户端接收非字面量 URL。
+      若 URL 来自外部输入，攻击者可指向内网服务或云元数据接口
+      (http://169.254.169.254/、http://localhost:8500/、file:///etc/passwd)
+      间接读取敏感数据、探测内网或攻击内部服务。
+
+      修复建议：
+      1. 对 URL 做白名单（仅允许预期的外部业务域名）；
+      2. 禁用 HTTP 重定向或对 redirect 目标再次校验；
+      3. 解析 host 后禁止私有/保留段
+         (10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7 等)；
+      4. 使用独立出网代理或网络命名空间做出站控制。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp: "A10:2021 - Server-Side Request Forgery"
+      vuln_class: "SSRF"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/918.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          # java.net.URL / URI
+          - pattern: new URL($URL)
+          - pattern: new URL($URL, ...)
+          - pattern: URI.create($URL)
+          - pattern: new URI($URL)
+          # java.net.http (JDK 11+)
+          - pattern: HttpRequest.newBuilder($URL)
+          - pattern: $BUILDER.uri($URL)
+          # Apache HttpClient 4/5
+          - pattern: new HttpGet($URL)
+          - pattern: new HttpPost($URL)
+          - pattern: new HttpPut($URL)
+          - pattern: new HttpDelete($URL)
+          - pattern: new HttpHead($URL)
+          - pattern: new HttpPatch($URL)
+          - pattern: new HttpOptions($URL)
+          # Spring RestTemplate
+          - pattern: $RT.getForObject($URL, ...)
+          - pattern: $RT.getForEntity($URL, ...)
+          - pattern: $RT.postForObject($URL, ...)
+          - pattern: $RT.postForEntity($URL, ...)
+          - pattern: $RT.put($URL, ...)
+          - pattern: $RT.delete($URL, ...)
+          - pattern: $RT.exchange($URL, ...)
+          - pattern: $RT.execute($URL, ...)
+          # Spring WebClient
+          - pattern: WebClient.create($URL)
+          # OkHttp
+          - pattern: $BUILDER.url($URL)
+          # Jsoup
+          - pattern: Jsoup.connect($URL)
+      # 字面量排除
+      - pattern-not: new URL("...")
+      - pattern-not: new URL("...", ...)
+      - pattern-not: URI.create("...")
+      - pattern-not: new URI("...")
+      - pattern-not: HttpRequest.newBuilder("...")
+      - pattern-not: $BUILDER.uri("...")
+      - pattern-not: new HttpGet("...")
+      - pattern-not: new HttpPost("...")
+      - pattern-not: new HttpPut("...")
+      - pattern-not: new HttpDelete("...")
+      - pattern-not: new HttpHead("...")
+      - pattern-not: new HttpPatch("...")
+      - pattern-not: new HttpOptions("...")
+      - pattern-not: $RT.getForObject("...", ...)
+      - pattern-not: $RT.getForEntity("...", ...)
+      - pattern-not: $RT.postForObject("...", ...)
+      - pattern-not: $RT.postForEntity("...", ...)
+      - pattern-not: $RT.put("...", ...)
+      - pattern-not: $RT.delete("...", ...)
+      - pattern-not: $RT.exchange("...", ...)
+      - pattern-not: $RT.execute("...", ...)
+      - pattern-not: WebClient.create("...")
+      - pattern-not: $BUILDER.url("...")
+      - pattern-not: Jsoup.connect("...")

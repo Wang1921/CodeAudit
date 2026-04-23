@@ -164,30 +164,41 @@ class AuditEngine:
                 payload={"action": "logic_audit", "route_details": route}
             )
         
-        # 处理漏洞点结果
-        sinks = scan_result.get("sinks", [])
+        # 处理漏洞点结果（使用上面去重后的 sinks，不要复写为原始数据）
+        # taint_required=False 的 sink（弱加密/弱随机/硬编码等无 source→sink 污点链的场景）
+        # 走 fast path 直接到 BlueValidator 做静态定性，跳过 ReverseTracer 和 RedValidator。
         for i, sink in enumerate(sinks):
             self.tracker.add_task()
             sink_details = sink.get("sink_details", {})
             vuln_class = sink_details.get("vuln_class", "Unknown")
             filepath = sink_details.get("filepath", "Unknown")
-            
+
             self.tracker.update_kanban(
-                "suspicious", 
-                f"{task_id}_SINK_{i}", 
+                "suspicious",
+                f"{task_id}_SINK_{i}",
                 vuln_class,
                 filepath
             )
-            
+
+            taint_required = sink_details.get("taint_required", True)
+            if taint_required:
+                recipient = "ReverseTracer"
+                task_suffix = "TRACE"
+                action = "trace_call_chain"
+            else:
+                recipient = "BlueValidator"
+                task_suffix = "STATIC"
+                action = "static_audit"
+
             self.bus.write_message(
                 message_type="TaskRequest",
-                task_id=f"{task_id}_SINK_{i}_TRACE",
+                task_id=f"{task_id}_SINK_{i}_{task_suffix}",
                 sender="SemgrepScanner",
-                recipient="ReverseTracer",
+                recipient=recipient,
                 payload={
-                    "action": "trace_call_chain",
-                    "sink_details": sink_details
-                }
+                    "action": action,
+                    "sink_details": sink_details,
+                },
             )
 
     async def process_task(self, filepath: str):

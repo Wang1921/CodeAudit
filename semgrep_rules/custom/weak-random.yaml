@@ -1,0 +1,45 @@
+rules:
+  - id: java-weak-random
+    message: |
+      🚨 Weak Random (CWE-330 / CWE-338) Sink: 使用非密码学安全的随机数生成器。
+      - `java.util.Random` 是线性同余算法，种子可由连续若干次输出反推；
+      - `Math.random()` 内部复用 `Random`，同样可预测；
+      - `ThreadLocalRandom` / `SplittableRandom` 同为非密码学安全。
+
+      这些 PRNG 若用于生成 **session id / CSRF token / 密钥 / 验证码 / 密码重置链接**，
+      攻击者可预测后续输出，造成账号接管或加密弱化。
+
+      该告警**无须污点链**（构造点即漏洞），走 fast path 交给 BlueValidator
+      结合调用上下文判断该随机值是否用于安全敏感场景（否则为误报）。
+
+      修复建议：
+      1. 敏感场景统一用 `java.security.SecureRandom`；
+      2. 需要跨实例强一致随机可选 `SecureRandom.getInstanceStrong()`；
+      3. 更短链路：`UUID.randomUUID()` 内部基于 SecureRandom，可直接当 token 用。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-330: Use of Insufficiently Random Values"
+        - "CWE-338: Use of Cryptographically Weak Pseudo-Random Number Generator"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Random"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/338.html
+        - https://owasp.org/www-community/vulnerabilities/Insecure_Randomness
+    patterns:
+      - pattern-either:
+          - pattern: new Random()
+          - pattern: new Random($SEED)
+          - pattern: Math.random()
+          - pattern: ThreadLocalRandom.current()
+          - pattern: new SplittableRandom()
+          - pattern: new SplittableRandom($SEED)
+          # Apache Commons Lang
+          - pattern: RandomStringUtils.random(...)
+          - pattern: RandomStringUtils.randomAlphabetic(...)
+          - pattern: RandomStringUtils.randomAlphanumeric(...)
+          - pattern: RandomStringUtils.randomNumeric(...)
+          - pattern: RandomStringUtils.randomAscii(...)

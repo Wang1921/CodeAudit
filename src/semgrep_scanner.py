@@ -289,6 +289,11 @@ class SemgrepScanner:
         
         taint_var = self._extract_taint_variable(result, code)
         
+        # taint_required 控制下游分流：
+        #   True  (默认) → 走 ReverseTracer → RedValidator → BlueValidator 完整污点链
+        #   False         → fast path 直接到 BlueValidator 做静态定性（弱加密/弱随机/硬编码等）
+        taint_required = bool(metadata.get("taint_required", True))
+
         return {
             "sink_details": {
                 "vuln_class": vuln_class,
@@ -302,7 +307,8 @@ class SemgrepScanner:
                 "cwe": cwe,
                 "message": message,
                 "check_id": check_id,
-                "severity": severity
+                "severity": severity,
+                "taint_required": taint_required,
             }
         }
     
