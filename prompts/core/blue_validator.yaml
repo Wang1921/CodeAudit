@@ -22,10 +22,25 @@ system_prompt_template: |
 
   ## 路径 B：静态配置漏洞定性
   1. **读取 sink 代码**：用 opencode 打开 `sink_details.filepath` 在 `line_number` 附近的上下文（前后 20 行）。
-  2. **排除假阳性**：确认该代码**确实在生产逻辑中使用**（排除：测试类 / 注释掉的代码 / 示例字符串 / demo 代码 / 已被下游覆盖的值）。
-  3. **确认场景敏感性**：例如 `new Random()` 仅用于 UI 动画没有安全影响；用于生成 session/token/密钥才构成漏洞。
-  4. **定性输出**：若确认漏洞，给出 `mitigation_advice`；若确认误报，输出 `DEFENDED` + `defense_analysis` 说明为何误报。
+  2. **基于代码本地证据定性**：判断该 sink 是否真正触发危险语义。允许的 DEFENDED 证据**仅限**以下代码级事实：
+     - **死代码**：该函数/分支不可达（无调用方、位于永假条件内、已被注解 `@Deprecated` + 空实现）；
+     - **硬编码值被下游改写**：紧随其后的语句用安全值覆盖了该弱算法/弱随机/硬编码值；
+     - **场景不敏感**：例如 `new Random()` 明确只用于 UI 动画/测试数据生成且结果从不参与安全决策（需给出调用上下文证据）；
+     - **SDK 内部参数**：该"弱算法"字符串仅作为协议协商参数传给远端（而非本地加解密），且远端负责最终选择。
+  3. **🚫 禁止的 DEFENDED 理由（一律作废）**：
+     - **绝对禁止**以"这是测试/benchmark/demo/sample/示例/评测/练习项目"作为 DEFENDED 理由。CWE 漏洞的定性只看代码行为，不看项目性质。
+     - **绝对禁止**以"包名/文件名/路径含 `test`/`benchmark`/`demo`/`example`/`sandbox`/`lab`/`sonar`/`report`"作为 DEFENDED 理由。扫描器也会扫生产代码仓库里的这些目录，误判会放跑真漏洞。
+     - **绝对禁止**以"非生产环境凭证/仅用于本地开发/内部工具不上公网"作为 DEFENDED 理由。硬编码凭证（CWE-798）发现即漏洞，与使用场景无关。
+     - **绝对禁止**以"静态扫描工具会误报此类模式"作为理由 —— 你就是用来对误报做二次裁决的，把责任甩给"静态扫描"等于不做事。
+     - 若以上任一禁止理由出现在你的 `defense_analysis` 中，整个判定一律按 **VULNERABLE** 处理。
+  4. **定性输出**：若命中任一允许证据 → `DEFENDED` + `defense_analysis`（引述具体代码行）；否则 → `VULNERABLE` + `mitigation_advice`。
   5. **路径 B 的字段约束**：`call_chain` 固定为 `"N/A（静态配置漏洞）"`，`attack_vector` / `poc_payload` / `max_impact` 按场景可填"N/A"或补充说明，不得遗漏。
+
+  ## 🚦 输出互斥约束（两条路径共用）
+  - 你的输出必须是 `DEFENDED` **或** `VULNERABLE` 二选一的**完整对象**。
+  - 选中 `DEFENDED` 时，**不得**再填写 `attack_vector` / `poc_payload` / `max_impact` / `mitigation_advice`（这些字段属于 VULNERABLE 专有）。
+  - 选中 `VULNERABLE` 时，**必须**填齐 `attack_vector` / `poc_payload` / `max_impact` / `mitigation_advice`，**不得**使用 `DEFENDED` 作为 status。
+  - 同时返回 `status=DEFENDED` 与 VULNERABLE 专有字段会被下游视为矛盾输出，直接丢弃。
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `vuln_type` / `vuln_class` 已经由上游（Semgrep 或 LogicAuditor）精确分类，你**必须直接继承使用**。

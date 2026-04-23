@@ -8,10 +8,13 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from src.a2a_bus import A2ABusManager
 
-# 终止状态：Agent 明确声明"无事"。注意：若同时返回业务字段，由上层优先业务字段。
+# 终止状态：Agent 明确声明"无事"。status 一旦命中，链路立即终止。
+# 若 Agent 同时返回业务字段（prompt 违规），视为矛盾输出，按 status 裁决，
+# 业务字段一律忽略 —— 这是 BlueValidator 以"benchmark/test 代码"洗白真漏洞
+# 且 ReverseTracer 偶发给 NOT_EXPLOITABLE + 业务字段的兜底。
 TERMINAL_STATES = ("NOT_EXPLOITABLE", "DEFENDED")
 
-# 判定"Agent 其实给了业务信号"的字段集合
+# 判定"Agent 其实给了业务信号"的字段集合（仅用于日志诊断）
 _BUSINESS_FIELDS = ("vuln_type", "vuln_class", "action", "attack_vector", "mitigation_advice")
 
 
@@ -219,17 +222,24 @@ class StateRouter:
             self._route_cross_service_request(task_id, parsed, orig_env)
             return
 
-        # 特判 2：终态。仅当 Agent 只声明"无事"时终止链路；若同时带业务字段，以业务字段为准。
+        # 特判 2：终态。status 显式裁决优先级最高，链路立即终止。
+        # 若 Agent 同时返回业务字段，视为 prompt 违规的矛盾输出，业务字段忽略。
         status = parsed.get("status")
-        has_business = any(k in parsed for k in _BUSINESS_FIELDS)
         if status in TERMINAL_STATES:
-            if not has_business:
+            has_business = any(k in parsed for k in _BUSINESS_FIELDS)
+            if has_business:
+                logging.warning(
+                    f"[路由] {sender} 任务 {task_id} 矛盾输出：status={status} 同时携带业务字段 "
+                    f"{[k for k in _BUSINESS_FIELDS if k in parsed]}。按 status 终止，业务字段忽略。"
+                )
+            else:
                 logging.info(f"任务 {task_id} 达到终态: {status}")
-                return
-            logging.warning(
-                f"[路由] {sender} 任务 {task_id} 同时返回 status={status} 与业务字段，"
-                f"以业务字段为准继续派发"
-            )
+            if self.tracker:
+                rule = ROUTE_RULES.get(sender)
+                label = (rule.miss_kanban_label if rule else sender) or sender
+                reason = (rule.miss_kanban_reason if rule else status) or status
+                self.tracker.update_kanban("resolved", task_id, label, reason, status=status)
+            return
 
         rule = ROUTE_RULES.get(sender)
         if rule is None:

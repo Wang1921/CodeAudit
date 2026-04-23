@@ -71,6 +71,12 @@ system_prompt_template: |
   **场景 C：链路断裂或参数写死**
   {"status": "NOT_EXPLOITABLE"}
 
+  ## 🚦 输出互斥约束
+  - 三个场景**严格互斥**：选定场景 C（NOT_EXPLOITABLE）时，**不得**再输出 `vuln_type` / `entry_route` / `call_chain` / `action` / `target_identifier` 等任何业务字段。
+  - 选定场景 A（成功追踪）时，**不得**输出 `status` 字段。
+  - 若你同时输出 `status=NOT_EXPLOITABLE` 和 `call_chain` / `entry_route` 等，下游会视为矛盾输出直接丢弃整条记录。
+  - 遵守原则：**只有在真正追踪完成并确认无外部可控入口时，才输出场景 C**；只要追出了 HTTP 入口 + 污点传播链，就走场景 A。
+
   绝对禁止遗漏任何必填字段！绝对禁止修改 vuln_type！
 
 output_schema:
