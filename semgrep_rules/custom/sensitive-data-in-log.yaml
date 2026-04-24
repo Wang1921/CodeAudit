@@ -101,27 +101,36 @@ rules:
     message: |
       🚨 Sensitive Data in Log (CWE-532) — 疑似打印含敏感字段的业务对象（启发式）。
 
-      日志参数里出现 `user / account / credential / request / session / principal / params /
-      kwargs / options / payload / body / data / context / entity` 等常见"容器对象"变量名，
-      该类若含 password / token / secret 等字段且 `toString()` 未脱敏，会随日志泄露。
+      日志参数里出现常见"容器对象"变量名，对象所属类若含 password / token / secret /
+      community string / privKey 等字段且 `toString()` 未脱敏，会随日志泄露。
 
-      这是**变量名启发式告警**（Semgrep 无法追踪到对象内部字段），confidence=LOW。
+      覆盖的变量名关键字（按领域分组）：
+      - **身份/用户**：user / account / customer / employee / member / person / subscriber / tenant
+      - **凭据/鉴权**：credential / cred / login / principal / identity / subject / token / oauth / jwt / bearer
+      - **协议客户端**（常携带 user+password）：snmp / ldap / smtp / imap / pop3 / ftp / sftp / ssh
+      - **DB/消息客户端**（常携带连接 URL + 凭据）：datasource / jdbc / database / redis / mongo / cassandra / kafka / rabbit
+      - **密钥管理**：vault / keystore / truststore
+      - **HTTP 容器**（可能含 Authorization / Cookie）：cookie / header / headers
+      - **通用请求容器**：kwargs / params / args / options / payload / request / session / body / profile
+      - **配置容器**（往往含 DB 密码 / API Key）：properties / props
+
+      这是**变量名启发式告警**（Semgrep 没 dataflow 追不到对象内部字段），confidence=LOW。
 
       验证方法（BlueValidator / 人工）：
-      1. 打开该对象所属类定义（通常在 model / entity / dto / domain 包）
-      2. 检查是否含敏感字段：password / secret / token / apiKey / creditCard 等
+      1. 打开该对象所属类定义（通常在 model / entity / dto / domain 包，或 SDK 源码）
+      2. 检查是否含敏感字段：password / secret / token / privKey / communityString / apiKey 等
       3. 检查 toString() / Lombok 注解：
          - `@Data` / `@ToString` 默认包含所有字段 → **风险**
          - `@ToString(exclude = {"password"})` / 手写 toString 排除敏感字段 → DEFENDED
-         - record 类默认 toString 也包含所有字段 → **风险**
-      4. 若该对象是 HTTP 层对象（HttpServletRequest / Map<String,String> params），
-         注意日志可能把 Authorization 头 / cookies / body 参数一起打出
+         - Java record 默认 toString 也包含所有字段 → **风险**
+      4. 若是协议 SDK 对象（Snmp4j `UsmUser` / JSch `Session` / Redis `JedisPool`）
+         往往内部持有密码/密钥，直接打印必泄露
 
       修复建议：
       1. Lombok：对敏感字段加 `@ToString.Exclude`；或类级 `@ToString(onlyExplicitlyIncluded = true)`
       2. 手写 toString 只暴露非敏感字段（如 id / name / createTime）
       3. 改打印必要字段而非整个对象：`log.info("userId={}", user.getId())`
-      4. 引入 DTO 脱敏层：日志只打印 `MaskedUserDto`
+      4. 对 SDK 对象先做脱敏包装再日志化，或只打 `obj.getClass().getSimpleName()`
     severity: WARNING
     languages: [java]
     metadata:
@@ -157,10 +166,18 @@ rules:
           metavariable: $OBJ
           # 变量名 / 方法调用 / 属性访问中含常见"业务对象 or 容器"关键字。
           # Semgrep metavariable-regex 是**全串匹配**，所以用 \w* 允许前后缀
-          # 以覆盖 currentUserPrincipal / userDto / getUser() / kwargsConfig 等形式。
-          # 关键字列表偏向"容器类型"的变量名：包含 PII / 鉴权信息的业务对象 + 通用 kwargs/params 容器。
-          # confidence: LOW — 存在 `tokenize` / `userAgent` 类小 FP，由 BlueValidator 二次核验。
-          regex: '(?i)\w*(user|account|customer|employee|credential|login|principal|identity|subject|token|kwargs|params|args|options|payload|request|session|body|profile|member|cred)\w*'
+          # 以覆盖 currentUserPrincipal / userDto / ldapConnection / snmpv3User 等形式。
+          # 按领域分组（见规则 message 的详细说明）：
+          #   身份      user|account|customer|employee|member|person|subscriber|tenant
+          #   凭据鉴权  credential|cred|login|principal|identity|subject|token|oauth|jwt|bearer
+          #   协议客户端 snmp|ldap|smtp|imap|pop3|ftp|sftp|ssh
+          #   DB/MQ     datasource|jdbc|database|redis|mongo|cassandra|kafka|rabbit|rabbitmq
+          #   密钥管理  vault|keystore|truststore
+          #   HTTP 容器 cookie|header|headers
+          #   通用容器  kwargs|params|args|options|payload|request|session|body|profile
+          #   配置容器  properties|props
+          # confidence: LOW — 存在 tokenize / userAgent / propsed 等小 FP，由 BlueValidator 二次核验。
+          regex: '(?i)\w*(user|account|customer|employee|member|person|subscriber|tenant|credential|cred|login|principal|identity|subject|token|oauth|jwt|bearer|snmp|ldap|smtp|imap|pop3|ftp|sftp|ssh|datasource|jdbc|database|redis|mongo|cassandra|kafka|rabbit|rabbitmq|vault|keystore|truststore|cookie|header|headers|kwargs|params|args|options|payload|request|session|body|profile|properties|props)\w*'
       # 排除：$OBJ 是字符串字面量（已由 java-sensitive-data-in-log 关键字规则覆盖）
       - pattern-not: $LOG.info($MSG, "...", ...)
       - pattern-not: $LOG.debug($MSG, "...", ...)
