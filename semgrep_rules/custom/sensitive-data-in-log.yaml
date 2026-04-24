@@ -1,0 +1,92 @@
+rules:
+  - id: java-sensitive-data-in-log
+    message: |
+      🚨 Sensitive Data in Log (CWE-532) Sink: 日志打印含密码 / token / 密钥等敏感关键字。
+
+      日志常被存储在中心化系统（ELK / Splunk / CloudWatch），所有运维 / 开发 / 外包人员
+      都能看到；定期备份与灾备同步又把日志复制到多处，**一次泄露永久留痕**。典型事故：
+      登录失败日志把明文密码打出来 → 数据库拖库 → 明文凭据 + 密码哈希一起出现在黑市。
+
+      命中条件：Logger / System.out 调用参数中出现
+      `password / pwd / secret / token / jwt / api_key / apikey / credential / ssn /
+      credit_card / cvv / private_key` 等敏感关键字。
+
+      修复建议：
+      1. 敏感字段一律脱敏：密码永远不进日志；token 打印前 8 位；卡号只保留后 4 位；
+      2. 用日志框架的 MDC + pattern filter 统一处理：`MaskingPatternLayout` / 自定义 `Converter`；
+      3. 不要把整个请求对象/用户对象直接 toString() 到日志，自定义 toString 排除敏感字段；
+      4. 生产环境日志级别不低于 INFO，关闭包含敏感数据的 DEBUG；
+      5. 审计日志与业务日志分库，审计日志加密并严格访问控制。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in Log"
+      confidence: MEDIUM
+      # 非污点链：关键字出现在日志参数里就是漏洞，无需源→汇追踪。
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
+    pattern-either:
+      # ---------------- SLF4J / Log4j / Commons Logging / JUL ----------------
+      # 标准 info/debug/warn/error/trace/fatal 级别方法
+      - patterns:
+          - pattern-either:
+              - pattern: $LOG.info($MSG, ...)
+              - pattern: $LOG.debug($MSG, ...)
+              - pattern: $LOG.warn($MSG, ...)
+              - pattern: $LOG.warning($MSG, ...)
+              - pattern: $LOG.error($MSG, ...)
+              - pattern: $LOG.trace($MSG, ...)
+              - pattern: $LOG.fatal($MSG, ...)
+              - pattern: $LOG.severe($MSG, ...)
+          - metavariable-type:
+              metavariable: $LOG
+              types:
+                - Logger
+                - org.slf4j.Logger
+                - org.apache.logging.log4j.Logger
+                - org.apache.log4j.Logger
+                - java.util.logging.Logger
+                - org.apache.commons.logging.Log
+          - metavariable-pattern:
+              metavariable: $MSG
+              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+
+      # Logger.log(Level, msg, ...)
+      - patterns:
+          - pattern: $LOG.log($LVL, $MSG, ...)
+          - metavariable-type:
+              metavariable: $LOG
+              types:
+                - Logger
+                - java.util.logging.Logger
+                - org.apache.logging.log4j.Logger
+          - metavariable-pattern:
+              metavariable: $MSG
+              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+
+      # ---------------- System.out / System.err ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: System.out.println($MSG, ...)
+              - pattern: System.err.println($MSG, ...)
+              - pattern: System.out.print($MSG, ...)
+              - pattern: System.err.print($MSG, ...)
+              - pattern: System.out.printf($MSG, ...)
+              - pattern: System.err.printf($MSG, ...)
+              - pattern: System.out.format($MSG, ...)
+              - pattern: System.err.format($MSG, ...)
+          - metavariable-pattern:
+              metavariable: $MSG
+              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+
+      # ---------------- printStackTrace → stdout/stderr 或 PrintWriter（把堆栈连敏感上下文一起打） ----------------
+      # 这是更弱的信号（堆栈里**可能**带敏感上下文），置 warning；
+      # 命中后由 BlueValidator 结合上下文决定。
+      - pattern: $E.printStackTrace()
+      - pattern: $E.printStackTrace(System.out)
+      - pattern: $E.printStackTrace(System.err)
