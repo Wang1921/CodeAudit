@@ -1,0 +1,102 @@
+rules:
+  - id: java-path-traversal
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: 文件 I/O 接口接收非字面量路径参数。
+      若路径含 `../` 或绝对路径跳出预期目录，攻击者可读写任意文件（如
+      `/etc/passwd`、配置文件、密钥）；写入场景更可能覆盖 webshell 达到 RCE。
+
+      修复建议：
+      1. 用 `Paths.get(baseDir).resolve(userInput).normalize().startsWith(baseDir)` 做前缀校验；
+      2. 只允许白名单文件名（如仅 `[a-zA-Z0-9._-]+`）；
+      3. 将用户输入作为查询键而非直接路径（数据库映射）；
+      4. 下载 / 上传场景用内容 hash 作为文件名。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+        - https://owasp.org/www-community/attacks/Path_Traversal
+    patterns:
+      - pattern-either:
+          # java.io.File 构造（短名 + FQN）
+          - pattern: new File($PATH)
+          - pattern: new File($PARENT, $PATH)
+          - pattern: new java.io.File($PATH)
+          - pattern: new java.io.File($PARENT, $PATH)
+          # java.nio.file.Paths
+          - pattern: Paths.get($PATH, ...)
+          - pattern: java.nio.file.Paths.get($PATH, ...)
+          # java.io 流构造
+          - pattern: new FileInputStream($PATH)
+          - pattern: new FileOutputStream($PATH, ...)
+          - pattern: new FileReader($PATH, ...)
+          - pattern: new FileWriter($PATH, ...)
+          - pattern: new java.io.FileInputStream($PATH)
+          - pattern: new java.io.FileOutputStream($PATH, ...)
+          - pattern: new java.io.FileReader($PATH, ...)
+          - pattern: new java.io.FileWriter($PATH, ...)
+          # java.nio.file.Files
+          - pattern: Files.readAllBytes($PATH)
+          - pattern: Files.readString($PATH, ...)
+          - pattern: Files.newInputStream($PATH, ...)
+          - pattern: Files.newOutputStream($PATH, ...)
+          - pattern: Files.write($PATH, ...)
+          - pattern: Files.copy($PATH, ...)
+          - pattern: java.nio.file.Files.readAllBytes($PATH)
+          - pattern: java.nio.file.Files.readString($PATH, ...)
+          - pattern: java.nio.file.Files.newInputStream($PATH, ...)
+          - pattern: java.nio.file.Files.newOutputStream($PATH, ...)
+          - pattern: java.nio.file.Files.write($PATH, ...)
+          - pattern: java.nio.file.Files.copy($PATH, ...)
+          # java.io.RandomAccessFile
+          - pattern: new RandomAccessFile($PATH, ...)
+          - pattern: new java.io.RandomAccessFile($PATH, ...)
+          # java.nio.channels.FileChannel.open
+          - pattern: FileChannel.open($PATH, ...)
+          - pattern: java.nio.channels.FileChannel.open($PATH, ...)
+          # Class.getResourceAsStream / ClassLoader.getResourceAsStream
+          - patterns:
+              - pattern: $CL.getResourceAsStream($PATH)
+              - metavariable-type:
+                  metavariable: $CL
+                  types:
+                    - Class
+                    - java.lang.Class
+                    - ClassLoader
+                    - java.lang.ClassLoader
+      # 字面量排除（短名 + FQN）
+      - pattern-not: new File("...")
+      - pattern-not: new File("...", "...")
+      - pattern-not: new java.io.File("...")
+      - pattern-not: new java.io.File("...", "...")
+      - pattern-not: Paths.get("...", ...)
+      - pattern-not: java.nio.file.Paths.get("...", ...)
+      - pattern-not: new FileInputStream("...")
+      - pattern-not: new FileOutputStream("...", ...)
+      - pattern-not: new FileReader("...", ...)
+      - pattern-not: new FileWriter("...", ...)
+      - pattern-not: new java.io.FileInputStream("...")
+      - pattern-not: new java.io.FileOutputStream("...", ...)
+      - pattern-not: new java.io.FileReader("...", ...)
+      - pattern-not: new java.io.FileWriter("...", ...)
+      - pattern-not: Files.readAllBytes("...")
+      - pattern-not: Files.readString("...", ...)
+      - pattern-not: Files.newInputStream("...", ...)
+      - pattern-not: Files.newOutputStream("...", ...)
+      - pattern-not: Files.write("...", ...)
+      - pattern-not: Files.copy("...", ...)
+      - pattern-not: java.nio.file.Files.readAllBytes("...")
+      - pattern-not: java.nio.file.Files.readString("...", ...)
+      - pattern-not: java.nio.file.Files.newInputStream("...", ...)
+      - pattern-not: java.nio.file.Files.newOutputStream("...", ...)
+      - pattern-not: java.nio.file.Files.write("...", ...)
+      - pattern-not: java.nio.file.Files.copy("...", ...)
+      - pattern-not: new RandomAccessFile("...", ...)
+      - pattern-not: new java.io.RandomAccessFile("...", ...)
+      - pattern-not: FileChannel.open(Paths.get("..."), ...)
+      - pattern-not: $CL.getResourceAsStream("...")

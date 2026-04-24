@@ -1,0 +1,195 @@
+rules:
+  - id: java-sql-injection
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: JDBC / JdbcTemplate / MyBatis 查询接口接收非字面量 SQL 语句。
+      若字符串通过拼接用户输入构造，攻击者可注入 `' OR 1=1 --` 等 SQL 片段
+      绕过鉴权、读/写/删任意数据，严重时扩展到 RCE（视数据库能力）。
+
+      修复建议：
+      1. JDBC：改用 `PreparedStatement` 并通过 `setXxx()` 绑定参数；
+      2. Spring：改用 `JdbcTemplate.query(sql, Object[] args, ...)` 带占位符；
+      3. MyBatis：**所有参数用 `#{param}` 而不是 `${param}`**（`${}` 等于字符串拼接，绝对禁止接收用户输入）；
+      4. 对 `LIMIT / ORDER BY` 等确实需要动态拼接的片段做严格白名单。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+        - https://owasp.org/www-community/attacks/SQL_Injection
+    patterns:
+      - pattern-either:
+          # java.sql.Statement 系列：execute/executeQuery/executeUpdate/addBatch
+          - patterns:
+              - pattern-either:
+                  - pattern: $STMT.executeQuery($SQL)
+                  - pattern: $STMT.executeUpdate($SQL, ...)
+                  - pattern: $STMT.addBatch($SQL)
+                  - pattern: $STMT.execute($SQL, ...)
+                  - pattern: $STMT.executeLargeUpdate($SQL, ...)
+              - metavariable-type:
+                  metavariable: $STMT
+                  types:
+                    - Statement
+                    - java.sql.Statement
+                    - PreparedStatement
+                    - java.sql.PreparedStatement
+                    - CallableStatement
+                    - java.sql.CallableStatement
+          # Connection.prepareStatement / prepareCall：SQL 拼接同样危险
+          - patterns:
+              - pattern-either:
+                  - pattern: $CONN.prepareStatement($SQL, ...)
+                  - pattern: $CONN.prepareCall($SQL, ...)
+              - metavariable-type:
+                  metavariable: $CONN
+                  types:
+                    - Connection
+                    - java.sql.Connection
+          # Spring JdbcTemplate 动态 SQL（无参数占位）
+          - pattern: $JDBC.queryForList($SQL, ...)
+          - pattern: $JDBC.queryForObject($SQL, ...)
+          - pattern: $JDBC.queryForMap($SQL, ...)
+          - pattern: $JDBC.query($SQL, ...)
+          - pattern: $JDBC.update($SQL, ...)
+          - pattern: $JDBC.execute($SQL, ...)
+          - pattern: $JDBC.batchUpdate($SQL, ...)
+          - pattern: $JDBC.queryForRowSet($SQL, ...)
+          - pattern: $JDBC.queryForStream($SQL, ...)
+          - pattern: $JDBC.queryForInt($SQL, ...)
+          - pattern: $JDBC.queryForLong($SQL, ...)
+      # 字面量排除
+      - pattern-not: $STMT.executeQuery("...")
+      - pattern-not: $STMT.executeUpdate("...", ...)
+      - pattern-not: $STMT.addBatch("...")
+      - pattern-not: $STMT.execute("...", ...)
+      - pattern-not: $STMT.executeLargeUpdate("...", ...)
+      - pattern-not: $CONN.prepareStatement("...", ...)
+      - pattern-not: $CONN.prepareCall("...", ...)
+      - pattern-not: $JDBC.queryForList("...", ...)
+      - pattern-not: $JDBC.queryForObject("...", ...)
+      - pattern-not: $JDBC.queryForMap("...", ...)
+      - pattern-not: $JDBC.query("...", ...)
+      - pattern-not: $JDBC.update("...", ...)
+      - pattern-not: $JDBC.execute("...", ...)
+      - pattern-not: $JDBC.batchUpdate("...", ...)
+      - pattern-not: $JDBC.queryForRowSet("...", ...)
+      - pattern-not: $JDBC.queryForStream("...", ...)
+      - pattern-not: $JDBC.queryForInt("...", ...)
+      - pattern-not: $JDBC.queryForLong("...", ...)
+      # 排除 Commons Exec 的 Executor.execute(CommandLine)，避免与 Statement.execute(sql) 混淆
+      - pattern-not:
+          patterns:
+            - pattern: $EXEC.execute($CMD)
+            - metavariable-type:
+                metavariable: $EXEC
+                types:
+                  - DefaultExecutor
+                  - org.apache.commons.exec.DefaultExecutor
+                  - Executor
+                  - org.apache.commons.exec.Executor
+
+  # ---------------- Hibernate / JPA 动态查询 ----------------
+  # Session.createQuery (HQL) / createSQLQuery / createNativeQuery 接收非字面量时
+  # 等同于 SQL 拼接；EntityManager 接口同理。
+  - id: java-hibernate-jpa-sql-injection
+    message: |
+      🚨 Hibernate / JPA SQL Injection (CWE-89) Sink: ORM 层接收非字面量 HQL/JPQL/SQL。
+
+      常见误区："用了 ORM 就自动防 SQLi"。实际上只要用 `createQuery(sql)` / `createNativeQuery(sql)`
+      并把用户输入拼进 `sql`，HQL 和 JPQL 解析器同样会让攻击者闭合条件 / UNION / 命令执行。
+
+      修复建议：
+      1. HQL/JPQL/SQL 模板里用 `:paramName` 或 `?1` 占位，然后 `setParameter("paramName", val)`；
+      2. 需要动态排序 / 表名时用 `CriteriaBuilder` 或 QueryDSL；
+      3. 不要字符串拼接 + `createNativeQuery`（原生 SQL 更危险）。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-89: SQL Injection"]
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          # Hibernate Session
+          - patterns:
+              - pattern-either:
+                  - pattern: $S.createQuery($Q, ...)
+                  - pattern: $S.createSQLQuery($Q, ...)
+                  - pattern: $S.createNativeQuery($Q, ...)
+              - metavariable-type:
+                  metavariable: $S
+                  types:
+                    - Session
+                    - org.hibernate.Session
+                    - StatelessSession
+                    - org.hibernate.StatelessSession
+          # JPA EntityManager
+          - patterns:
+              - pattern-either:
+                  - pattern: $EM.createQuery($Q, ...)
+                  - pattern: $EM.createNativeQuery($Q, ...)
+              - metavariable-type:
+                  metavariable: $EM
+                  types:
+                    - EntityManager
+                    - javax.persistence.EntityManager
+                    - jakarta.persistence.EntityManager
+      # 字面量排除
+      - pattern-not: $S.createQuery("...", ...)
+      - pattern-not: $S.createSQLQuery("...", ...)
+      - pattern-not: $S.createNativeQuery("...", ...)
+      - pattern-not: $EM.createQuery("...", ...)
+      - pattern-not: $EM.createNativeQuery("...", ...)
+
+  # ---------------- MyBatis 注解层 SQL 注入 ----------------
+  # 在 @Select / @Update / @Insert / @Delete / @SelectProvider 等注解字符串里出现
+  # `${...}`（MyBatis 字符串直接插值，等同于字符串拼接），视为发现即漏洞 sink。
+  # `#{...}` 才是安全的参数绑定，所以 regex 严格匹配 `${...}`。
+  #
+  # 注意：MyBatis XML mapper 文件里的 `${...}` 需要独立的 XML 语言规则扫描，不在本规则覆盖范围。
+  - id: java-mybatis-sql-injection
+    message: |
+      🚨 MyBatis SQL Injection (CWE-89) Sink: MyBatis SQL 注解里使用了 `${...}` 字符串插值。
+      `${}` 是 MyBatis 的**字符串拼接**语法（等同于 JDBC 的 SQL 字符串 concat），
+      `#{}` 才是参数化绑定。任何接收外部输入的 `${}` 都构成 SQL 注入。
+
+      常见 bug 模式：
+        @Select("SELECT * FROM user WHERE name = '${name}'")   // 漏洞
+        @Select("SELECT * FROM user ORDER BY ${sortField}")    // 漏洞（动态列名更诱人）
+
+      修复建议：
+      1. 把 `${param}` 改为 `#{param}`（参数绑定，MyBatis 会生成 PreparedStatement）；
+      2. 若确实需要动态表名/列名/排序字段，在 Mapper 方法层做严格白名单校验（`if (!ALLOWED_COLS.contains(col)) throw ...`）；
+      3. 考虑改用 MyBatis-Plus 的 QueryWrapper 或 JPA Criteria API，规避字符串拼接。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: HIGH
+      references:
+        - https://mybatis.org/mybatis-3/sqlmap-xml.html#string-substitution
+        - https://cwe.mitre.org/data/definitions/89.html
+    patterns:
+      - pattern-either:
+          # 每个 MyBatis SQL 注解的 String 参数
+          - pattern: "@Select($SQL)"
+          - pattern: "@Update($SQL)"
+          - pattern: "@Insert($SQL)"
+          - pattern: "@Delete($SQL)"
+          - pattern: "@org.apache.ibatis.annotations.Select($SQL)"
+          - pattern: "@org.apache.ibatis.annotations.Update($SQL)"
+          - pattern: "@org.apache.ibatis.annotations.Insert($SQL)"
+          - pattern: "@org.apache.ibatis.annotations.Delete($SQL)"
+      - metavariable-regex:
+          metavariable: $SQL
+          # 匹配含 `${...}` 的字符串字面量
+          regex: '^"[^"]*\$\{[^}]+\}'

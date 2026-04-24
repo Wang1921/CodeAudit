@@ -1,0 +1,72 @@
+rules:
+  - id: java-open-redirect
+    message: |
+      🚨 Open Redirect (CWE-601) Sink: 重定向目标接受非字面量 URL。
+      若 URL 来自外部输入，攻击者可构造 `https://attacker.com/phish` 作为 next 参数，
+      被诱导的用户访问后看到的域名还是"合法站点"，但跳转落点在攻击者控制的页面，
+      用于钓鱼、OAuth 回调污染、令牌盗取。
+
+      修复建议：
+      1. 维护白名单：只允许跳转到同域或预先登记的合法域名；
+      2. 使用相对路径 + 白名单页面名（如 `/pages/${key}` + 后端查表）；
+      3. Spring 控制器返回 `redirect:` 时，URL 部分由服务端拼接，用户输入只做 key 查表；
+      4. 实在无法避免时，对目标 URL 做 `URI.create(u).getHost()` 校验是否在信任列表。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Open Redirect"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+        - https://owasp.org/www-community/attacks/Unvalidated_Redirects_and_Forwards_Cheat_Sheet
+    patterns:
+      - pattern-either:
+          # HttpServletResponse.sendRedirect
+          - patterns:
+              - pattern: $R.sendRedirect($URL, ...)
+              - metavariable-type:
+                  metavariable: $R
+                  types:
+                    - HttpServletResponse
+                    - javax.servlet.http.HttpServletResponse
+                    - jakarta.servlet.http.HttpServletResponse
+          # Spring RedirectView
+          - pattern: new RedirectView($URL, ...)
+          - pattern: new org.springframework.web.servlet.view.RedirectView($URL, ...)
+          - pattern: new ModelAndView(new RedirectView($URL, ...), ...)
+          # Location header 设置（CRLF + 跳转同源）
+          - patterns:
+              - pattern: $R.setHeader("Location", $URL)
+              - metavariable-type:
+                  metavariable: $R
+                  types:
+                    - HttpServletResponse
+                    - javax.servlet.http.HttpServletResponse
+                    - jakarta.servlet.http.HttpServletResponse
+          - patterns:
+              - pattern: $R.addHeader("Location", $URL)
+              - metavariable-type:
+                  metavariable: $R
+                  types:
+                    - HttpServletResponse
+                    - javax.servlet.http.HttpServletResponse
+                    - jakarta.servlet.http.HttpServletResponse
+          # Spring Controller return "redirect:" + userInput（最常见的 Spring MVC 写法）
+          - pattern: |
+              return "redirect:" + $X;
+          - pattern: |
+              return "redirect:" + $X + $Y;
+          - pattern: new ModelAndView("redirect:" + $X, ...)
+          # URI / URL 构造后传给下游跳转（覆盖 RedirectView / sendRedirect 的间接路径）
+          - pattern: new RedirectView($URL.toString(), ...)
+      # 字面量排除
+      - pattern-not: $R.sendRedirect("...", ...)
+      - pattern-not: new RedirectView("...", ...)
+      - pattern-not: new org.springframework.web.servlet.view.RedirectView("...", ...)
+      - pattern-not: $R.setHeader("Location", "...")
+      - pattern-not: $R.addHeader("Location", "...")
+      - pattern-not: |
+          return "redirect:" + "...";

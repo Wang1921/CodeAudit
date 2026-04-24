@@ -1,0 +1,56 @@
+rules:
+  - id: java-trust-boundary-violation
+    message: |
+      🚨 Trust Boundary Violation (CWE-501) Sink: 把外部输入直接存入 HttpSession / Application
+      作用域，混淆了"可信服务端数据"与"不可信客户端数据"的边界。
+
+      一旦 session 里的属性被认为"可信"（如后续用 `session.getAttribute("role")` 做权限判断），
+      攻击者通过先写后读就能在 session 里植入任意值实现提权、伪造身份。
+
+      修复建议：
+      1. session 里只存服务端生成的值（用户 ID、鉴权后的 role），绝不直接塞 request 参数；
+      2. 确需存储用户输入时，先做白名单/枚举校验，转为内部表示再存；
+      3. 类型 / 长度 / 格式校验（如 `Integer.parseInt`、`UUID.fromString`）后再入 session。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-501: Trust Boundary Violation"
+      owasp: "A04:2021 - Insecure Design"
+      vuln_class: "Trust Boundary Violation"
+      confidence: MEDIUM
+      # 非污点链：session.setAttribute(k, 非字面量) 结构本身即漏洞；
+      # 追踪"非字面量 value 从哪来"没意义（用户输入只是诸多可能之一，
+      # 但在 session 里把任何非服务端生成的值当可信数据都是错的）。
+      # 直接 fast-path 到 BlueValidator 判断是否有白名单校验覆盖。
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/501.html
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: $S.setAttribute($K, $V)
+              - metavariable-type:
+                  metavariable: $S
+                  types:
+                    - HttpSession
+                    - javax.servlet.http.HttpSession
+                    - jakarta.servlet.http.HttpSession
+                    - ServletContext
+                    - javax.servlet.ServletContext
+                    - jakarta.servlet.ServletContext
+          - patterns:
+              - pattern: $S.putValue($K, $V)
+              - metavariable-type:
+                  metavariable: $S
+                  types:
+                    - HttpSession
+                    - javax.servlet.http.HttpSession
+                    - jakarta.servlet.http.HttpSession
+      # 字面量排除（静态常量或数字写入 session 不是污染）
+      - pattern-not: $S.setAttribute($K, "...")
+      - pattern-not: $S.setAttribute($K, null)
+      - pattern-not: $S.setAttribute($K, true)
+      - pattern-not: $S.setAttribute($K, false)
+      - pattern-not: $S.putValue($K, "...")
+      - pattern-not: $S.putValue($K, null)

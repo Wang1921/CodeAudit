@@ -1,0 +1,51 @@
+# Security Audit Report — {{project_name}}
+
+**Date**: {{date}}
+**Target**: `{{target_path}}`
+**Total findings**: {{total}}
+**By severity**: Critical {{critical}} / High {{high}} / Medium {{medium}} / Low {{low}}
+**By category**: {{category_breakdown}}
+
+---
+
+## Findings
+
+{{#findings}}
+### [{{id}}] {{vuln_type}} — `{{location.file}}:{{location.line}}`
+
+| Field | Value |
+|---|---|
+| **CWE** | {{cwe_id}} |
+| **Severity** | {{severity}} |
+| **Entry route** | {{entry_route}} |
+| **Confidence** | {{confidence}} |
+
+**Call chain**:
+{{#call_chain}}
+- {{.}}
+{{/call_chain}}
+
+**Description**:
+{{description}}
+
+**Attack vector / PoC**:
+```
+{{poc_payload}}
+```
+{{attack_vector}}
+
+**Max impact**: {{max_impact}}
+
+**Mitigation**:
+{{mitigation_advice}}
+
+---
+{{/findings}}
+
+## False-positive candidates (DEFENDED)
+
+These were flagged by Semgrep but judged non-exploitable on inline evidence.
+
+{{#defended}}
+- `{{location.file}}:{{location.line}}` — {{vuln_type}}: {{defense_analysis}}
+{{/defended}}

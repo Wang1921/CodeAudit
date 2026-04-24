@@ -1,0 +1,82 @@
+rules:
+  - id: java-unvalidated-url-forward
+    message: |
+      🚨 Unvalidated URL Forward (CWE-601 / CWE-552) Sink:
+      `RequestDispatcher.forward(userInput, ...)` 或 `include(userInput, ...)`
+      把用户输入当作内部路径直接转发 / 包含。
+
+      与 `sendRedirect` 不同，forward 是**服务端内部跳转**，URL 栏不变化，
+      用户察觉不到；但可以被用来：
+      1. 跨越权限边界访问原本需鉴权的 servlet（鉴权 filter 只拦外部请求）；
+      2. 访问 `/WEB-INF/` 下的敏感 JSP / 配置（外部直接访问被拦，forward 是服务端操作不受限）；
+      3. 构造 SSRF 的本地变体，访问 `web.xml` 内未对外暴露的端点。
+
+      修复建议：
+      1. forward 路径必须来自白名单 / 常量；
+      2. 若允许一定的动态路径，做严格前缀校验（如只能以 `/pages/` 开头）；
+      3. 敏感资源放在 `/WEB-INF/` 并**显式禁止**forward 到该前缀。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site"
+        - "CWE-552: Files or Directories Accessible to External Parties"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Unvalidated Forward"
+      confidence: MEDIUM
+      references:
+        - https://owasp.org/www-community/attacks/Unvalidated_Redirects_and_Forwards_Cheat_Sheet
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: $REQ.getRequestDispatcher($PATH).forward(...)
+              - metavariable-type:
+                  metavariable: $REQ
+                  types:
+                    - HttpServletRequest
+                    - javax.servlet.http.HttpServletRequest
+                    - jakarta.servlet.http.HttpServletRequest
+                    - ServletRequest
+                    - javax.servlet.ServletRequest
+                    - jakarta.servlet.ServletRequest
+          - patterns:
+              - pattern: $REQ.getRequestDispatcher($PATH).include(...)
+              - metavariable-type:
+                  metavariable: $REQ
+                  types:
+                    - HttpServletRequest
+                    - javax.servlet.http.HttpServletRequest
+                    - jakarta.servlet.http.HttpServletRequest
+                    - ServletRequest
+                    - javax.servlet.ServletRequest
+                    - jakarta.servlet.ServletRequest
+          # 中间变量 RequestDispatcher rd = request.getRequestDispatcher(path); rd.forward(...);
+          - patterns:
+              - pattern: $RD.forward($REQ, $RESP)
+              - metavariable-type:
+                  metavariable: $RD
+                  types:
+                    - RequestDispatcher
+                    - javax.servlet.RequestDispatcher
+                    - jakarta.servlet.RequestDispatcher
+          - patterns:
+              - pattern: $RD.include($REQ, $RESP)
+              - metavariable-type:
+                  metavariable: $RD
+                  types:
+                    - RequestDispatcher
+                    - javax.servlet.RequestDispatcher
+                    - jakarta.servlet.RequestDispatcher
+          # ServletContext 版本
+          - patterns:
+              - pattern: $CTX.getRequestDispatcher($PATH).forward(...)
+              - metavariable-type:
+                  metavariable: $CTX
+                  types:
+                    - ServletContext
+                    - javax.servlet.ServletContext
+                    - jakarta.servlet.ServletContext
+      # 字面量路径排除
+      - pattern-not: $REQ.getRequestDispatcher("...").forward(...)
+      - pattern-not: $REQ.getRequestDispatcher("...").include(...)
+      - pattern-not: $CTX.getRequestDispatcher("...").forward(...)

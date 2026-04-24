@@ -1,0 +1,115 @@
+rules:
+  - id: java-jndi-injection
+    message: |
+      🚨 JNDI Injection (CWE-74 / CWE-917) Sink: JNDI lookup 接收非字面量名称参数。
+
+      若 JNDI 名来自外部输入（HTTP header/参数/反序列化/日志内容），攻击者可传入
+      `ldap://attacker.com/Exploit` 或 `rmi://attacker.com/Exploit`，触发远端加载并
+      执行任意恶意类。这是 Log4Shell (CVE-2021-44228) 的核心利用路径，也是 CVE-2022-22963
+      (Spring Cloud Function)、CVE-2018-2628 (WebLogic) 等多起高危漏洞的入口。
+
+      典型漏洞模式：
+        Context ctx = new InitialContext();
+        ctx.lookup(userInput);                 // ❌ 用户可控 name
+        ctx.lookupLink(userInput);             // ❌ 同上
+        new InitialContext().lookup(userInput);// ❌ 链式写法同样命中
+
+      修复建议：
+      1. 严格白名单：JNDI 名必须来自代码内常量或预校验过的枚举值；
+      2. 禁用远程类加载：JVM 启动加 `-Dcom.sun.jndi.ldap.object.trustURLCodebase=false`
+         和 `-Dcom.sun.jndi.rmi.object.trustURLCodebase=false`（JDK 8u191+ 默认为 false）；
+      3. log4j 升到 2.17.1+；Log4j 1.x / JDK 老版本必须禁用 JNDI 查找；
+      4. 若确需动态 lookup，加前缀校验（如强制 `java:comp/env/` 且只允许 `^[A-Za-z0-9_/]+$`）。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-74: Improper Neutralization of Special Elements in Output Used by a Downstream Component"
+        - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "JNDI Injection"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/74.html
+        - https://www.lunasec.io/docs/blog/log4j-zero-day/
+        - https://cheatsheetseries.owasp.org/cheatsheets/LDAP_Injection_Prevention_Cheat_Sheet.html
+    patterns:
+      - pattern-either:
+          # ---------------- 标准 JNDI Context API ----------------
+          # 链式构造：new InitialContext().lookup(...)
+          - pattern: new InitialContext().lookup($NAME, ...)
+          - pattern: new InitialContext().lookupLink($NAME, ...)
+          - pattern: new InitialContext().rename($OLD, $NEW)
+          - pattern: new javax.naming.InitialContext().lookup($NAME, ...)
+          - pattern: new javax.naming.InitialContext().lookupLink($NAME, ...)
+          - pattern: new javax.naming.directory.InitialDirContext().lookup($NAME, ...)
+          - pattern: new javax.naming.ldap.InitialLdapContext($ENV, $CTRLS).lookup($NAME, ...)
+
+          # 变量形式：通过 metavariable-type 限定类型
+          - patterns:
+              - pattern: $CTX.lookup($NAME, ...)
+              - metavariable-type:
+                  metavariable: $CTX
+                  types:
+                    - Context
+                    - javax.naming.Context
+                    - InitialContext
+                    - javax.naming.InitialContext
+                    - DirContext
+                    - javax.naming.directory.DirContext
+                    - InitialDirContext
+                    - javax.naming.directory.InitialDirContext
+                    - LdapContext
+                    - javax.naming.ldap.LdapContext
+                    - InitialLdapContext
+                    - javax.naming.ldap.InitialLdapContext
+          - patterns:
+              - pattern: $CTX.lookupLink($NAME, ...)
+              - metavariable-type:
+                  metavariable: $CTX
+                  types:
+                    - Context
+                    - javax.naming.Context
+                    - InitialContext
+                    - javax.naming.InitialContext
+                    - DirContext
+                    - javax.naming.directory.DirContext
+                    - LdapContext
+                    - javax.naming.ldap.LdapContext
+
+          # ---------------- Spring JNDI 封装 ----------------
+          - pattern: new JndiTemplate().lookup($NAME, ...)
+          - pattern: new org.springframework.jndi.JndiTemplate().lookup($NAME, ...)
+          - patterns:
+              - pattern: $JT.lookup($NAME, ...)
+              - metavariable-type:
+                  metavariable: $JT
+                  types:
+                    - JndiTemplate
+                    - org.springframework.jndi.JndiTemplate
+                    - JndiLocatorSupport
+                    - org.springframework.jndi.JndiLocatorSupport
+                    - JndiObjectLocator
+                    - org.springframework.jndi.JndiObjectLocator
+          # JndiObjectFactoryBean.setJndiName(userInput) + getObject() 是 Spring 注入的代表组合
+          - patterns:
+              - pattern: $JOFB.setJndiName($NAME)
+              - metavariable-type:
+                  metavariable: $JOFB
+                  types:
+                    - JndiObjectFactoryBean
+                    - org.springframework.jndi.JndiObjectFactoryBean
+
+      # ---------------- 字面量排除 ----------------
+      # 硬编码 name（常量）不构成漏洞，常见如 "java:comp/env/jdbc/myDS"
+      - pattern-not: $CTX.lookup("...", ...)
+      - pattern-not: $CTX.lookupLink("...", ...)
+      - pattern-not: new InitialContext().lookup("...", ...)
+      - pattern-not: new InitialContext().lookupLink("...", ...)
+      - pattern-not: new javax.naming.InitialContext().lookup("...", ...)
+      - pattern-not: new javax.naming.InitialContext().lookupLink("...", ...)
+      - pattern-not: new javax.naming.directory.InitialDirContext().lookup("...", ...)
+      - pattern-not: new JndiTemplate().lookup("...", ...)
+      - pattern-not: new org.springframework.jndi.JndiTemplate().lookup("...", ...)
+      - pattern-not: $JT.lookup("...", ...)
+      - pattern-not: $JOFB.setJndiName("...")

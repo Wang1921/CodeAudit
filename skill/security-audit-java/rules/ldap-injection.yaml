@@ -1,0 +1,38 @@
+rules:
+  - id: java-ldap-injection
+    message: |
+      🚨 LDAP Injection (CWE-90) Sink: LDAP 查询接口接收非字面量 filter。
+      若 filter 拼接了用户输入（如 `(&(uid=` + user + `)(pass=` + pass + `))`），
+      攻击者可注入 `*)(uid=*` 等通配符绕过鉴权或枚举账户。
+
+      修复建议：
+      1. 使用 `javax.naming.ldap.Rdn.escapeValue()` 或
+         `org.springframework.ldap.support.LdapEncoder.filterEncode()` 转义用户输入；
+      2. 对输入做白名单（仅允许字母数字和 `.-_`）；
+      3. 使用 `LdapQueryBuilder` / `LdapTemplate` 的参数化 API。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "LDAP Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+        - https://owasp.org/www-community/attacks/LDAP_Injection
+    patterns:
+      - pattern-either:
+          # javax.naming.directory.DirContext
+          - pattern: $CTX.search($BASE, $FILTER, $SC)
+          - pattern: $CTX.search($BASE, $FILTER, $ARGS, $SC)
+          # Spring LdapTemplate
+          - pattern: $LDAP.search($BASE, $FILTER, ...)
+          - pattern: $LDAP.searchForObject($BASE, $FILTER, ...)
+          - pattern: $LDAP.searchForContext($BASE, $FILTER, ...)
+      # 字面量排除（filter 为字面量）
+      - pattern-not: $CTX.search($BASE, "...", $SC)
+      - pattern-not: $CTX.search($BASE, "...", $ARGS, $SC)
+      - pattern-not: $LDAP.search($BASE, "...", ...)
+      - pattern-not: $LDAP.searchForObject($BASE, "...", ...)
+      - pattern-not: $LDAP.searchForContext($BASE, "...", ...)

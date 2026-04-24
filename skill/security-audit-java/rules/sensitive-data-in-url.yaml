@@ -1,0 +1,48 @@
+rules:
+  - id: java-sensitive-data-in-url
+    message: |
+      🚨 Sensitive Data in URL Query (CWE-598) Sink: URL 查询串中含有
+      `password / token / secret / api_key / ssn / cvv` 等敏感字段名。
+
+      **不限 HTTP 方法**：GET / POST / PUT / DELETE 只要把敏感数据拼进 URL query，
+      都会被以下位置**持久化**记录（HTTP body 反而不会）：
+      - Web 服务器访问日志（nginx access.log / ELB / CloudFront 等）—— 记录完整 URL
+      - 反向代理 / API Gateway / CDN 中间层 —— 记录 path + query 用于路由和缓存
+      - 浏览器历史 / 书签 / 自动补全（GET/POST 的 request URL 都会进历史）
+      - Referer 头外发给第三方（发起链接点击时，当前页 URL 作为 Referer 泄露）
+      - APM / 链路追踪系统（SkyWalking / Jaeger / New Relic 默认采集 URL）
+      - 移动端 WebView 缓存、OS 层网络诊断抓包
+
+      比"敏感数据进日志"影响面更大更难清理 —— 一次泄露可能跨越多个组织边界
+      （你的日志 + CDN 的日志 + 浏览器端），事后难以全域撤回。
+
+      命中条件：字符串里出现 `?password=` / `&token=` 等 URL 查询格式 + 敏感关键字。
+
+      修复建议：
+      1. 敏感数据一律用 **HTTP body**（对 POST/PUT）或 **header**（`Authorization: Bearer ...`）传输，
+         不论方法都不要放 query；
+      2. 若架构限制只能走 URL，最起码用**一次性短效 token**（如 OAuth code），不用长期密钥；
+      3. 对确实要走 URL 的 query，服务端日志层做脱敏（nginx log_format 里处理）；
+      4. 前端禁用 URL 带敏感参数的页面作为书签 / 分享入口。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-598: Use of GET Request Method With Sensitive Query Strings"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in URL"
+      confidence: MEDIUM
+      # 非污点链：字符串字面量里出现 `?password=` 就是 sink。
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/598.html
+    patterns:
+      - pattern-either:
+          # ---------------- 直接写在任意字符串里（最宽泛，覆盖 URL 构造 / 拼接前缀 / sendRedirect 等） ----------------
+          - pattern-regex: '"[^"]*[?&](?i:password|passwd|pwd|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|api[_-]?secret|secret|api[_-]?key|apikey|private[_-]?key|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|session[_-]?id)\s*='
+      # 排除 URL query **的"key 名定义"场景**（getParameter / 配置读取 / 文档说明等不是真正"传输"）。
+      # 这类用法在接收端读取参数，属于 source 而非 sink。
+      - pattern-not: $X.getParameter("...password...")
+      - pattern-not: $X.getParameter("...token...")
+      - pattern-not: $X.getHeader("...")
+      - pattern-not: $PROPS.getProperty("...")

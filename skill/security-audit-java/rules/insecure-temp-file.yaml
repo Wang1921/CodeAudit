@@ -1,0 +1,50 @@
+rules:
+  - id: java-insecure-temp-file
+    message: |
+      🚨 Insecure Temporary File (CWE-377 / CWE-378 / CWE-379) Sink:
+      `File.createTempFile` / `Files.createTempFile` 默认创建在 `/tmp`（世界可读目录），
+      且默认权限为 `rw-r--r--`（其他本地用户可读）。
+
+      影响：
+      - 共享主机 / 容器内 sidecar 能读到临时文件中的敏感数据
+      - TOCTOU：攻击者可预建同名软链接到敏感目标（如 `/etc/shadow`），导致下次 create 写覆盖
+      - 临时文件的文件名可预测时，攻击者能读取处理中的私钥、证书、会话数据等中间产物
+
+      修复建议：
+      1. 改用 `Files.createTempFile(Path dir, String prefix, String suffix, FileAttribute<?>...)`
+         显式传入受控目录 + 权限属性 `PosixFilePermissions.asFileAttribute(Set.of(OWNER_READ, OWNER_WRITE))`；
+      2. 使用 `Files.createTempDirectory` 创建专用子目录，在其中放临时文件；
+      3. Java 7+ 一律用 `java.nio.file.Files.createTempFile` 而不是 `java.io.File.createTempFile`；
+      4. 用完立即 `delete()` 或加 `deleteOnExit()`。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+        - "CWE-378: Creation of Temporary File With Insecure Permissions"
+        - "CWE-379: Creation of Temporary File in Directory with Insecure Permissions"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Temp File"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+    pattern-either:
+      # ---------------- java.io.File.createTempFile ----------------
+      # 不带目录参数 —— 默认 /tmp，权限宽松
+      - pattern: File.createTempFile($PREFIX, $SUFFIX)
+      - pattern: java.io.File.createTempFile($PREFIX, $SUFFIX)
+
+      # ---------------- java.nio.file.Files.createTempFile(prefix, suffix) ----------------
+      # 同样默认 /tmp；createTempFile 的 2-arg 版本没有目录参数
+      - pattern: Files.createTempFile($PREFIX, $SUFFIX)
+      - pattern: java.nio.file.Files.createTempFile($PREFIX, $SUFFIX)
+
+      # ---------------- Files.createTempDirectory(prefix) —— 同理 ----------------
+      - pattern: Files.createTempDirectory($PREFIX)
+      - pattern: java.nio.file.Files.createTempDirectory($PREFIX)
+
+      # ---------------- Guava Files.createTempDir() —— 已废弃但仍存在 ----------------
+      - pattern: com.google.common.io.Files.createTempDir()
+      - pattern: Files.createTempDir()

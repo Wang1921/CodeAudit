@@ -1,0 +1,31 @@
+rules:
+  - id: java-spel-injection
+    message: |
+      🚨 SpEL Injection (CWE-917) Sink: SpelExpressionParser.parseExpression() 接收非字面量参数。
+      若参数来自外部输入，攻击者可注入任意 SpEL 表达式（如
+      T(java.lang.Runtime).getRuntime().exec(...)）实现远程代码执行 (RCE)。
+
+      修复建议：
+      1. 使用 SimpleEvaluationContext.forReadOnlyDataBinding() 限制求值能力；
+      2. 对表达式做严格白名单/正则校验；
+      3. 改用预编译参数化模板（`#{}` 配合常量表达式）。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-94: Improper Control of Generation of Code"
+        - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SpEL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/917.html
+        - https://docs.spring.io/spring-framework/reference/core/expressions/evaluation.html
+    patterns:
+      # Sink: 任何 parseExpression(...) 调用
+      - pattern-either:
+          - pattern: $PARSER.parseExpression($EXPR)
+          - pattern: $PARSER.parseExpression($EXPR, ...)
+      # 安全场景排除：参数为字符串字面量（含拼接的纯字面量）
+      - pattern-not: $PARSER.parseExpression("...")
+      - pattern-not: $PARSER.parseExpression("...", ...)
