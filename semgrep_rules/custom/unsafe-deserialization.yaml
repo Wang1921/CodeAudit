@@ -44,6 +44,53 @@ rules:
           - pattern: new Yaml(...).loadAs($DATA, ...)
           - pattern: new Yaml().loadAll($DATA, ...)
           - pattern: new Yaml(...).loadAll($DATA, ...)
+          # XMLDecoder —— 任何非字面量参数均高危，反序列化过程中执行 XML 中的字节码
+          - pattern: new XMLDecoder($STREAM)
+          - pattern: new java.beans.XMLDecoder($STREAM)
+          # Jackson 多态反序列化：启用 DefaultTyping 后 readValue 即危险
+          - patterns:
+              - pattern: $OM.enableDefaultTyping(...)
+              - metavariable-type:
+                  metavariable: $OM
+                  types:
+                    - ObjectMapper
+                    - com.fasterxml.jackson.databind.ObjectMapper
+          - patterns:
+              - pattern: $OM.activateDefaultTyping(...)
+              - metavariable-type:
+                  metavariable: $OM
+                  types:
+                    - ObjectMapper
+                    - com.fasterxml.jackson.databind.ObjectMapper
+          - patterns:
+              - pattern: $OM.enableDefaultTypingAsProperty(...)
+              - metavariable-type:
+                  metavariable: $OM
+                  types:
+                    - ObjectMapper
+                    - com.fasterxml.jackson.databind.ObjectMapper
+          # Kryo —— 默认注册未开启或宽松时反序列化任意类
+          - patterns:
+              - pattern-either:
+                  - pattern: $KRYO.readClassAndObject($INPUT)
+                  - pattern: $KRYO.readObject($INPUT, ...)
+                  - pattern: $KRYO.readObjectOrNull($INPUT, ...)
+              - metavariable-type:
+                  metavariable: $KRYO
+                  types:
+                    - Kryo
+                    - com.esotericsoftware.kryo.Kryo
+                    - com.esotericsoftware.kryo.kryo5.Kryo
+          # Hessian
+          - patterns:
+              - pattern: $HI.readObject(...)
+              - metavariable-type:
+                  metavariable: $HI
+                  types:
+                    - HessianInput
+                    - com.caucho.hessian.io.HessianInput
+                    - Hessian2Input
+                    - com.caucho.hessian.io.Hessian2Input
       # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
       - pattern-not: $XS.fromXML("...", ...)
       - pattern-not: new Yaml().load("...", ...)

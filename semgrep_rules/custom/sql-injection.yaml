@@ -24,14 +24,32 @@ rules:
     patterns:
       - pattern-either:
           # java.sql.Statement 系列：execute/executeQuery/executeUpdate/addBatch
-          - pattern: $STMT.executeQuery($SQL)
-          - pattern: $STMT.executeUpdate($SQL, ...)
-          - pattern: $STMT.addBatch($SQL)
-          - pattern: $STMT.execute($SQL, ...)
-          - pattern: $STMT.executeLargeUpdate($SQL, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $STMT.executeQuery($SQL)
+                  - pattern: $STMT.executeUpdate($SQL, ...)
+                  - pattern: $STMT.addBatch($SQL)
+                  - pattern: $STMT.execute($SQL, ...)
+                  - pattern: $STMT.executeLargeUpdate($SQL, ...)
+              - metavariable-type:
+                  metavariable: $STMT
+                  types:
+                    - Statement
+                    - java.sql.Statement
+                    - PreparedStatement
+                    - java.sql.PreparedStatement
+                    - CallableStatement
+                    - java.sql.CallableStatement
           # Connection.prepareStatement / prepareCall：SQL 拼接同样危险
-          - pattern: $CONN.prepareStatement($SQL, ...)
-          - pattern: $CONN.prepareCall($SQL, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $CONN.prepareStatement($SQL, ...)
+                  - pattern: $CONN.prepareCall($SQL, ...)
+              - metavariable-type:
+                  metavariable: $CONN
+                  types:
+                    - Connection
+                    - java.sql.Connection
           # Spring JdbcTemplate 动态 SQL（无参数占位）
           - pattern: $JDBC.queryForList($SQL, ...)
           - pattern: $JDBC.queryForObject($SQL, ...)
@@ -63,6 +81,71 @@ rules:
       - pattern-not: $JDBC.queryForStream("...", ...)
       - pattern-not: $JDBC.queryForInt("...", ...)
       - pattern-not: $JDBC.queryForLong("...", ...)
+      # 排除 Commons Exec 的 Executor.execute(CommandLine)，避免与 Statement.execute(sql) 混淆
+      - pattern-not:
+          patterns:
+            - pattern: $EXEC.execute($CMD)
+            - metavariable-type:
+                metavariable: $EXEC
+                types:
+                  - DefaultExecutor
+                  - org.apache.commons.exec.DefaultExecutor
+                  - Executor
+                  - org.apache.commons.exec.Executor
+
+  # ---------------- Hibernate / JPA 动态查询 ----------------
+  # Session.createQuery (HQL) / createSQLQuery / createNativeQuery 接收非字面量时
+  # 等同于 SQL 拼接；EntityManager 接口同理。
+  - id: java-hibernate-jpa-sql-injection
+    message: |
+      🚨 Hibernate / JPA SQL Injection (CWE-89) Sink: ORM 层接收非字面量 HQL/JPQL/SQL。
+
+      常见误区："用了 ORM 就自动防 SQLi"。实际上只要用 `createQuery(sql)` / `createNativeQuery(sql)`
+      并把用户输入拼进 `sql`，HQL 和 JPQL 解析器同样会让攻击者闭合条件 / UNION / 命令执行。
+
+      修复建议：
+      1. HQL/JPQL/SQL 模板里用 `:paramName` 或 `?1` 占位，然后 `setParameter("paramName", val)`；
+      2. 需要动态排序 / 表名时用 `CriteriaBuilder` 或 QueryDSL；
+      3. 不要字符串拼接 + `createNativeQuery`（原生 SQL 更危险）。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe: ["CWE-89: SQL Injection"]
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          # Hibernate Session
+          - patterns:
+              - pattern-either:
+                  - pattern: $S.createQuery($Q, ...)
+                  - pattern: $S.createSQLQuery($Q, ...)
+                  - pattern: $S.createNativeQuery($Q, ...)
+              - metavariable-type:
+                  metavariable: $S
+                  types:
+                    - Session
+                    - org.hibernate.Session
+                    - StatelessSession
+                    - org.hibernate.StatelessSession
+          # JPA EntityManager
+          - patterns:
+              - pattern-either:
+                  - pattern: $EM.createQuery($Q, ...)
+                  - pattern: $EM.createNativeQuery($Q, ...)
+              - metavariable-type:
+                  metavariable: $EM
+                  types:
+                    - EntityManager
+                    - javax.persistence.EntityManager
+                    - jakarta.persistence.EntityManager
+      # 字面量排除
+      - pattern-not: $S.createQuery("...", ...)
+      - pattern-not: $S.createSQLQuery("...", ...)
+      - pattern-not: $S.createNativeQuery("...", ...)
+      - pattern-not: $EM.createQuery("...", ...)
+      - pattern-not: $EM.createNativeQuery("...", ...)
 
   # ---------------- MyBatis 注解层 SQL 注入 ----------------
   # 在 @Select / @Update / @Insert / @Delete / @SelectProvider 等注解字符串里出现

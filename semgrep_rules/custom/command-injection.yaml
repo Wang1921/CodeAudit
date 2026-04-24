@@ -44,6 +44,25 @@ rules:
                   types:
                     - ProcessBuilder
                     - java.lang.ProcessBuilder
+          # java.awt.Desktop —— 打开文件 / URL / 浏览器，可被用作 RCE 载体
+          - pattern: Desktop.getDesktop().browse($X)
+          - pattern: Desktop.getDesktop().open($X)
+          - pattern: Desktop.getDesktop().edit($X)
+          - pattern: java.awt.Desktop.getDesktop().browse($X)
+          - pattern: java.awt.Desktop.getDesktop().open($X)
+          - pattern: java.awt.Desktop.getDesktop().edit($X)
+          # Apache Commons Exec
+          - pattern: CommandLine.parse($CMD)
+          - pattern: org.apache.commons.exec.CommandLine.parse($CMD)
+          - patterns:
+              - pattern: $EXEC.execute($CMD, ...)
+              - metavariable-type:
+                  metavariable: $EXEC
+                  types:
+                    - DefaultExecutor
+                    - org.apache.commons.exec.DefaultExecutor
+                    - Executor
+                    - org.apache.commons.exec.Executor
       # 字面量排除：所有参数都是字符串常量
       - pattern-not: Runtime.getRuntime().exec("...", ...)
       - pattern-not: java.lang.Runtime.getRuntime().exec("...", ...)
@@ -53,3 +72,6 @@ rules:
       - pattern-not: new java.lang.ProcessBuilder("...", ...)
       - pattern-not: $R.exec("...", ...)
       - pattern-not: $PB.command("...", ...)
+      - pattern-not: Desktop.getDesktop().browse(URI.create("..."))
+      - pattern-not: CommandLine.parse("...")
+      - pattern-not: org.apache.commons.exec.CommandLine.parse("...")

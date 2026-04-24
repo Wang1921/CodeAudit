@@ -53,6 +53,22 @@ rules:
           - pattern: java.nio.file.Files.newOutputStream($PATH, ...)
           - pattern: java.nio.file.Files.write($PATH, ...)
           - pattern: java.nio.file.Files.copy($PATH, ...)
+          # java.io.RandomAccessFile
+          - pattern: new RandomAccessFile($PATH, ...)
+          - pattern: new java.io.RandomAccessFile($PATH, ...)
+          # java.nio.channels.FileChannel.open
+          - pattern: FileChannel.open($PATH, ...)
+          - pattern: java.nio.channels.FileChannel.open($PATH, ...)
+          # Class.getResourceAsStream / ClassLoader.getResourceAsStream
+          - patterns:
+              - pattern: $CL.getResourceAsStream($PATH)
+              - metavariable-type:
+                  metavariable: $CL
+                  types:
+                    - Class
+                    - java.lang.Class
+                    - ClassLoader
+                    - java.lang.ClassLoader
       # 字面量排除（短名 + FQN）
       - pattern-not: new File("...")
       - pattern-not: new File("...", "...")
@@ -80,3 +96,7 @@ rules:
       - pattern-not: java.nio.file.Files.newOutputStream("...", ...)
       - pattern-not: java.nio.file.Files.write("...", ...)
       - pattern-not: java.nio.file.Files.copy("...", ...)
+      - pattern-not: new RandomAccessFile("...", ...)
+      - pattern-not: new java.io.RandomAccessFile("...", ...)
+      - pattern-not: FileChannel.open(Paths.get("..."), ...)
+      - pattern-not: $CL.getResourceAsStream("...")

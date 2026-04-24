@@ -54,9 +54,19 @@ rules:
                     - HttpServletResponse
                     - javax.servlet.http.HttpServletResponse
                     - jakarta.servlet.http.HttpServletResponse
+          # Spring Controller return "redirect:" + userInput（最常见的 Spring MVC 写法）
+          - pattern: |
+              return "redirect:" + $X;
+          - pattern: |
+              return "redirect:" + $X + $Y;
+          - pattern: new ModelAndView("redirect:" + $X, ...)
+          # URI / URL 构造后传给下游跳转（覆盖 RedirectView / sendRedirect 的间接路径）
+          - pattern: new RedirectView($URL.toString(), ...)
       # 字面量排除
       - pattern-not: $R.sendRedirect("...", ...)
       - pattern-not: new RedirectView("...", ...)
       - pattern-not: new org.springframework.web.servlet.view.RedirectView("...", ...)
       - pattern-not: $R.setHeader("Location", "...")
       - pattern-not: $R.addHeader("Location", "...")
+      - pattern-not: |
+          return "redirect:" + "...";
