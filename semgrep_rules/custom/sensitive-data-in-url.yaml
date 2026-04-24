@@ -1,23 +1,27 @@
 rules:
   - id: java-sensitive-data-in-url
     message: |
-      🚨 Sensitive Data in URL Query (CWE-598) Sink: GET 请求 URL 的查询串中含有
+      🚨 Sensitive Data in URL Query (CWE-598) Sink: URL 查询串中含有
       `password / token / secret / api_key / ssn / cvv` 等敏感字段名。
 
-      GET 参数会被以下位置**持久化**记录：
-      - Web 服务器访问日志（nginx access.log / ELB 日志 / CloudFront 日志）
-      - 反向代理 / CDN 中间层
-      - 浏览器历史记录 / 书签 / 自动补全
-      - Referer 头外发给第三方（广告、统计、社交分享）
-      - 移动端 WebView 缓存
+      **不限 HTTP 方法**：GET / POST / PUT / DELETE 只要把敏感数据拼进 URL query，
+      都会被以下位置**持久化**记录（HTTP body 反而不会）：
+      - Web 服务器访问日志（nginx access.log / ELB / CloudFront 等）—— 记录完整 URL
+      - 反向代理 / API Gateway / CDN 中间层 —— 记录 path + query 用于路由和缓存
+      - 浏览器历史 / 书签 / 自动补全（GET/POST 的 request URL 都会进历史）
+      - Referer 头外发给第三方（发起链接点击时，当前页 URL 作为 Referer 泄露）
+      - APM / 链路追踪系统（SkyWalking / Jaeger / New Relic 默认采集 URL）
+      - 移动端 WebView 缓存、OS 层网络诊断抓包
 
-      比"敏感数据进日志"影响面更大更难清理 —— 一次泄露可能跨越多个组织边界。
+      比"敏感数据进日志"影响面更大更难清理 —— 一次泄露可能跨越多个组织边界
+      （你的日志 + CDN 的日志 + 浏览器端），事后难以全域撤回。
 
       命中条件：字符串里出现 `?password=` / `&token=` 等 URL 查询格式 + 敏感关键字。
 
       修复建议：
-      1. 敏感数据一律用 POST body 或 HTTP header（`Authorization: Bearer ...`）传输；
-      2. 若架构限制只能 GET，最起码用**一次性短效 token**（如 OAuth code），不用长期密钥；
+      1. 敏感数据一律用 **HTTP body**（对 POST/PUT）或 **header**（`Authorization: Bearer ...`）传输，
+         不论方法都不要放 query；
+      2. 若架构限制只能走 URL，最起码用**一次性短效 token**（如 OAuth code），不用长期密钥；
       3. 对确实要走 URL 的 query，服务端日志层做脱敏（nginx log_format 里处理）；
       4. 前端禁用 URL 带敏感参数的页面作为书签 / 分享入口。
     severity: WARNING
