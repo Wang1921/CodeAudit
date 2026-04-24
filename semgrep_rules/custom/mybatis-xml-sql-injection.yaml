@@ -1,0 +1,53 @@
+rules:
+  - id: java-mybatis-xml-sql-injection
+    message: |
+      🚨 MyBatis XML Mapper SQL Injection (CWE-89) Sink: XML mapper 文件中使用了 `${...}`
+      字符串插值。
+
+      MyBatis 的 `${param}` 是**字符串直接拼接**（等同于 JDBC 的 SQL concat），
+      与 `#{param}` 的参数化绑定（PreparedStatement）在安全性上完全相反。
+      任何映射到 Java 层接收外部输入的 Mapper 方法参数，经由 `${}` 进入 SQL 都构成 SQL 注入。
+
+      常见 bug 模式：
+        <select id="byName">
+          SELECT * FROM user WHERE name = '${name}'            <!-- 漏洞 -->
+        </select>
+        <select id="listOrdered">
+          SELECT * FROM user ORDER BY ${sortField}             <!-- 漏洞，动态列名诱人但更危险 -->
+        </select>
+        <update id="touchAll">
+          UPDATE ${tableName} SET flag = 1                     <!-- 漏洞，动态表名 -->
+        </update>
+
+      修复建议：
+      1. 把 `${param}` 改为 `#{param}`（MyBatis 会生成 PreparedStatement，自动转义）；
+      2. 若确实需要动态表名/列名/排序字段，**在 Mapper 接口层做严格白名单**：
+         ```java
+         if (!ALLOWED_SORT_COLS.contains(sortField)) throw new IllegalArgumentException();
+         ```
+         然后才允许 `${sortField}` 进 XML；
+      3. 改用 MyBatis-Plus 的 QueryWrapper 或 Criteria API 规避字符串拼接；
+      4. LIKE 模糊查询不需要 `${}`，`#{param}` 也能搭配 `concat('%', #{param}, '%')`。
+
+    severity: ERROR
+    # Semgrep 的 generic 语言走文本匹配 + 正则，无需 XML AST。
+    languages: [generic]
+    # 只对 MyBatis mapper XML 文件生效，避免误扫项目里其他 XML 配置（如 spring beans 的 ${env.xxx} 占位符）。
+    paths:
+      include:
+        - "*Mapper.xml"
+        - "**/mapper/**.xml"
+        - "**/mappers/**.xml"
+        - "**/mybatis/**.xml"
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: HIGH
+      references:
+        - https://mybatis.org/mybatis-3/sqlmap-xml.html#string-substitution
+        - https://cwe.mitre.org/data/definitions/89.html
+    # 严格匹配 ${名字} 形式（名字不含 `}`、`$`、空白），避开 OGNL 子表达式误报。
+    # 命中一次即一个 sink，按行号定位；一个 <select> 里多个 ${} 会产生多条记录。
+    pattern-regex: '\$\{[A-Za-z_][A-Za-z0-9_.\[\]]*\}'

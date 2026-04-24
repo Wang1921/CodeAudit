@@ -1,0 +1,77 @@
+rules:
+  - id: java-zip-slip
+    message: |
+      🚨 Zip Slip (CWE-22) Sink: 解压 ZipEntry / TarArchiveEntry 时直接用 `entry.getName()`
+      拼接目标路径，未做规范化校验。
+
+      攻击者在恶意压缩包里构造包含 `../../../etc/passwd` 的 entry name，解压后可写入
+      预期目录**之外**任意位置 —— 覆盖 webshell / crontab / authorized_keys 实现 RCE。
+      该漏洞在近年多次爆过头部项目（Struts2、AEM、Discourse 等）。
+
+      修复建议：
+      1. `Path target = dir.resolve(entry.getName()).normalize();`
+      2. `if (!target.startsWith(dir)) throw new SecurityException("Zip slip");`
+      3. 或使用成熟库：`ZipUtils.extract(...)`（需自行确认是否含 slip 校验）；
+      4. 文件名额外拒绝 `..` / 绝对路径 / 以 `/` 或 `\` 开头的。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Zip Slip"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+        - https://snyk.io/research/zip-slip-vulnerability
+    patterns:
+      - pattern-either:
+          # new File(dir, entry.getName()) —— ZipEntry / ArchiveEntry 家族
+          - patterns:
+              - pattern-either:
+                  - pattern: new File($DIR, $E.getName())
+                  - pattern: new java.io.File($DIR, $E.getName())
+              - metavariable-type:
+                  metavariable: $E
+                  types:
+                    - ZipEntry
+                    - java.util.zip.ZipEntry
+                    - ArchiveEntry
+                    - org.apache.commons.compress.archivers.ArchiveEntry
+                    - TarArchiveEntry
+                    - org.apache.commons.compress.archivers.tar.TarArchiveEntry
+                    - ZipArchiveEntry
+                    - org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+          # Paths.get(dir, entry.getName()) 或 Path.resolve(entry.getName())
+          - patterns:
+              - pattern-either:
+                  - pattern: Paths.get($DIR, $E.getName())
+                  - pattern: java.nio.file.Paths.get($DIR, $E.getName())
+                  - pattern: $PATH.resolve($E.getName())
+              - metavariable-type:
+                  metavariable: $E
+                  types:
+                    - ZipEntry
+                    - java.util.zip.ZipEntry
+                    - ArchiveEntry
+                    - org.apache.commons.compress.archivers.ArchiveEntry
+                    - TarArchiveEntry
+                    - org.apache.commons.compress.archivers.tar.TarArchiveEntry
+                    - ZipArchiveEntry
+                    - org.apache.commons.compress.archivers.zip.ZipArchiveEntry
+          # FileOutputStream / FileWriter 直接用 entry.getName()
+          - patterns:
+              - pattern-either:
+                  - pattern: new FileOutputStream($E.getName(), ...)
+                  - pattern: new java.io.FileOutputStream($E.getName(), ...)
+                  - pattern: new FileWriter($E.getName(), ...)
+                  - pattern: new java.io.FileWriter($E.getName(), ...)
+              - metavariable-type:
+                  metavariable: $E
+                  types:
+                    - ZipEntry
+                    - java.util.zip.ZipEntry
+                    - ArchiveEntry
+                    - org.apache.commons.compress.archivers.ArchiveEntry
+                    - TarArchiveEntry
+                    - org.apache.commons.compress.archivers.tar.TarArchiveEntry
