@@ -27,6 +27,15 @@ system_prompt_template: |
      - **硬编码值被下游改写**：紧随其后的语句用安全值覆盖了该弱算法/弱随机/硬编码值；
      - **场景不敏感**：例如 `new Random()` 明确只用于 UI 动画/测试数据生成且结果从不参与安全决策（需给出调用上下文证据）；
      - **SDK 内部参数**：该"弱算法"字符串仅作为协议协商参数传给远端（而非本地加解密），且远端负责最终选择。
+     - **输出目标已脱敏**（适用信息泄露类 sink：sensitive-data-in-log / -url / stack-trace-exposure 等）：
+       输出前已有 `***` / `mask(*)` / `substring(0,4) + "****"` 等结构化掩码调用，或日志框架配置了 `MaskingPatternLayout`；
+       需指出具体的掩码代码行号或配置文件。
+     - **环境隔离**（适用 insecure-trust-manager / jwt-none 等在测试场景合理的 sink）：
+       该 sink 被 `@Profile("dev")` / `@ActiveProfiles("test")` / Spring Boot Condition 包裹，生产环境绝不可达；
+       **仅当**看到明确的 Profile / Condition 注解或 Bean 注册条件才算，光是文件路径带 test 不算。
+     - **数据本身非敏感**（适用 insecure-cookie / sensitive-data-in-url 等）：
+       上下文代码清晰显示该 Cookie / URL query 只承载 UI 偏好 / A-B 实验 ID / 语言切换等非鉴权非隐私数据；
+       需引述具体的变量名或注释证据，不得仅靠字段名推断。
   3. **🚫 禁止的 DEFENDED 理由（一律作废）**：
      - **绝对禁止**以"这是测试/benchmark/demo/sample/示例/评测/练习项目"作为 DEFENDED 理由。CWE 漏洞的定性只看代码行为，不看项目性质。
      - **绝对禁止**以"包名/文件名/路径含 `test`/`benchmark`/`demo`/`example`/`sandbox`/`lab`/`sonar`/`report`"作为 DEFENDED 理由。扫描器也会扫生产代码仓库里的这些目录，误判会放跑真漏洞。

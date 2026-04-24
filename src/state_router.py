@@ -68,21 +68,45 @@ def _blue_hit(p: Dict[str, Any]) -> bool:
 
 # ---------- CWE 映射表：vuln_type（Semgrep metadata.vuln_class + LogicAuditor 白名单）→ CWE 编号 ----------
 _VULN_TYPE_TO_CWE: Dict[str, str] = {
-    # 技术类（来自 Semgrep metadata.vuln_class）
+    # 技术类 —— 注入 & RCE
     "SQL Injection": "CWE-89",
     "Command Injection": "CWE-78",
+    "Code Injection": "CWE-94",
     "LDAP Injection": "CWE-90",
     "XPath Injection": "CWE-643",
     "NoSQL Injection": "CWE-943",
     "Template Injection": "CWE-94",
     "SpEL Injection": "CWE-917",
+    "JNDI Injection": "CWE-74",
+    "JDBC URL Injection": "CWE-89",
+    "Unsafe Deserialization": "CWE-502",
+    "Unsafe Reflection": "CWE-470",
+    # 技术类 —— XML / XXE / SSRF
     "XXE": "CWE-611",
     "SSRF": "CWE-918",
+    # 技术类 —— 文件路径
     "Path Traversal": "CWE-22",
+    "Zip Slip": "CWE-22",
+    "Insecure Temp File": "CWE-377",
+    # 技术类 —— Web 输出
+    "XSS": "CWE-79",
+    "Open Redirect": "CWE-601",
+    "Unvalidated Forward": "CWE-601",
+    # 技术类 —— 加密 / 随机 / 凭据
     "Weak Cryptography": "CWE-327",
     "Weak Random": "CWE-338",
+    "Static IV": "CWE-329",
+    "Constant Salt": "CWE-760",
     "Hardcoded Credentials": "CWE-798",
-    "Unsafe Deserialization": "CWE-502",
+    "Insecure TLS": "CWE-295",
+    "JWT None Algorithm": "CWE-347",
+    # 技术类 —— 会话 / Cookie / 边界
+    "Insecure Cookie": "CWE-614",
+    "Trust Boundary Violation": "CWE-501",
+    # 技术类 —— 信息泄露
+    "Stack Trace Exposure": "CWE-209",
+    "Sensitive Data in Log": "CWE-532",
+    "Sensitive Data in URL": "CWE-598",
     # 业务逻辑类（来自 LogicAuditor 白名单）
     "IDOR": "CWE-639",
     "Missing Authorization": "CWE-862",
@@ -92,8 +116,57 @@ _VULN_TYPE_TO_CWE: Dict[str, str] = {
     "Mass Assignment": "CWE-915",
     "Workflow Bypass": "CWE-840",
     "Race Condition": "CWE-362",
-    "Open Redirect": "CWE-601",
     "Insufficient Anti-Automation": "CWE-307",
+}
+
+
+# ---------- 默认严重度表：无 payload.severity / max_impact 信号时按类型查表 ----------
+_VULN_TYPE_TO_DEFAULT_SEVERITY: Dict[str, str] = {
+    # Critical —— RCE / 全站认证绕过 / 凭据泄露等零距离 Game Over
+    "SQL Injection": "Critical",
+    "Command Injection": "Critical",
+    "Code Injection": "Critical",
+    "SpEL Injection": "Critical",
+    "Template Injection": "Critical",
+    "NoSQL Injection": "Critical",
+    "JNDI Injection": "Critical",
+    "JDBC URL Injection": "Critical",
+    "Unsafe Deserialization": "Critical",
+    "Unsafe Reflection": "Critical",
+    "Hardcoded Credentials": "Critical",
+    "Hardcoded Backdoor": "Critical",
+    # High —— 数据泄露 / 关键认证相关 / MITM / 权限越界
+    "XXE": "High",
+    "SSRF": "High",
+    "Path Traversal": "High",
+    "Zip Slip": "High",
+    "LDAP Injection": "High",
+    "XPath Injection": "High",
+    "XSS": "High",
+    "Weak Cryptography": "High",
+    "Static IV": "High",
+    "Constant Salt": "High",
+    "JWT None Algorithm": "High",
+    "Insecure TLS": "High",
+    "Authentication Bypass": "High",
+    "Privilege Escalation": "High",
+    "IDOR": "High",
+    "Mass Assignment": "High",
+    "Missing Authorization": "High",
+    # Medium —— 影响有条件 / 需社工或配合其它缺陷才成型
+    "Weak Random": "Medium",
+    "Open Redirect": "Medium",
+    "Unvalidated Forward": "Medium",
+    "Trust Boundary Violation": "Medium",
+    "Insecure Cookie": "Medium",
+    "Sensitive Data in Log": "Medium",
+    "Sensitive Data in URL": "Medium",
+    "Workflow Bypass": "Medium",
+    "Race Condition": "Medium",
+    "Insufficient Anti-Automation": "Medium",
+    # Low —— 仅本地信息泄露 / 辅助性质
+    "Stack Trace Exposure": "Low",
+    "Insecure Temp File": "Low",
 }
 
 
@@ -113,20 +186,24 @@ def _extract_cwe_id(payload: Dict[str, Any]) -> str:
 
 
 def _infer_severity(payload: Dict[str, Any]) -> str:
-    """优先取 payload.severity；否则按 max_impact 关键词启发式判定。"""
+    """按优先级定级：payload.severity → max_impact 关键词 → vuln_type 默认表 → Medium 兜底。"""
+    # 1) 显式给出的 severity
     sev = payload.get("severity")
     if isinstance(sev, str) and sev:
-        # 标准化大小写
         sev_up = sev.strip().capitalize()
         if sev_up in ("Critical", "High", "Medium", "Low"):
             return sev_up
+    # 2) max_impact 里的强信号关键词
     impact = (payload.get("max_impact") or "").lower()
     if any(k in impact for k in ("rce", "remote code", "任意命令", "任意代码", "任意文件写")):
         return "Critical"
     if any(k in impact for k in ("sql", "数据泄露", "数据泄漏", "data leak", "认证绕过", "越权", "权限提升")):
         return "High"
-    if payload.get("vuln_type") in ("Weak Random", "Open Redirect", "Insufficient Anti-Automation"):
-        return "Low"
+    # 3) 按 vuln_type 查默认严重度表
+    vt = payload.get("vuln_type") or payload.get("vuln_class") or ""
+    if vt in _VULN_TYPE_TO_DEFAULT_SEVERITY:
+        return _VULN_TYPE_TO_DEFAULT_SEVERITY[vt]
+    # 4) 兜底
     return "Medium"
 
 

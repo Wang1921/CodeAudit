@@ -19,6 +19,11 @@ rules:
       owasp: "A04:2021 - Insecure Design"
       vuln_class: "Trust Boundary Violation"
       confidence: MEDIUM
+      # 非污点链：session.setAttribute(k, 非字面量) 结构本身即漏洞；
+      # 追踪"非字面量 value 从哪来"没意义（用户输入只是诸多可能之一，
+      # 但在 session 里把任何非服务端生成的值当可信数据都是错的）。
+      # 直接 fast-path 到 BlueValidator 判断是否有白名单校验覆盖。
+      taint_required: false
       references:
         - https://cwe.mitre.org/data/definitions/501.html
     patterns:
