@@ -21,6 +21,8 @@ rules:
       owasp: "A02:2021 - Cryptographic Failures"
       vuln_class: "JWT None Algorithm"
       confidence: HIGH
+      # fast-path：Algorithm.none() / parseClaimsJwt(不验签) 出现即漏洞，无需污点追踪。
+      taint_required: false
       references:
         - https://cwe.mitre.org/data/definitions/347.html
         - https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/

@@ -22,6 +22,8 @@ rules:
       owasp: "A05:2021 - Security Misconfiguration"
       vuln_class: "Insecure Cookie"
       confidence: HIGH
+      # fast-path：Cookie 构造 / setSecure 调用本身就是漏洞结构，无需污点链追踪。
+      taint_required: false
       references:
         - https://cwe.mitre.org/data/definitions/614.html
         - https://owasp.org/www-community/controls/SecureCookieAttribute
@@ -51,6 +53,8 @@ rules:
       owasp: "A05:2021 - Security Misconfiguration"
       vuln_class: "Insecure Cookie"
       confidence: MEDIUM
+      # fast-path：构造 Cookie + addCookie 缺失 setSecure/setHttpOnly 的跨语句结构即漏洞。
+      taint_required: false
       references:
         - https://cwe.mitre.org/data/definitions/614.html
     patterns:
