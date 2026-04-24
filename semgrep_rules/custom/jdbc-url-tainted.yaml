@@ -1,0 +1,61 @@
+rules:
+  - id: java-jdbc-url-tainted
+    message: |
+      🚨 JDBC URL Tainted (CWE-89 子类 / CWE-20) Sink:
+      `DriverManager.getConnection(url, ...)` 接收非字面量 JDBC URL。
+
+      攻击者可指向他们控制的数据库，触发 JDBC 驱动在"连接握手"阶段的协议级漏洞：
+      - **MySQL**: 开启 `allowLoadLocalInfile=true` 时客户端会执行服务器要求的 `LOAD DATA LOCAL`，读取客户端任意本地文件（CVE-2022-21724）
+      - **MySQL**: `autoDeserialize=true` + `queryInterceptors=...` 实现 RCE（经典 Spring RCE 利用链）
+      - **H2**: `INIT=...` 参数在建立连接时执行任意 SQL / 加载任意类，导致 RCE（CVE-2021-42392）
+      - **Postgres**: `socketFactory` 指向攻击者类 → RCE（CVE-2022-21724）
+      - **JNDI-backed DataSource URL**: 触发 JNDI 注入 → RCE
+
+      修复建议：
+      1. JDBC URL 只能来自代码常量或可信配置中心；
+      2. 绝不接收用户输入作为 URL 组成部分（即使只是参数或 Host）；
+      3. 连接池配置里关掉危险选项：`allowLoadLocalInfile=false`, `autoDeserialize=false`；
+      4. 使用白名单校验 URL 协议 / 主机（如仅允许 `jdbc:mysql://internal-db.prod:3306/`）。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+        - "CWE-20: Improper Input Validation"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "JDBC URL Injection"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/20.html
+        - https://github.com/GitHubSecurityLab/ctf-writeups/tree/main/2022-03-lab-ctf
+    patterns:
+      - pattern-either:
+          - pattern: DriverManager.getConnection($URL, ...)
+          - pattern: java.sql.DriverManager.getConnection($URL, ...)
+          # Apache Commons DBCP / HikariCP 的 setUrl
+          - patterns:
+              - pattern: $DS.setUrl($URL)
+              - metavariable-type:
+                  metavariable: $DS
+                  types:
+                    - BasicDataSource
+                    - org.apache.commons.dbcp2.BasicDataSource
+                    - org.apache.commons.dbcp.BasicDataSource
+                    - HikariDataSource
+                    - com.zaxxer.hikari.HikariDataSource
+                    - HikariConfig
+                    - com.zaxxer.hikari.HikariConfig
+          - patterns:
+              - pattern: $DS.setJdbcUrl($URL)
+              - metavariable-type:
+                  metavariable: $DS
+                  types:
+                    - HikariDataSource
+                    - com.zaxxer.hikari.HikariDataSource
+                    - HikariConfig
+                    - com.zaxxer.hikari.HikariConfig
+      # 字面量排除
+      - pattern-not: DriverManager.getConnection("...", ...)
+      - pattern-not: java.sql.DriverManager.getConnection("...", ...)
+      - pattern-not: $DS.setUrl("...")
+      - pattern-not: $DS.setJdbcUrl("...")

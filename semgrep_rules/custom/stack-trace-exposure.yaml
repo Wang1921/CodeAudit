@@ -1,0 +1,65 @@
+rules:
+  - id: java-stack-trace-exposure
+    message: |
+      🚨 Stack Trace Exposure (CWE-209) Sink: 异常堆栈直接输出到 HTTP 响应流。
+
+      堆栈信息对攻击者极其有用：
+      - 暴露内部类路径 / 第三方库版本 / 数据库类型（JDBC exception）
+      - 帮助识别框架（Spring / Struts / Hibernate）及版本 → 针对性利用已知 CVE
+      - SQL 异常可能泄露表结构 / 列名 / 未转义的查询
+      - 文件 IO 异常可能泄露目录结构
+
+      修复建议：
+      1. 用统一异常处理器（Spring `@ControllerAdvice` + `@ExceptionHandler`），
+         对外仅返回通用错误码 + 用户可读的简短消息；
+      2. 完整堆栈只进服务端日志（且注意敏感字段脱敏，见 CWE-532 规则）；
+      3. Spring Boot 默认 `server.error.include-stacktrace=never`（2.3+）；
+         如果改成了 `always` 或 `on_trace_param`，生产环境应立刻改回来。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-209: Generation of Error Message Containing Sensitive Information"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Stack Trace Exposure"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    pattern-either:
+      # printStackTrace 直接写 response writer / output stream
+      - pattern: $E.printStackTrace($R.getWriter())
+      - pattern: $E.printStackTrace($R.getOutputStream())
+      - pattern: $E.printStackTrace(new PrintWriter($R.getOutputStream()))
+      - pattern: $E.printStackTrace(new PrintWriter($R.getWriter()))
+      # 打包成字符串塞到 response
+      - pattern: $R.getWriter().print($E.getStackTrace())
+      - pattern: $R.getWriter().println($E.getStackTrace())
+      - pattern: $R.getWriter().write(Arrays.toString($E.getStackTrace()))
+      # 用 throwable.toString() + writer 输出（不是全堆栈但暴露异常类名与消息）
+      - patterns:
+          - pattern-either:
+              - pattern: $W.print($E.toString())
+              - pattern: $W.println($E.toString())
+              - pattern: $W.write($E.toString())
+          - metavariable-type:
+              metavariable: $W
+              types:
+                - PrintWriter
+                - java.io.PrintWriter
+      # Exception.getMessage() / getLocalizedMessage() 直写 response
+      - patterns:
+          - pattern-either:
+              - pattern: $R.getWriter().print($E.getMessage())
+              - pattern: $R.getWriter().println($E.getMessage())
+              - pattern: $R.getWriter().print($E.getLocalizedMessage())
+              - pattern: $R.getWriter().println($E.getLocalizedMessage())
+          - metavariable-type:
+              metavariable: $E
+              types:
+                - Throwable
+                - Exception
+                - RuntimeException
+                - java.lang.Throwable
+                - java.lang.Exception
+                - java.lang.RuntimeException
