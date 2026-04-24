@@ -106,6 +106,32 @@ rules:
           ...
           $KPG.initialize(1024);
 
+      # ---------------- Mac（HMAC）弱算法 ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: Mac.getInstance($ALG, ...)
+              - pattern: javax.crypto.Mac.getInstance($ALG, ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^"(?i)(HmacMD5|HmacSHA1|HmacMD2|HmacMD4)"$'
+
+      # ---------------- Signature 弱算法 ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: Signature.getInstance($ALG, ...)
+              - pattern: java.security.Signature.getInstance($ALG, ...)
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: '^"(?i)(MD2withRSA|MD4withRSA|MD5withRSA|SHA1withRSA|SHA1withDSA|SHA1withECDSA|NONEwithRSA|NONEwithDSA|NONEwithECDSA)"$'
+
+      # ---------------- SecureRandom 弱算法 SHA1PRNG ----------------
+      # SHA1PRNG 已被 NIST 弃用（FIPS 140-2），且不同 JVM 实现质量差异大，
+      # 生产代码应该用无参 `new SecureRandom()`（平台最强 RNG）。
+      - pattern: SecureRandom.getInstance("SHA1PRNG")
+      - pattern: SecureRandom.getInstance("SHA1PRNG", ...)
+      - pattern: java.security.SecureRandom.getInstance("SHA1PRNG")
+      - pattern: java.security.SecureRandom.getInstance("SHA1PRNG", ...)
+
       # ---------------- Apache Commons Codec 弱哈希 ----------------
       - pattern: DigestUtils.md2(...)
       - pattern: DigestUtils.md2Hex(...)

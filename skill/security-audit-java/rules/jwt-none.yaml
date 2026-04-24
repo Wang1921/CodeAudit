@@ -54,3 +54,10 @@ rules:
       # ---------------- Nimbus JWT: 仅 PlainJWT.parse（无签名 JWT） ----------------
       - pattern: PlainJWT.parse($TOKEN)
       - pattern: com.nimbusds.jwt.PlainJWT.parse($TOKEN)
+
+      # ---------------- 自定义 Algorithm 实现恒真签名校验 ----------------
+      # 匿名类覆盖 verify / sign 方法恒返回成功 —— 等同 Algorithm.none()
+      - pattern: |
+          public void verify(DecodedJWT $JWT) { }
+      - pattern: |
+          public boolean verify(DecodedJWT $JWT) { return true; }

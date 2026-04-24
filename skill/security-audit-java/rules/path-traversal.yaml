@@ -69,6 +69,34 @@ rules:
                     - java.lang.Class
                     - ClassLoader
                     - java.lang.ClassLoader
+          # JSch SFTP —— 远程文件路径遍历
+          - patterns:
+              - pattern-either:
+                  - pattern: $SFTP.get($PATH, ...)
+                  - pattern: $SFTP.put($SRC, $PATH, ...)
+                  - pattern: $SFTP.ls($PATH)
+                  - pattern: $SFTP.cd($PATH)
+                  - pattern: $SFTP.rm($PATH)
+              - metavariable-type:
+                  metavariable: $SFTP
+                  types:
+                    - ChannelSftp
+                    - com.jcraft.jsch.ChannelSftp
+          # Spring Resource —— ClassPathResource / FileSystemResource / UrlResource
+          - pattern: new ClassPathResource($PATH, ...)
+          - pattern: new org.springframework.core.io.ClassPathResource($PATH, ...)
+          - pattern: new FileSystemResource($PATH)
+          - pattern: new org.springframework.core.io.FileSystemResource($PATH)
+          - pattern: new UrlResource($PATH)
+          - pattern: new org.springframework.core.io.UrlResource($PATH)
+          # Apache VFS
+          - patterns:
+              - pattern: $FS.resolveFile($PATH, ...)
+              - metavariable-type:
+                  metavariable: $FS
+                  types:
+                    - FileSystemManager
+                    - org.apache.commons.vfs2.FileSystemManager
       # 字面量排除（短名 + FQN）
       - pattern-not: new File("...")
       - pattern-not: new File("...", "...")
@@ -100,3 +128,12 @@ rules:
       - pattern-not: new java.io.RandomAccessFile("...", ...)
       - pattern-not: FileChannel.open(Paths.get("..."), ...)
       - pattern-not: $CL.getResourceAsStream("...")
+      - pattern-not: $SFTP.get("...", ...)
+      - pattern-not: $SFTP.ls("...")
+      - pattern-not: $SFTP.cd("...")
+      - pattern-not: new ClassPathResource("...", ...)
+      - pattern-not: new org.springframework.core.io.ClassPathResource("...", ...)
+      - pattern-not: new FileSystemResource("...")
+      - pattern-not: new org.springframework.core.io.FileSystemResource("...")
+      - pattern-not: new UrlResource("...")
+      - pattern-not: $FS.resolveFile("...", ...)

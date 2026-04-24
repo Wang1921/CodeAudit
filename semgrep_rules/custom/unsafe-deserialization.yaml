@@ -91,6 +91,16 @@ rules:
                     - com.caucho.hessian.io.HessianInput
                     - Hessian2Input
                     - com.caucho.hessian.io.Hessian2Input
+          # FastJson —— 显式启用 autoType 或使用允许 autoType 的 parse 接口
+          - pattern: JSON.parseObject($DATA, Object.class)
+          - pattern: com.alibaba.fastjson.JSON.parseObject($DATA, Object.class)
+          - pattern: JSON.parse($DATA, Feature.SupportAutoType)
+          - pattern: com.alibaba.fastjson.JSON.parse($DATA, Feature.SupportAutoType)
+          - pattern: ParserConfig.getGlobalInstance().setAutoTypeSupport(true)
+          - pattern: com.alibaba.fastjson.parser.ParserConfig.getGlobalInstance().setAutoTypeSupport(true)
+          # FastJson 2.x
+          - pattern: JSONReader.Feature.SupportAutoType
+          - pattern: com.alibaba.fastjson2.JSONReader.Feature.SupportAutoType
       # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
       - pattern-not: $XS.fromXML("...", ...)
       - pattern-not: new Yaml().load("...", ...)

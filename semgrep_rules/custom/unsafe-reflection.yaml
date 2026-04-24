@@ -51,6 +51,43 @@ rules:
                   types:
                     - Method
                     - java.lang.reflect.Method
+          # Field 反射读写（绕过访问控制）
+          - patterns:
+              - pattern-either:
+                  - pattern: $F.get($TARGET)
+                  - pattern: $F.set($TARGET, $VAL)
+                  - pattern: $F.setAccessible($B)
+              - metavariable-type:
+                  metavariable: $F
+                  types:
+                    - Field
+                    - java.lang.reflect.Field
+          # AccessibleObject.setAccessible 显式禁用安全检查
+          - patterns:
+              - pattern: $AO.setAccessible(true)
+              - metavariable-type:
+                  metavariable: $AO
+                  types:
+                    - AccessibleObject
+                    - java.lang.reflect.AccessibleObject
+                    - Method
+                    - java.lang.reflect.Method
+                    - Field
+                    - java.lang.reflect.Field
+                    - Constructor
+                    - java.lang.reflect.Constructor
+          # sun.misc.Unsafe —— 绕过 JVM 内存保护的终极 API
+          - patterns:
+              - pattern-either:
+                  - pattern: $U.putObject($TARGET, $OFFSET, $VAL)
+                  - pattern: $U.getObject($TARGET, $OFFSET)
+                  - pattern: $U.allocateInstance($CLASS)
+              - metavariable-type:
+                  metavariable: $U
+                  types:
+                    - Unsafe
+                    - sun.misc.Unsafe
+                    - jdk.internal.misc.Unsafe
       # 字面量类名排除
       - pattern-not: Class.forName("...", ...)
       - pattern-not: java.lang.Class.forName("...", ...)

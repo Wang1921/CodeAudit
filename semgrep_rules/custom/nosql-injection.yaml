@@ -59,6 +59,25 @@ rules:
               - metavariable-type:
                   metavariable: $CYPHER
                   type: String
+          # MongoDB 聚合管道 —— aggregate(List<Bson>) 若元素由 JSON 字符串构造则同样危险
+          - pattern: $COLL.aggregate(Arrays.asList(Document.parse($JSON), ...))
+          - pattern: $COLL.aggregate(java.util.Arrays.asList(Document.parse($JSON), ...))
+          # Elasticsearch High-Level REST Client —— 搜索请求的 JSON 字符串 source
+          - patterns:
+              - pattern-either:
+                  - pattern: $SRC.query(QueryBuilders.wrapperQuery($JSON))
+                  - pattern: new SearchSourceBuilder().query(QueryBuilders.wrapperQuery($JSON))
+              - metavariable-type:
+                  metavariable: $JSON
+                  type: String
+          # Elasticsearch Java API Client 8.x —— SearchRequest.Builder.withJson
+          - patterns:
+              - pattern-either:
+                  - pattern: $B.withJson($JSON)
+                  - pattern: QueryBuilders.wrapperQuery($JSON)
+              - metavariable-type:
+                  metavariable: $JSON
+                  type: String
       # 字面量排除
       - pattern-not: Document.parse("...")
       - pattern-not: Document.parse("...", ...)

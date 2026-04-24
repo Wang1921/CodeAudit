@@ -56,6 +56,32 @@ rules:
           - pattern: $BUILDER.url($URL)
           # Jsoup
           - pattern: Jsoup.connect($URL)
+          # URLConnection / HttpURLConnection openConnection 链
+          - pattern: new URL($X).openConnection()
+          - pattern: new java.net.URL($X).openConnection()
+          - pattern: URI.create($X).toURL().openConnection()
+          # Apache AsyncHttpClient
+          - pattern: new DefaultAsyncHttpClient().prepareGet($URL)
+          - pattern: $AHC.prepareGet($URL)
+          - pattern: $AHC.preparePost($URL)
+          - pattern: $AHC.preparePut($URL)
+          - pattern: $AHC.prepareDelete($URL)
+          # Apache HttpAsyncClient
+          - patterns:
+              - pattern-either:
+                  - pattern: $AHC.execute(SimpleHttpRequests.get($URL), ...)
+                  - pattern: $AHC.execute(SimpleHttpRequests.post($URL), ...)
+              - metavariable-type:
+                  metavariable: $URL
+                  type: String
+          # Retrofit / Feign 动态 URL（@Url 参数场景）
+          - patterns:
+              - pattern: $RETROFIT.baseUrl($URL)
+              - metavariable-type:
+                  metavariable: $RETROFIT
+                  types:
+                    - Retrofit.Builder
+                    - retrofit2.Retrofit.Builder
       # 字面量排除
       - pattern-not: new URL("...")
       - pattern-not: new URL("...", ...)

@@ -50,6 +50,31 @@ rules:
                   types:
                     - Connection
                     - java.sql.Connection
+          # jOOQ DSLContext —— 原生 SQL 执行入口
+          - patterns:
+              - pattern-either:
+                  - pattern: $DSL.fetch($SQL, ...)
+                  - pattern: $DSL.execute($SQL, ...)
+                  - pattern: $DSL.fetchOne($SQL, ...)
+                  - pattern: $DSL.resultQuery($SQL, ...)
+              - metavariable-type:
+                  metavariable: $DSL
+                  types:
+                    - DSLContext
+                    - org.jooq.DSLContext
+          # JDBI Handle —— 轻量级 JDBC 封装
+          - patterns:
+              - pattern-either:
+                  - pattern: $H.execute($SQL, ...)
+                  - pattern: $H.createQuery($SQL)
+                  - pattern: $H.createUpdate($SQL)
+                  - pattern: $H.select($SQL, ...)
+              - metavariable-type:
+                  metavariable: $H
+                  types:
+                    - Handle
+                    - org.jdbi.v3.core.Handle
+                    - org.skife.jdbi.v2.Handle
           # Spring JdbcTemplate 动态 SQL（无参数占位）
           - pattern: $JDBC.queryForList($SQL, ...)
           - pattern: $JDBC.queryForObject($SQL, ...)

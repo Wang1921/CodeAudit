@@ -35,6 +35,27 @@ rules:
           - pattern: new Template($NAME, $SRC, $CFG)
           # Pebble：getLiteralTemplate 直接接受模板字符串
           - pattern: $ENGINE.getLiteralTemplate($TEMPLATE)
+          # Thymeleaf：TemplateEngine 直接处理字符串模板（StringTemplateResolver 场景）
+          - patterns:
+              - pattern-either:
+                  - pattern: $TE.process($TEMPLATE, $CTX)
+              - metavariable-type:
+                  metavariable: $TE
+                  types:
+                    - TemplateEngine
+                    - org.thymeleaf.TemplateEngine
+                    - org.thymeleaf.ITemplateEngine
+          # Mustache.java：compile 接受字符串或 Reader
+          - pattern: new DefaultMustacheFactory().compile(new StringReader($TEMPLATE), $NAME)
+          - pattern: $MF.compile(new StringReader($TEMPLATE), $NAME)
+          # GroovyShell 的 GStringTemplateEngine
+          - pattern: new GStringTemplateEngine().createTemplate($TEMPLATE)
+          - pattern: $GTE.createTemplate($TEMPLATE)
+          - pattern: new SimpleTemplateEngine().createTemplate($TEMPLATE)
+          # Apache Commons Text StringSubstitutor —— 非完整模板引擎但支持插值
+          - pattern: StringSubstitutor.replace($TEMPLATE, ...)
+          - pattern: org.apache.commons.text.StringSubstitutor.replace($TEMPLATE, ...)
+          - pattern: new StringSubstitutor(...).replace($TEMPLATE)
       # 字面量排除
       - pattern-not: Velocity.evaluate($CTX, $WRITER, $TAG, "...")
       - pattern-not: $ENGINE.evaluate($CTX, $WRITER, $TAG, "...")
@@ -42,3 +63,10 @@ rules:
       - pattern-not: new Template($NAME, new StringReader("..."), $CFG, ...)
       - pattern-not: new Template($NAME, "...", $CFG)
       - pattern-not: $ENGINE.getLiteralTemplate("...")
+      - pattern-not: $TE.process("...", $CTX)
+      - pattern-not: $MF.compile(new StringReader("..."), $NAME)
+      - pattern-not: $GTE.createTemplate("...")
+      - pattern-not: new GStringTemplateEngine().createTemplate("...")
+      - pattern-not: new SimpleTemplateEngine().createTemplate("...")
+      - pattern-not: StringSubstitutor.replace("...", ...)
+      - pattern-not: new StringSubstitutor(...).replace("...")

@@ -63,6 +63,14 @@ rules:
                     - org.apache.commons.exec.DefaultExecutor
                     - Executor
                     - org.apache.commons.exec.Executor
+          # JSch ChannelExec —— SSH 远程命令执行
+          - patterns:
+              - pattern: $CH.setCommand($CMD)
+              - metavariable-type:
+                  metavariable: $CH
+                  types:
+                    - ChannelExec
+                    - com.jcraft.jsch.ChannelExec
       # 字面量排除：所有参数都是字符串常量
       - pattern-not: Runtime.getRuntime().exec("...", ...)
       - pattern-not: java.lang.Runtime.getRuntime().exec("...", ...)
@@ -75,3 +83,4 @@ rules:
       - pattern-not: Desktop.getDesktop().browse(URI.create("..."))
       - pattern-not: CommandLine.parse("...")
       - pattern-not: org.apache.commons.exec.CommandLine.parse("...")
+      - pattern-not: $CH.setCommand("...")

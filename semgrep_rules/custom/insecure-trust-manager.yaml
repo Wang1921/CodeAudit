@@ -59,6 +59,24 @@ rules:
       - pattern: org.apache.hc.client5.http.ssl.NoopHostnameVerifier.INSTANCE
       - pattern: org.apache.http.conn.ssl.NoopHostnameVerifier.INSTANCE
 
-      # ---------------- ALLOW_ALL 策略常量 ----------------
+      # ---------------- ALLOW_ALL 策略常量 / AllowAllHostnameVerifier 类 ----------------
       - pattern: SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
       - pattern: org.apache.http.conn.ssl.SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER
+      # Apache HttpClient 4.x 老版本的 AllowAllHostnameVerifier 类（构造即"禁主机名校验"）
+      - pattern: new AllowAllHostnameVerifier()
+      - pattern: new org.apache.http.conn.ssl.AllowAllHostnameVerifier()
+      - pattern: AllowAllHostnameVerifier.INSTANCE
+      - pattern: org.apache.http.conn.ssl.AllowAllHostnameVerifier.INSTANCE
+
+      # ---------------- TrustAllStrategy（Apache HttpClient 信任所有证书链）----------------
+      - pattern: TrustAllStrategy.INSTANCE
+      - pattern: org.apache.hc.client5.http.ssl.TrustAllStrategy.INSTANCE
+      - pattern: org.apache.http.conn.ssl.TrustAllStrategy.INSTANCE
+      # 作为参数传给 SSLContextBuilder.loadTrustMaterial 的信任回调
+      - pattern: $BUILDER.loadTrustMaterial(TrustAllStrategy.INSTANCE)
+      - pattern: $BUILDER.loadTrustMaterial(null, (chain, authType) -> true)
+      - pattern: $BUILDER.loadTrustMaterial($KEY, (chain, authType) -> true)
+
+      # ---------------- TrustStrategy lambda 恒真（自定义"信任一切"策略）----------------
+      - pattern: |
+          public boolean isTrusted($CHAIN, String $TYPE) { return true; }
