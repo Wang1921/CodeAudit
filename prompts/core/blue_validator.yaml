@@ -56,6 +56,17 @@ system_prompt_template: |
   你**必须逐字复制到输出的 `vuln_type` 字段**，不得翻译、标准化、转写或推断。
   该字段是全链路去重、CWE 映射、报告聚合的唯一 key。
 
+  **正反例（严格遵守）**：
+  - ✅ 正确：`"vuln_type": "SSRF"` / `"vuln_type": "SQL Injection"` / `"vuln_type": "Weak Cryptography"`
+  - ❌ 错误：`"vuln_type": "CWE-918: Server-Side Request Forgery"` —— 这是 CWE 描述不是 vuln_class
+  - ❌ 错误：`"vuln_type": "服务端请求伪造"` —— 不得翻译成中文
+  - ❌ 错误：`"vuln_type": "ssrf vulnerability"` —— 不得加修饰词或改大小写
+  - ❌ 错误：`"vuln_type": "CWE-918"` —— 这是 CWE 编号不是 vuln_class
+
+  CWE 描述（`"CWE-NNN: ..."`）应该填到 `cwe_id` 字段（如果输出 schema 包含），
+  不要混淆 vuln_type 与 cwe 描述。下游有正则纠错把 `vuln_type` 强制还原为上游 `vuln_class`，
+  你输出错的话会在日志里留 WARNING 痕迹。
+
   ## Output Contract (绝对契约)
   路径 A 与 路径 B **共用同一套输出 Schema**，只是部分字段语义不同。
 

@@ -474,17 +474,38 @@ class StateRouter:
           保留在 payload 里反而让下游 LLM 同时看到两套同名字段容易混淆。
         - 但 sink_details.cwe 是 ReportGenerator 的 cwe_id 来源，需提升到顶层 `cwe` 字段
           以便后续所有跳都能访问。
+        - vuln_type 以**上游权威值为准**：sink_details.vuln_class 或上一跳 merged_payload
+          里已校准过的 vuln_type；LLM 输出若改写（如把 'SSRF' 写成 'CWE-918: ...'）会被覆盖。
         """
+        # 1. 先识别上游权威 vuln_type（用于覆盖 LLM 偏离的输出）
+        orig_sink = orig_payload.get("sink_details") or {}
+        upstream_vt = (
+            orig_sink.get("vuln_class")
+            or orig_payload.get("vuln_type")
+            or orig_payload.get("vuln_class")
+        )
+
+        # 2. 标准合并：parsed 字段覆盖 orig
         merged: Dict[str, Any] = {**orig_payload, **parsed}
 
+        # 3. 强制还原 vuln_type 到上游权威值
+        if upstream_vt:
+            agent_vt = merged.get("vuln_type")
+            if agent_vt and agent_vt != upstream_vt:
+                logging.warning(
+                    f"[normalize] vuln_type 偏离上游权威值："
+                    f"agent='{agent_vt}' → 强制还原为 '{upstream_vt}'"
+                )
+            merged["vuln_type"] = upstream_vt
+
+        # 4. cwe 信息从 sink_details 提升到顶层
         sink = merged.get("sink_details")
         if isinstance(sink, dict):
-            # 保留关键的 cwe 信息到顶层，避免随 sink_details 一起被清洗
             if "cwe" not in merged and sink.get("cwe"):
                 merged["cwe"] = sink["cwe"]
             merged.pop("sink_details", None)
 
-        # route_details 同样不再传给下游 Agent（顶层 entry_route / filepath 已承载需要的信息）
+        # 5. route_details 不再传给下游 Agent（顶层 entry_route / filepath 已承载需要的信息）
         merged.pop("route_details", None)
 
         return merged
