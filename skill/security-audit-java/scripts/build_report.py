@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
-"""Deterministic markdown report generator.
+"""确定性 markdown 报告生成器。
 
-Input: JSON file with structured findings (produced by the skill after its
-Phase 1-5 evidence judgment). No LLM involved — this script only shuffles
-data into the report template.
+输入：一份已结构化的 findings JSON（由 skill 在阶段 1-5 完成证据裁决后产出）。
+全程不调用 LLM —— 本脚本只是按模板把字段拼接成 markdown 文档。
 
-Usage:
-    python3 build_report.py <findings.json> [output.md]
-    # if output.md omitted, defaults to ./reports/audit-YYYYMMDD-HHMMSS.md
+用法：
+    python3 build_report.py <findings.json> [输出.md]
+    # 输出路径省略时默认写入 ./reports/audit-YYYYMMDD-HHMMSS.md
 
-Input JSON schema:
+输入 JSON 结构：
     {
-      "target_path": "/abs/path/to/project",
-      "project_name": "optional-override",    # defaults to basename of target_path
-      "findings": [                           # VULNERABLE confirmed cases
+      "target_path": "/绝对路径/到/项目",
+      "project_name": "可选覆盖",              # 默认取 target_path 末段
+      "findings": [                           # 已确认的 VULNERABLE 发现
         {
           "vuln_type": "XSS",
-          "cwe_id": "CWE-79",                 # if missing, will be filled via classify.py
-          "severity": "High",                 # if missing, will be filled via classify.py
+          "cwe_id": "CWE-79",                 # 缺省时由 classify.py 自动补
+          "severity": "High",                 # 缺省时由 classify.py 自动补
           "location": {"file": "...", "line": 56},
           "entry_route": "/path/...",
-          "confidence": "HIGH",               # optional
+          "confidence": "HIGH",               # 可选
           "call_chain": ["1. ...", "2. ..."],
           "description": "...",
           "attack_vector": "...",
@@ -29,7 +28,7 @@ Input JSON schema:
           "mitigation_advice": "..."
         }
       ],
-      "defended": [                           # optional — false-positive candidates
+      "defended": [                           # 可选 —— 假阳性候选
         {
           "location": {"file": "...", "line": 91},
           "vuln_type": "Path Traversal",
@@ -55,7 +54,7 @@ _SEVERITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
 
 def _enrich(finding: dict) -> dict:
-    """Fill missing cwe_id / severity by consulting classify.py."""
+    """缺失的 cwe_id / severity 通过 classify.py 自动补全。"""
     vt = finding.get("vuln_type", "")
     if not finding.get("cwe_id"):
         finding["cwe_id"] = extract_cwe_id(vt, finding.get("cwe", ""))
@@ -83,30 +82,30 @@ def _format_finding(idx: int, f: dict) -> str:
 
     return f"""### [VULN-{idx:03d}] {f.get('vuln_type', 'Unknown')} — `{file}:{line}`
 
-| Field | Value |
+| 字段 | 值 |
 |---|---|
 | **CWE** | {f.get('cwe_id', 'N/A')} |
-| **Severity** | {f.get('severity', 'Medium')} |
-| **Entry route** | {f.get('entry_route', 'N/A')} |
-| **Confidence** | {f.get('confidence', 'MEDIUM')} |
+| **严重度** | {f.get('severity', 'Medium')} |
+| **入口路由** | {f.get('entry_route', 'N/A')} |
+| **置信度** | {f.get('confidence', 'MEDIUM')} |
 
-**Call chain**:
+**调用链**：
 {cc_md}
 
-**Description**:
+**漏洞描述**：
 {f.get('description', '-')}
 
-**Attack vector**:
+**攻击向量**：
 {f.get('attack_vector', '-')}
 
-**PoC payload**:
+**PoC payload**：
 ```
 {f.get('poc_payload', '-')}
 ```
 
-**Max impact**: {f.get('max_impact', '-')}
+**最大影响**：{f.get('max_impact', '-')}
 
-**Mitigation**:
+**修复建议**：
 {f.get('mitigation_advice', '-')}
 
 ---
@@ -116,15 +115,15 @@ def _format_finding(idx: int, f: dict) -> str:
 def _format_defended(items: list) -> str:
     if not items:
         return ""
-    lines = ["## False-positive candidates (DEFENDED)", ""]
-    lines.append("These were flagged by Semgrep but judged non-exploitable on inline evidence.")
+    lines = ["## 假阳性候选（DEFENDED）", ""]
+    lines.append("以下条目被 Semgrep 标记，但根据代码内联证据被裁决为不可利用。")
     lines.append("")
     for d in items:
         loc = d.get("location", {})
         file = loc.get("file", "unknown")
         line = loc.get("line", "?")
-        reason = d.get("defense_analysis", "no analysis")
-        lines.append(f"- `{file}:{line}` — {d.get('vuln_type', 'Unknown')}: {reason}")
+        reason = d.get("defense_analysis", "无分析说明")
+        lines.append(f"- `{file}:{line}` — {d.get('vuln_type', 'Unknown')}：{reason}")
     lines.append("")
     return "\n".join(lines)
 
@@ -140,20 +139,20 @@ def build_report(data: dict) -> str:
     sev_count = collections.Counter(f.get("severity", "Medium") for f in findings)
     cat_count = collections.Counter(f.get("vuln_type", "Unknown") for f in findings)
 
-    header = f"""# Security Audit Report — {project}
+    header = f"""# 安全审计报告 — {project}
 
-- **Date**: {date}
-- **Target**: `{target}`
-- **Total findings**: {len(findings)}
-- **By severity**: Critical {sev_count.get('Critical', 0)} / High {sev_count.get('High', 0)} / Medium {sev_count.get('Medium', 0)} / Low {sev_count.get('Low', 0)}
-- **By category**: {", ".join(f"{k} ({v})" for k, v in cat_count.most_common()) or "none"}
+- **日期**：{date}
+- **目标**：`{target}`
+- **发现总数**：{len(findings)}
+- **按严重度**：Critical {sev_count.get('Critical', 0)} / High {sev_count.get('High', 0)} / Medium {sev_count.get('Medium', 0)} / Low {sev_count.get('Low', 0)}
+- **按类别**：{", ".join(f"{k} ({v})" for k, v in cat_count.most_common()) or "无"}
 
 ---
 
-## Findings
+## 漏洞清单
 """
     if not findings:
-        findings_md = "_No VULNERABLE findings after validation._\n\n---\n"
+        findings_md = "_经过证据裁决后无 VULNERABLE 发现。_\n\n---\n"
     else:
         findings_md = "\n".join(_format_finding(i + 1, f) for i, f in enumerate(findings))
 
@@ -164,7 +163,7 @@ def build_report(data: dict) -> str:
 
 def main():
     if len(sys.argv) < 2:
-        print("usage: build_report.py <findings.json> [output.md]", file=sys.stderr)
+        print("用法：build_report.py <findings.json> [输出.md]", file=sys.stderr)
         sys.exit(2)
 
     with open(sys.argv[1], "r", encoding="utf-8") as f:

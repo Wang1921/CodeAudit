@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Thin wrapper around semgrep for the security-audit-java skill.
-# Usage: scan.sh <target_dir> [rules_dir] [output_json]
+# security-audit-java skill 内置的 semgrep 薄封装。
+# 用法：scan.sh <目标目录> [规则目录] [输出 JSON 路径]
 
 set -euo pipefail
 
@@ -10,16 +10,16 @@ RULES_DIR="${2:-${SKILL_DIR}/rules}"
 OUT="${3:-/tmp/semgrep-audit-$(date +%s).json}"
 
 if [[ -z "$TARGET" ]]; then
-    echo "usage: scan.sh <target_dir> [rules_dir] [output_json]" >&2
+    echo "用法：scan.sh <目标目录> [规则目录] [输出 JSON 路径]" >&2
     exit 2
 fi
 if ! command -v semgrep >/dev/null; then
-    echo "semgrep not installed. Try: pip install semgrep" >&2
+    echo "未安装 semgrep。请执行：pip install semgrep" >&2
     exit 3
 fi
 if [[ ! -d "$RULES_DIR" ]]; then
-    echo "rules directory not found: $RULES_DIR" >&2
-    echo "hint: copy CodeAudit/semgrep_rules/custom/*.yaml into $RULES_DIR" >&2
+    echo "找不到规则目录：$RULES_DIR" >&2
+    echo "提示：请把 CodeAudit/semgrep_rules/custom/*.yaml 复制到 $RULES_DIR" >&2
     exit 4
 fi
 

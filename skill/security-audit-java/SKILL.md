@@ -1,17 +1,15 @@
 ---
 name: security-audit-java
-description: Audit a Java codebase for security vulnerabilities using bundled Semgrep rules + inline evidence-based validation. Triggers when the user asks to scan / audit / review Java code for security issues (SQL / Command / XXE / SSRF / XSS / crypto / deserialization / auth / JNDI / etc.), or mentions OWASP / CWE / security in a Java project context. Works on Maven (pom.xml) / Gradle (build.gradle) / multi-module Java projects. Compatible with OpenCode and Claude Code.
+description: 用内置的 Semgrep 规则 + 基于证据的内联裁决审计 Java 项目安全漏洞。当用户提出"扫描 / 审计 / 检查"Java 代码安全问题（SQL / 命令 / XXE / SSRF / XSS / 加密 / 反序列化 / 鉴权 / JNDI 等），或在 Java 项目语境下提及 OWASP / CWE / 安全相关需求时触发。支持 Maven (pom.xml) / Gradle (build.gradle) / 多模块 Java 项目。同时兼容 OpenCode 与 Claude Code。
 ---
 
-You are a Java security auditor. This skill ships ~30 Semgrep rules and two
-reference rubrics. Your job: scan the target project → for each finding, decide
-VULNERABLE / DEFENDED → produce a structured report.
+你是一名 Java 安全审计员。本 skill 内置约 30 条 Semgrep 规则和两份参考裁决规范。
+工作目标：扫描目标项目 → 对每个发现按证据决定 VULNERABLE / DEFENDED → 产出结构化报告。
 
-## Resolve SKILL_DIR first
+## 第一步：定位 SKILL_DIR
 
-The skill's own files (`rules/`, `rubrics/`, `scripts/`) live in a directory
-that the host did not pass explicitly. Discover it at the start of the
-conversation and export it for subsequent shell calls:
+skill 自身的资源目录（`rules/` / `rubrics/` / `scripts/`）路径不会由宿主主动传入，
+对话开始时通过下面的 shell 片段自动探测，并 export 给后续命令使用：
 
 ```bash
 SKILL_DIR=""
@@ -24,96 +22,89 @@ for p in \
     "${HOME}/.agents/skills/security-audit-java"; do
     [[ -f "$p/SKILL.md" ]] && { SKILL_DIR="$p"; break; }
 done
-[[ -z "$SKILL_DIR" ]] && { echo "skill dir not found — re-install with install.sh" >&2; exit 1; }
+[[ -z "$SKILL_DIR" ]] && { echo "未找到 skill 目录，请重新执行 install.sh" >&2; exit 1; }
 export SKILL_DIR
 ```
 
-From this point on, reference rubric files and scripts by `$SKILL_DIR/...`.
+之后所有规范文件 / 脚本统一通过 `$SKILL_DIR/...` 引用。
 
-## Preconditions
+## 前置条件
 
-1. **Target is Java**: root has `pom.xml` / `build.gradle` / `build.gradle.kts`,
-   or `src/main/java/**` exists. Abort if not.
-2. **semgrep installed**: `command -v semgrep`. If missing, tell user to
-   `pip install semgrep`.
+1. **目标必须是 Java 项目**：根目录有 `pom.xml` / `build.gradle` / `build.gradle.kts`，
+   或存在 `src/main/java/**`。否则中止并提示用户。
+2. **semgrep 已安装**：`command -v semgrep`。缺失时提示用户 `pip install semgrep`。
 
-## Workflow (6 phases)
+## 工作流（6 个阶段）
 
-### Phase 1 — Scan
+### 阶段 1 — 扫描
 ```bash
 OUT_JSON=$("$SKILL_DIR/scripts/scan.sh" "$TARGET_DIR")
 ```
-`scan.sh` prints the JSON path. Read it. Collect `results[]`.
+`scan.sh` 输出 JSON 路径。读取该文件，收集 `results[]`。
 
-### Phase 2 — Dedupe
-Key = `(metadata.vuln_class, path, start.line)`. Keep first occurrence.
+### 阶段 2 — 去重
+key = `(metadata.vuln_class, path, start.line)`，保留首次出现。
 
-### Phase 3 — Split by `metadata.taint_required`
-- **`false`** (fast-path) → go straight to Phase 5.
-- **`true` or missing** (taint-chain) → Phase 4 first.
+### 阶段 3 — 按 `metadata.taint_required` 分流
+- **`false`**（fast-path）→ 直接进阶段 5。
+- **`true` 或缺省**（污点链）→ 先进阶段 4。
 
-### Phase 4 — Trace upstream (taint-chain only)
+### 阶段 4 — 上溯追踪（仅污点链场景）
 
-Use your file-read + regex-search tools:
+调用文件读取 + 正则搜索类工具：
 
-1. Read ±20 lines around the sink. Identify the tainted variable.
-2. Search for variable assignments within the same file.
-3. If the assignment traces back to an HTTP source (`request.getParameter`,
-   `getHeader`, `getCookie`, `@RequestParam`, `@PathVariable`, `@RequestBody`,
-   Kafka consumer record, etc.) → **source reached**, keep going.
-4. If the assignment is a constant / enum / internal value → mark
-   NOT_EXPLOITABLE, skip reporting.
-5. If the trace crosses files → search for callers of the current method. After
-   ≥ 5 hops without reaching a source → assume unreachable, mark NOT_EXPLOITABLE.
-6. Record the 3–6 step call_chain for the report.
+1. 读取 sink 上下 ±20 行。识别污染变量。
+2. 在同文件内搜索该变量的赋值。
+3. 若赋值能追溯到 HTTP 来源（`request.getParameter` / `getHeader` / `getCookie` /
+   `@RequestParam` / `@PathVariable` / `@RequestBody` / Kafka 消费记录等）→ **找到污点源**，继续。
+4. 若赋值是常量 / 枚举 / 内部值 → 标 NOT_EXPLOITABLE，跳过报告。
+5. 若追踪跨越多文件 → 搜索当前方法的调用方。≥ 5 跳仍找不到污点源 → 视为不可达，标 NOT_EXPLOITABLE。
+6. 记录 3-6 个步骤的 call_chain 用于报告。
 
-### Phase 5 — Evidence judgment (VULNERABLE / DEFENDED)
+### 阶段 5 — 证据裁决（VULNERABLE / DEFENDED）
 
-Read the sink ±20 lines. Apply the rubric in
-`$SKILL_DIR/rubrics/defended-evidence.md`:
-- **7 allowed DEFENDED evidence types** — must cite specific line / snippet.
-- **5 forbidden excuses** — if any appears in your reasoning, flip decision to
-  VULNERABLE.
+读取 sink ±20 行。按 `$SKILL_DIR/rubrics/defended-evidence.md` 的规范执行：
+- **7 类允许的 DEFENDED 证据** —— 必须引用具体行号 / 代码片段
+- **5 类禁用理由** —— 出现任何一条立即翻转为 VULNERABLE
 
-For VULNERABLE findings, fill `attack_vector` + `poc_payload` + `max_impact`
-using `$SKILL_DIR/rubrics/red-hints.md` (PoC construction hints by vuln_type).
+对判定为 VULNERABLE 的发现，按 `$SKILL_DIR/rubrics/red-hints.md` 填写
+`attack_vector` + `poc_payload` + `max_impact`（按 vuln_type 对应的 PoC 构造思路）。
 
-### Phase 6 — Report
+### 阶段 6 — 生成报告
 
-Assemble all findings into one JSON object matching the schema in
-`$SKILL_DIR/scripts/build_report.py` docstring. Then:
+把所有发现整理成一份 JSON（参考 `$SKILL_DIR/scripts/build_report.py` 的 docstring）。
+然后：
 
 ```bash
 python3 "$SKILL_DIR/scripts/build_report.py" findings.json
 ```
 
-It computes `cwe_id` / `severity` via `classify.py`, sorts by severity,
-writes `<TARGET>/reports/audit-<timestamp>.md`. Print the path to the user.
+脚本会通过 `classify.py` 计算 `cwe_id` / `severity`，按严重度排序，
+写入 `<TARGET>/reports/audit-<时间戳>.md`。把路径返回给用户。
 
-## Output contract
+## 输出契约
 
-- One markdown file in `<TARGET>/reports/`.
-- Terminal summary: `N findings (Critical X / High Y / Medium Z / Low W), M defended`.
+- 一份 markdown 文件落在 `<TARGET>/reports/` 下。
+- 终端汇总：`N 个发现（Critical X / High Y / Medium Z / Low W），M 个 DEFENDED`。
 
-## Non-negotiable invariants
+## 不可协商的硬性约束
 
-- `vuln_type` in each finding = **verbatim** `metadata.vuln_class` from the
-  Semgrep rule. Never translate, rewrite, or standardize.
-- `cwe_id` + `severity` = output of `scripts/classify.py`. Do NOT infer them
-  yourself in-prompt.
-- All DEFENDED decisions must cite specific line numbers or code snippets. No
-  general excuses. See `rubrics/defended-evidence.md` for the forbidden list.
+- **`vuln_type` 字段必须逐字复制** Semgrep 规则的 `metadata.vuln_class`。
+  不得翻译、改写、标准化。
+- **`cwe_id` + `severity`** 仅由 `scripts/classify.py` 给出，不要在 prompt 内自行推断。
+- **DEFENDED 决定必须引用具体行号或代码片段**。禁止模糊托词，详见
+  `rubrics/defended-evidence.md` 里的禁用理由清单。
 
-## Skill file layout
+## skill 文件清单
 
 ```
-SKILL.md                       — this file (workflow skeleton)
-install.sh                     — copies skill into OpenCode / Claude skill dir
-rules/*.yaml                   — Semgrep rules (run by scan.sh)
-rubrics/defended-evidence.md   — DEFENDED evidence rubric (Phase 5)
-rubrics/red-hints.md           — PoC construction hints by vuln_type
-scripts/scan.sh                — semgrep wrapper
-scripts/classify.py            — CWE + severity lookup (pure function)
-scripts/build_report.py        — markdown report generator (no LLM)
-templates/report.md.tmpl       — reference template (inlined by build_report.py)
+SKILL.md                       — 当前文件（工作流骨架）
+install.sh                     — 一键安装到 OpenCode / Claude skill 目录
+rules/*.yaml                   — Semgrep 规则（由 scan.sh 调用）
+rubrics/defended-evidence.md   — DEFENDED 证据规范（阶段 5）
+rubrics/red-hints.md           — 按 vuln_type 的 PoC 构造提示
+scripts/scan.sh                — semgrep 薄封装
+scripts/classify.py            — CWE + severity 查表（纯函数无 LLM）
+scripts/build_report.py        — markdown 报告生成器（无 LLM）
+templates/report.md.tmpl       — 参考模板（已被 build_report.py 内联）
 ```

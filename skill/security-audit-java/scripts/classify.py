@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""CWE + severity classifier.
+"""CWE + 严重度分类器。
 
-Called by the skill to deterministically map a vuln_type (from Semgrep rule
-metadata.vuln_class) to CWE id + default severity. Ported verbatim from
-CodeAudit's src/state_router.py so skill-generated reports match engine reports.
+被 skill 调用，把 vuln_type（取自 Semgrep 规则的 metadata.vuln_class）确定性地
+映射为 CWE 编号 + 默认严重度。逻辑和 CodeAudit 的 src/state_router.py 一致，
+保证 skill 输出的报告与引擎产出的报告字段口径一致。
 
-Usage:
-    python3 classify.py <vuln_type> [max_impact]
-    → prints JSON: {"cwe_id": "...", "severity": "..."}
+用法：
+    python3 classify.py <vuln_type> [max_impact] [cwe_raw]
+    → 打印 JSON：{"cwe_id": "...", "severity": "..."}
 """
 import json
 import re
@@ -115,7 +115,7 @@ _VULN_TYPE_TO_DEFAULT_SEVERITY = {
 
 
 def extract_cwe_id(vuln_type: str, cwe_raw: str = "") -> str:
-    """Prefer literal CWE-NNN in sink.metadata.cwe; fall back to vuln_type lookup."""
+    """优先使用 sink.metadata.cwe 里的 CWE-NNN 字面值；否则按 vuln_type 查表。"""
     m = re.match(r"(CWE-\d+)", cwe_raw or "")
     if m:
         return m.group(1)
@@ -123,7 +123,7 @@ def extract_cwe_id(vuln_type: str, cwe_raw: str = "") -> str:
 
 
 def infer_severity(vuln_type: str, max_impact: str = "", explicit: str = "") -> str:
-    """Priority: explicit > max_impact keywords > vuln_type default > Medium."""
+    """优先级：显式给定 > max_impact 关键字 > vuln_type 默认表 > Medium。"""
     if explicit:
         s = explicit.strip().capitalize()
         if s in ("Critical", "High", "Medium", "Low"):
@@ -138,7 +138,7 @@ def infer_severity(vuln_type: str, max_impact: str = "", explicit: str = "") -> 
 
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "usage: classify.py <vuln_type> [max_impact] [cwe_raw]"}))
+        print(json.dumps({"error": "用法：classify.py <vuln_type> [max_impact] [cwe_raw]"}))
         sys.exit(2)
     vuln_type = sys.argv[1]
     max_impact = sys.argv[2] if len(sys.argv) > 2 else ""

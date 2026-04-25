@@ -1,51 +1,51 @@
-# Security Audit Report — {{project_name}}
+# 安全审计报告 — {{project_name}}
 
-**Date**: {{date}}
-**Target**: `{{target_path}}`
-**Total findings**: {{total}}
-**By severity**: Critical {{critical}} / High {{high}} / Medium {{medium}} / Low {{low}}
-**By category**: {{category_breakdown}}
+**日期**：{{date}}
+**目标**：`{{target_path}}`
+**发现总数**：{{total}}
+**按严重度**：Critical {{critical}} / High {{high}} / Medium {{medium}} / Low {{low}}
+**按类别**：{{category_breakdown}}
 
 ---
 
-## Findings
+## 漏洞清单
 
 {{#findings}}
 ### [{{id}}] {{vuln_type}} — `{{location.file}}:{{location.line}}`
 
-| Field | Value |
+| 字段 | 值 |
 |---|---|
 | **CWE** | {{cwe_id}} |
-| **Severity** | {{severity}} |
-| **Entry route** | {{entry_route}} |
-| **Confidence** | {{confidence}} |
+| **严重度** | {{severity}} |
+| **入口路由** | {{entry_route}} |
+| **置信度** | {{confidence}} |
 
-**Call chain**:
+**调用链**：
 {{#call_chain}}
 - {{.}}
 {{/call_chain}}
 
-**Description**:
+**漏洞描述**：
 {{description}}
 
-**Attack vector / PoC**:
+**攻击向量 / PoC**：
 ```
 {{poc_payload}}
 ```
 {{attack_vector}}
 
-**Max impact**: {{max_impact}}
+**最大影响**：{{max_impact}}
 
-**Mitigation**:
+**修复建议**：
 {{mitigation_advice}}
 
 ---
 {{/findings}}
 
-## False-positive candidates (DEFENDED)
+## 假阳性候选（DEFENDED）
 
-These were flagged by Semgrep but judged non-exploitable on inline evidence.
+以下条目被 Semgrep 标记，但根据代码内联证据被裁决为不可利用。
 
 {{#defended}}
-- `{{location.file}}:{{location.line}}` — {{vuln_type}}: {{defense_analysis}}
+- `{{location.file}}:{{location.line}}` — {{vuln_type}}：{{defense_analysis}}
 {{/defended}}
