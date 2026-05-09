@@ -589,3 +589,17 @@ class AuditEngine:
 
             # 3) 关闭沙盒池
             await self.server_manager.shutdown_all()
+
+            # 4) 生成汇总报告（reports/SUMMARY.md）
+            try:
+                from src.build_summary_report import build_summary
+                reports_dir = "reports"
+                if os.path.isdir(reports_dir):
+                    project = os.path.basename(self.target_source_dir.rstrip("/")) or "未命名项目"
+                    md = build_summary(reports_dir, self.target_source_dir, project)
+                    out_path = os.path.join(reports_dir, "SUMMARY.md")
+                    with open(out_path, "w", encoding="utf-8") as f:
+                        f.write(md)
+                    logging.info(f"汇总报告已生成: {out_path}")
+            except Exception as e:
+                logging.warning(f"生成汇总报告失败（不影响主流程）: {e}")
