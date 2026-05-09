@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================
+# 项目元信息
+# ============================================================
+[project]
+name = "codeaudit"
+version = "0.1.0"
+description = "双轨制多智能体代码审计系统：Python 异步引擎 + OpenCode 沙盒池 + Semgrep 静态扫描，发现技术型与业务逻辑型 Java 安全漏洞"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Wang1921" }]
+license = { text = "MIT" }
+keywords = ["security", "audit", "semgrep", "java", "llm", "static-analysis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# 运行时依赖
+dependencies = [
+    "aiohttp>=3.10",
+    "PyYAML>=6.0",
+    "semgrep>=1.150",
+    "jsonschema>=4.0",
+]
+
+[project.optional-dependencies]
+# pip install -e .[dev] 装上开发工具
+dev = [
+    "ruff>=0.7",
+    "radon>=6.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+# 装完后可直接：codeaudit /path/to/project
+codeaudit = "src.main:main_cli"
+
+[project.urls]
+Homepage = "https://github.com/Wang1921/CodeAudit"
+Repository = "https://github.com/Wang1921/CodeAudit"
+
+# ============================================================
+# setuptools 包发现
+# ============================================================
+[tool.setuptools]
+packages = ["src"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["semgrep_rules/custom/*.yaml", "prompts/core/*.yaml"]
+
+# ============================================================
+# Ruff 配置（不去中文 Unicode 噪声）
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+# 启用的规则集：
+#   E/W   pycodestyle 错误 / 警告
+#   F     pyflakes（未用 import / 重复定义等）
+#   B     bugbear（常见 bug 模式）
+#   I     isort（import 排序）
+#   N     pep8-naming（命名规范）
+#   UP    pyupgrade（typing.Dict → dict 等现代化）
+#   SIM   simplify（更简洁的写法）
+#   RUF   ruff 专属规则
+select = ["E", "W", "F", "B", "I", "N", "UP", "SIM", "RUF"]
+
+# 仅忽略与本项目情况不符的规则；中文 Unicode 检查（RUF001/002/003）保留
+ignore = [
+    "E501",   # 行长由 line-length 控制
+    "B008",   # 默认参数里调函数（FastAPI/Click 风格常见，本项目少量用到也无害）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/__init__.py" = ["F401"]   # __init__ 允许 re-export 用的"未使用 import"
+
+# ============================================================
+# pytest（为后续加测试预留位）
+# ============================================================
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
