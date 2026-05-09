@@ -21,18 +21,18 @@ import json
 import logging
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _SEVERITY_ORDER = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
 
 
-def _load_reports(reports_dir: str) -> List[Dict[str, Any]]:
+def _load_reports(reports_dir: str) -> list[dict[str, Any]]:
     findings = []
     for fp in sorted(glob.glob(os.path.join(reports_dir, "vulnerability_*.json"))):
         try:
-            with open(fp, "r", encoding="utf-8") as f:
+            with open(fp, encoding="utf-8") as f:
                 data = json.load(f)
             findings.append(data)
         except Exception as e:
@@ -40,7 +40,7 @@ def _load_reports(reports_dir: str) -> List[Dict[str, Any]]:
     return findings
 
 
-def _severity_key(f: Dict[str, Any]):
+def _severity_key(f: dict[str, Any]):
     return (
         _SEVERITY_ORDER.get(f.get("severity", "Medium"), 2),
         f.get("vuln_type", ""),
@@ -80,7 +80,7 @@ def _format_call_chain(cc: Any) -> str:
     return str(cc)
 
 
-def _failed_stats(target_dir: Optional[str]) -> Dict[str, int]:
+def _failed_stats(target_dir: str | None) -> dict[str, int]:
     if not target_dir:
         return {}
     failed_dir = os.path.join(target_dir, ".a2a_bus", "failed")
@@ -101,7 +101,7 @@ def _failed_stats(target_dir: Optional[str]) -> Dict[str, int]:
     return dict(stats)
 
 
-def _format_overview(findings: List[Dict[str, Any]], target_dir: Optional[str]) -> str:
+def _format_overview(findings: list[dict[str, Any]], target_dir: str | None) -> str:
     sev_count = collections.Counter(f.get("severity", "Medium") for f in findings)
     type_count = collections.Counter(f.get("vuln_type", "Unknown") for f in findings)
     file_count = collections.Counter(
@@ -154,7 +154,7 @@ def _format_overview(findings: List[Dict[str, Any]], target_dir: Optional[str]) 
     return "\n".join(lines)
 
 
-def _format_finding(idx: int, f: Dict[str, Any]) -> str:
+def _format_finding(idx: int, f: dict[str, Any]) -> str:
     loc = f.get("location") or {}
     file = loc.get("file", "未知")
     line = loc.get("line", "?")
@@ -218,7 +218,7 @@ def _format_finding(idx: int, f: Dict[str, Any]) -> str:
     return "\n".join(sections)
 
 
-def build_summary(reports_dir: str, target_dir: Optional[str], project_name: str) -> str:
+def build_summary(reports_dir: str, target_dir: str | None, project_name: str) -> str:
     findings = _load_reports(reports_dir)
     findings.sort(key=_severity_key)
 

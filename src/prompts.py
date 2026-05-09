@@ -1,19 +1,20 @@
-import os
-import yaml
 import logging
-from typing import Optional, Dict, Any
+import os
+from typing import Any
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
 
 
-def _load_yaml_doc(relative_path: str) -> Dict[str, Any]:
+def _load_yaml_doc(relative_path: str) -> dict[str, Any]:
     """Load the full YAML doc so callers can read any top-level key."""
     full_path = os.path.join(PROMPTS_DIR, relative_path)
     if not os.path.exists(full_path):
         raise FileNotFoundError(f"Template not found: {full_path}")
-    with open(full_path, 'r', encoding='utf-8') as f:
+    with open(full_path, encoding='utf-8') as f:
         return yaml.safe_load(f) or {}
 
 
@@ -30,13 +31,13 @@ _AGENT_FILES = {
     # ReportGenerator 已改为纯 Python 字段映射（见 state_router._build_report_fields），不再是 LLM agent。
 }
 
-_AGENT_SCHEMAS: Dict[str, Optional[dict]] = {
+_AGENT_SCHEMAS: dict[str, dict | None] = {
     name: _load_yaml_doc(path).get("output_schema")
     for name, path in _AGENT_FILES.items()
 }
 
 
-def get_output_schema(agent_name: str) -> Optional[dict]:
+def get_output_schema(agent_name: str) -> dict | None:
     """Return the JSON Schema for an Agent's output, or None if undefined."""
     return _AGENT_SCHEMAS.get(agent_name)
 

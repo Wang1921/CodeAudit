@@ -1,8 +1,8 @@
-import os
 import json
-import uuid
 import logging
-from typing import Optional, Dict
+import os
+import uuid
+
 
 class A2ABusManager:
     SUPPORTED_MESSAGE_TYPES = [
@@ -12,7 +12,7 @@ class A2ABusManager:
         "ConfirmedVuln",
         "CrossServiceTraceRequest"  # 跨微服务追踪请求
     ]
-    
+
     def __init__(self, project_root: str):
         self.project_root = os.path.abspath(project_root)
         self.bus_dir = os.path.join(self.project_root, ".a2a_bus")
@@ -31,7 +31,7 @@ class A2ABusManager:
         """原子地写入一条新的 A2A 消息。"""
         if message_type not in self.SUPPORTED_MESSAGE_TYPES:
             logging.warning(f"未知的 message_type: {message_type}, 但仍然添加")
-        
+
         msg = {
             "a2a_version": "1.0",
             "message_type": message_type,
@@ -41,7 +41,7 @@ class A2ABusManager:
             "payload": payload
         }
         filename = f"{task_id}_{uuid.uuid4().hex[:8]}.json"
-        
+
         target_dir = self.help_req_dir if priority == "high" else self.pending_dir
         tmp_path = os.path.join(target_dir, filename + ".tmp")
         final_path = os.path.join(target_dir, filename)
@@ -80,7 +80,7 @@ class A2ABusManager:
         return tasks
 
     def read_message(self, filepath: str) -> dict:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             return json.load(f)
 
     def mark_completed(self, filepath: str, agent_result: dict = None):

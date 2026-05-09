@@ -1,10 +1,11 @@
-import logging
 import json
+import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 from src.a2a_bus import A2ABusManager
 
@@ -27,17 +28,17 @@ class RouteRule:
     - on_success_hook(router, task_id, merged_payload) 用于保留个别副作用（如报告落盘）
     """
     sender: str
-    success_check: Callable[[Dict[str, Any]], bool]
-    next_message_type: Optional[str] = None
-    next_recipient: Optional[str] = None
-    success_kanban_category: Optional[str] = None          # "red" / "blue" / "resolved"
+    success_check: Callable[[dict[str, Any]], bool]
+    next_message_type: str | None = None
+    next_recipient: str | None = None
+    success_kanban_category: str | None = None          # "red" / "blue" / "resolved"
     success_kanban_status: str = "PENDING"
-    success_details_fields: Tuple[str, ...] = field(default_factory=tuple)
+    success_details_fields: tuple[str, ...] = field(default_factory=tuple)
     success_add_task: bool = True
-    miss_kanban_label: Optional[str] = None                # 第一列显示的"类型"
-    miss_kanban_reason: Optional[str] = None               # 第二列显示的"原因"
+    miss_kanban_label: str | None = None                # 第一列显示的"类型"
+    miss_kanban_reason: str | None = None               # 第二列显示的"原因"
     miss_kanban_status: str = "DEFENDED"
-    on_success_hook: Optional[Callable[["StateRouter", str, Dict[str, Any]], None]] = None
+    on_success_hook: Callable[["StateRouter", str, dict[str, Any]], None] | None = None
 
 
 # 红队/蓝队/报告阶段看板 details 的字段顺序
@@ -54,20 +55,20 @@ _RESOLVED_DETAILS = (
 )
 
 
-def _has_vuln_type(p: Dict[str, Any]) -> bool:
+def _has_vuln_type(p: dict[str, Any]) -> bool:
     return bool(p.get("vuln_type") or p.get("vuln_class"))
 
 
-def _red_hit(p: Dict[str, Any]) -> bool:
+def _red_hit(p: dict[str, Any]) -> bool:
     return p.get("status") == "EXPLOITABLE" or "attack_vector" in p
 
 
-def _blue_hit(p: Dict[str, Any]) -> bool:
+def _blue_hit(p: dict[str, Any]) -> bool:
     return p.get("status") == "VULNERABLE" or "mitigation_advice" in p
 
 
 # ---------- CWE 映射表：vuln_type（Semgrep metadata.vuln_class + LogicAuditor 白名单）→ CWE 编号 ----------
-_VULN_TYPE_TO_CWE: Dict[str, str] = {
+_VULN_TYPE_TO_CWE: dict[str, str] = {
     # 技术类 —— 注入 & RCE
     "SQL Injection": "CWE-89",
     "Command Injection": "CWE-78",
@@ -121,7 +122,7 @@ _VULN_TYPE_TO_CWE: Dict[str, str] = {
 
 
 # ---------- 默认严重度表：无 payload.severity / max_impact 信号时按类型查表 ----------
-_VULN_TYPE_TO_DEFAULT_SEVERITY: Dict[str, str] = {
+_VULN_TYPE_TO_DEFAULT_SEVERITY: dict[str, str] = {
     # Critical —— RCE / 全站认证绕过 / 凭据泄露等零距离 Game Over
     "SQL Injection": "Critical",
     "Command Injection": "Critical",
@@ -170,7 +171,7 @@ _VULN_TYPE_TO_DEFAULT_SEVERITY: Dict[str, str] = {
 }
 
 
-def _extract_cwe_id(payload: Dict[str, Any]) -> str:
+def _extract_cwe_id(payload: dict[str, Any]) -> str:
     """按优先级取 CWE 编号：顶层 cwe（已被 _build_merged_payload 从 sink_details.cwe 提升）→ vuln_type 映射。"""
     cwe = payload.get("cwe")
     raw = ""
@@ -185,7 +186,7 @@ def _extract_cwe_id(payload: Dict[str, Any]) -> str:
     return _VULN_TYPE_TO_CWE.get(vt, "")
 
 
-def _infer_severity(payload: Dict[str, Any]) -> str:
+def _infer_severity(payload: dict[str, Any]) -> str:
     """按优先级定级：payload.severity → max_impact 关键词 → vuln_type 默认表 → Medium 兜底。"""
     # 1) 显式给出的 severity
     sev = payload.get("severity")
@@ -207,7 +208,7 @@ def _infer_severity(payload: Dict[str, Any]) -> str:
     return "Medium"
 
 
-def _build_description(payload: Dict[str, Any]) -> str:
+def _build_description(payload: dict[str, Any]) -> str:
     """拼接 suspicion_reason + attack_vector + defense_analysis 为统一描述。"""
     parts = []
     sr = payload.get("suspicion_reason")
@@ -222,7 +223,7 @@ def _build_description(payload: Dict[str, Any]) -> str:
     return "\n\n".join(parts)
 
 
-def _build_report_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _build_report_fields(payload: dict[str, Any]) -> dict[str, Any]:
     """从 BlueValidator 的 VULNERABLE 输出合成最终报告字段（原 ReportGenerator agent 的纯函数替代）。"""
     return {
         "vuln_type": payload.get("vuln_type") or payload.get("vuln_class") or "未知",
@@ -244,13 +245,13 @@ def _build_report_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _save_report_hook(router: "StateRouter", task_id: str, payload: Dict[str, Any]) -> None:
+def _save_report_hook(router: "StateRouter", task_id: str, payload: dict[str, Any]) -> None:
     """BlueValidator 裁决 VULNERABLE 后的接力钩子：Python 直接组装报告落盘，不再经 LLM。"""
     report = _build_report_fields(payload)
     router._save_vulnerability_report(task_id, report)
 
 
-ROUTE_RULES: Dict[str, RouteRule] = {
+ROUTE_RULES: dict[str, RouteRule] = {
     "ReverseTracer": RouteRule(
         sender="ReverseTracer",
         success_check=_has_vuln_type,
@@ -312,7 +313,7 @@ class StateRouter:
 
     # ---------- JSON 提取（权威值优先） ----------
 
-    def _extract_parsed(self, agent_output: Any) -> Optional[Dict[str, Any]]:
+    def _extract_parsed(self, agent_output: Any) -> dict[str, Any] | None:
         """提取解析后的 JSON dict。
         1) agent_output["structured_output"]：OpenCode 服务端 JSON Schema 校验通过的权威值
         2) agent_output["response"] 字符串：轻量 JSON / Markdown 代码块
@@ -340,7 +341,7 @@ class StateRouter:
         return None
 
     @staticmethod
-    def _parse_json_string(text: str) -> Optional[Dict[str, Any]]:
+    def _parse_json_string(text: str) -> dict[str, Any] | None:
         """轻量 JSON 提取：严格 parse → raw_decode 容错 → Markdown 代码块。失败返回 None。"""
         text = text.strip()
         if not text:
@@ -375,7 +376,7 @@ class StateRouter:
         return None
 
     @staticmethod
-    def _resolve_entry_route(merged_payload: Dict[str, Any]) -> str:
+    def _resolve_entry_route(merged_payload: dict[str, Any]) -> str:
         """统一的 entry_route 提取：agent 自报 → sink_details.filepath → route_details.path。"""
         if merged_payload.get("entry_route"):
             return merged_payload["entry_route"]
@@ -389,7 +390,7 @@ class StateRouter:
 
     # ---------- 主路由入口 ----------
 
-    def route(self, completed_task: str, agent_output: Dict[str, Any]):
+    def route(self, completed_task: str, agent_output: dict[str, Any]):
         """将 Agent 的输出路由到下一跳。"""
         orig_env = self.bus.read_message(completed_task)
         sender = orig_env["recipient"]
@@ -465,8 +466,8 @@ class StateRouter:
 
     @staticmethod
     def _build_merged_payload(
-        orig_payload: Dict[str, Any], parsed: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        orig_payload: dict[str, Any], parsed: dict[str, Any]
+    ) -> dict[str, Any]:
         """合并 orig payload + agent 输出，同时清洗"噪声"子结构。
 
         - sink_details / route_details 只是 SemgrepScanner 给首跳 Agent 的原始数据，
@@ -486,7 +487,7 @@ class StateRouter:
         )
 
         # 2. 标准合并：parsed 字段覆盖 orig
-        merged: Dict[str, Any] = {**orig_payload, **parsed}
+        merged: dict[str, Any] = {**orig_payload, **parsed}
 
         # 3. 强制还原 vuln_type 到上游权威值
         if upstream_vt:
@@ -514,8 +515,8 @@ class StateRouter:
         self,
         rule: RouteRule,
         task_id: str,
-        parsed: Dict[str, Any],
-        orig_env: Dict[str, Any],
+        parsed: dict[str, Any],
+        orig_env: dict[str, Any],
     ) -> None:
         merged_payload = self._build_merged_payload(
             orig_env.get("payload", {}) or {}, parsed
@@ -568,7 +569,7 @@ class StateRouter:
     # ---------- 特判：跨微服务追踪 ----------
 
     def _route_cross_service_request(
-        self, task_id: str, parsed: Dict[str, Any], orig_env: Dict[str, Any]
+        self, task_id: str, parsed: dict[str, Any], orig_env: dict[str, Any]
     ) -> None:
         """将跨微服务追踪请求路由给 Orchestrator（引擎主循环特殊处理）。"""
         target = parsed.get("target_identifier", "unknown")
@@ -589,7 +590,7 @@ class StateRouter:
 
     # ---------- 终点副作用：报告落盘 ----------
 
-    def _save_vulnerability_report(self, task_id: str, report_fields: Dict[str, Any]) -> None:
+    def _save_vulnerability_report(self, task_id: str, report_fields: dict[str, Any]) -> None:
         """写漏洞报告到 reports/ 目录。report_fields 由 _build_report_fields 映射好，函数只负责落盘。"""
         try:
             output_dir = "reports"

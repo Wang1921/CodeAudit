@@ -1,22 +1,22 @@
 import asyncio
-import logging
 import json
+import logging
 import os
 from pathlib import Path
-from typing import Optional, Dict, Set, Tuple
+
+from src import prompts
 from src.a2a_bus import A2ABusManager
 from src.agent import OpenCodeAgent
-from src.state_router import StateRouter
-from src.state_tracker import StateTracker
-from src import prompts
 from src.semgrep_scanner import SemgrepScanner
 from src.server_manager import OpenCodeServerManager
+from src.state_router import StateRouter
+from src.state_tracker import StateTracker
 
 MAX_CONCURRENT_AGENTS = 20
 MAX_AGENT_TIMEOUT = 3600
 
 class AuditEngine:
-    def __init__(self, target_source_dir: str, semgrep_rules: Optional[str] = None):
+    def __init__(self, target_source_dir: str, semgrep_rules: str | None = None):
         self.tracker = StateTracker(target_source_dir)
         self.bus = A2ABusManager(target_source_dir)
         self.router = StateRouter(self.bus, self.tracker)
@@ -29,7 +29,7 @@ class AuditEngine:
         self.server_manager = OpenCodeServerManager(max_active_servers=5)
         # 跨微服务追踪结果缓存：(protocol, target_identifier) -> Future[Dict[service_name, parsed_result|None]]
         # 使用 Future 实现 in-flight coalescing：并发同 key 请求共享同一次计算
-        self._cross_service_cache: Dict[Tuple[str, str], asyncio.Future] = {}
+        self._cross_service_cache: dict[tuple[str, str], asyncio.Future] = {}
         self._cross_service_cache_lock = asyncio.Lock()
 
     def _get_service_dir(self, filepath: str) -> str:
@@ -46,7 +46,7 @@ class AuditEngine:
 
         # 优先使用已发现的服务映射表；用带分隔符的前缀匹配避免 "api" 误匹配 "api-gateway"
         if self.service_route_map:
-            best_match: Optional[Tuple[str, str]] = None  # (service_name, service_dir)
+            best_match: tuple[str, str] | None = None  # (service_name, service_dir)
             for service_name, service_dir in self.service_route_map.items():
                 normalized_dir = os.path.normpath(service_dir)
                 prefix = normalized_dir + os.sep
@@ -74,7 +74,7 @@ class AuditEngine:
 
         logging.debug(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
         return self.target_source_dir
-    
+
     def _get_prompt_for_agent(self, agent_name: str, payload_json: str) -> str:
         if agent_name == "ReverseTracer":
             return prompts.format_reverse_tracer_prompt(payload_json)
@@ -151,7 +151,7 @@ class AuditEngine:
                 )
         else:
             logging.info(
-                f"[ServiceDiscovery] 根目录及一级子目录均无构建文件，按单项目处理"
+                "[ServiceDiscovery] 根目录及一级子目录均无构建文件，按单项目处理"
             )
             service_map["main"] = self.target_source_dir
 
@@ -247,8 +247,8 @@ class AuditEngine:
 
     async def process_task(self, filepath: str):
         async with self.semaphore:
-            task_id: Optional[str] = None
-            recipient: Optional[str] = None
+            task_id: str | None = None
+            recipient: str | None = None
             try:
                 env = self.bus.read_message(filepath)
                 recipient = env["recipient"]
@@ -394,7 +394,7 @@ class AuditEngine:
 
     async def _compute_cross_service_results(
         self, env: dict, payload: dict
-    ) -> Dict[str, Optional[dict]]:
+    ) -> dict[str, dict | None]:
         """实际执行：在所有微服务沙盒中并发拉起接力 ReverseTracer，收集 parsed_result。
 
         返回 {service_name: parsed_result_or_None}。None 表示该服务返回 NOT_EXPLOITABLE 或解析异常。
@@ -448,7 +448,7 @@ class AuditEngine:
         ]
         gathered = await asyncio.gather(*coros, return_exceptions=True)
 
-        output: Dict[str, Optional[dict]] = {}
+        output: dict[str, dict | None] = {}
         for sd, res in zip(service_dirs, gathered):
             if isinstance(res, Exception):
                 logging.error(f"微服务 [{sd.name}] 接力追踪异常: {res}")
@@ -459,7 +459,7 @@ class AuditEngine:
 
     async def _run_relay_agent(
         self, service_dir: str, prompt: str, service_name: str
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """在指定微服务目录异地执行接力 ReverseTracer。
 
         返回：parsed_result（贯通成功）或 None（NOT_EXPLOITABLE / 无链路）。
@@ -502,8 +502,8 @@ class AuditEngine:
             raise
 
     async def run(self):
-        tracker_task: Optional[asyncio.Task] = None
-        inflight: Set[asyncio.Task] = set()
+        tracker_task: asyncio.Task | None = None
+        inflight: set[asyncio.Task] = set()
         try:
             logging.info("正在启动代码审计引擎...")
             is_fresh_start = all(len(os.listdir(d)) == 0 for d in [

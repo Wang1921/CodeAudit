@@ -1,18 +1,20 @@
 import asyncio
-import socket
 import logging
-import time
+import socket
 import sys
+import time
+from typing import Any
+
 import aiohttp
-from typing import Dict, Any, Optional, List
+
 
 class OpenCodeServerManager:
     def __init__(
         self,
         max_active_servers: int = 5,
         hostname: str = "127.0.0.1",
-        cors_origins: Optional[list] = None,
-        auth_password: Optional[str] = None,
+        cors_origins: list | None = None,
+        auth_password: str | None = None,
         health_check_timeout: float = 30.0,
         health_check_interval: float = 0.5
     ):
@@ -30,16 +32,16 @@ class OpenCodeServerManager:
         #     "last_accessed": float,
         #     "idle_since": Optional[float]
         # }
-        self._servers: Dict[str, Dict[str, Any]] = {}
+        self._servers: dict[str, dict[str, Any]] = {}
         # 细粒度锁策略：
         # - _dict_lock: 短期持有，只保护 _servers 字典的读写
         # - _startup_locks[cwd]: per-cwd 启动锁，串行化同目录的并发冷启动，
         #   但允许不同 cwd 并发启动，以及热路径上的 get 完全不阻塞彼此
         self._dict_lock = asyncio.Lock()
-        self._startup_locks: Dict[str, asyncio.Lock] = {}
+        self._startup_locks: dict[str, asyncio.Lock] = {}
         self._startup_locks_mutex = asyncio.Lock()
 
-        self._http_session: Optional[aiohttp.ClientSession] = None
+        self._http_session: aiohttp.ClientSession | None = None
         self._idle_timeout = 60.0  # 服务器空闲超过60秒才允许回收
 
     def _get_free_port(self) -> int:
@@ -92,7 +94,7 @@ class OpenCodeServerManager:
                 self._startup_locks[cwd] = lock
             return lock
 
-    async def _dispose_server_info(self, info: Dict[str, Any], cwd: str) -> None:
+    async def _dispose_server_info(self, info: dict[str, Any], cwd: str) -> None:
         """仅做进程与 stderr 回收，不触碰字典。调用者必须先把 info 从字典 pop 出来。"""
         process = info["process"]
         stderr_task = info.get("stderr_task")
@@ -119,7 +121,7 @@ class OpenCodeServerManager:
         except Exception as e:
             logging.debug(f"dispose_server_info({cwd}) 失败: {e}")
 
-    async def _evict_oldest_locked(self) -> Optional[tuple]:
+    async def _evict_oldest_locked(self) -> tuple | None:
         """在已持有 _dict_lock 的前提下，pop 最旧的 server。返回 (cwd, info) 或 None。"""
         if not self._servers:
             return None
@@ -136,7 +138,7 @@ class OpenCodeServerManager:
         - 慢路径（需要启动）：用 per-cwd 启动锁串行同目录并发，但不会阻塞其他 cwd。
         """
         # Phase 1: 快路径 —— 锁内只做字典查找
-        port: Optional[int] = None
+        port: int | None = None
         async with self._dict_lock:
             info = self._servers.get(cwd)
             if info is not None and info["process"].returncode is None:
@@ -226,7 +228,7 @@ class OpenCodeServerManager:
             return
         await self._dispose_server_info(info, cwd)
 
-    async def _fetch_session_statuses(self, port: int) -> Dict[str, Dict]:
+    async def _fetch_session_statuses(self, port: int) -> dict[str, dict]:
         """获取指定端口的所有 session 状态（通过 /session/status 接口）。"""
         url = f"http://{self.hostname}:{port}/session/status"
 
@@ -244,7 +246,7 @@ class OpenCodeServerManager:
 
         return {}
 
-    async def check_idle_servers(self) -> List[str]:
+    async def check_idle_servers(self) -> list[str]:
         """检查所有服务器的 session 状态，返回可以安全回收的服务器目录列表。
 
         判断逻辑：
@@ -252,7 +254,7 @@ class OpenCodeServerManager:
         2. 所有 session 都是 idle → 记录/累积空闲时间；超过 `_idle_timeout` 则可回收
         3. 有 session 忙碌 → 清除空闲计时
         """
-        idle_servers: List[str] = []
+        idle_servers: list[str] = []
         current_time = time.time()
 
         # 字典锁内做浅拷贝，随后遍历副本（锁外做 HTTP 探测）
@@ -337,7 +339,7 @@ class OpenCodeServerManager:
         return 1
 
     async def shutdown_all(self):
-        logging.info(f"🛑 [ServerManager] 关闭所有沙盒 Server...")
+        logging.info("🛑 [ServerManager] 关闭所有沙盒 Server...")
         # 原子清空字典，随后并发 dispose 所有 info
         async with self._dict_lock:
             items = list(self._servers.items())
