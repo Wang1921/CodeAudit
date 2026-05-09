@@ -252,7 +252,7 @@ class SemgrepScanner:
 
     def _extract_service_name(self, filepath: str) -> str:
         """从文件路径提取微服务名称"""
-        # 示例路径: dummy_project/user-service/src/main/java/.../UserController.java
+        # 示例路径: <project>/user-service/src/main/java/.../UserController.java
         parts = filepath.replace("\\", "/").split("/")
         # 查找包含 service 的目录
         for part in parts:

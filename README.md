@@ -178,10 +178,9 @@ CodeAudit/
 ├── web/                            # Web 前端界面
 │   └── index.html                  # Vue.js 实时看板
 ├── doc/                            # 详细设计文档
-├── reports/                        # 漏洞报告输出目录（自动生成）
-│   ├── vulnerability_*.json        # 每个 VULNERABLE 一份
-│   └── SUMMARY.md                  # 汇总报告（引擎收尾自动产出）
-└── dummy_project/                  # 测试项目（多微服务架构）
+└── reports/                        # 漏洞报告输出目录（自动生成）
+    ├── vulnerability_*.json        # 每个 VULNERABLE 一份
+    └── SUMMARY.md                  # 汇总报告（引擎收尾自动产出）
 ```
 
 ## 🔧 配置说明
