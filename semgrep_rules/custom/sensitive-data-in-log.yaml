@@ -117,8 +117,15 @@ rules:
       这是**变量名启发式告警**（Semgrep 没 dataflow 追不到对象内部字段），confidence=LOW。
 
       验证方法（BlueValidator / 人工）：
+      0. **先回溯实参表达式**（最重要的一步）：判断打印的是**对象本身**还是**对象的某个安全属性**。
+         - `log.info("user count: {}", user.size())` → 打印 `int`，**非敏感** → DEFENDED
+         - `log.info("uid={}", user.getId())` / `.getName()` / `.getStatus()` → 打印标量 ID/状态，**非敏感** → DEFENDED
+         - `log.info("user={}", user)` / `"user=" + user` → 整对象 toString，进入下一步判定
+         - `log.info("pwd={}", user.getPassword())` → 直接打印凭据 → **VULNERABLE**
       1. 打开该对象所属类定义（通常在 model / entity / dto / domain 包，或 SDK 源码）
       2. 检查是否含敏感字段：password / secret / token / privKey / communityString / apiKey 等
+         - 类定义里**完全不含**敏感字段 → DEFENDED
+         - 含敏感字段 → 进入下一步
       3. 检查 toString() / Lombok 注解：
          - `@Data` / `@ToString` 默认包含所有字段 → **风险**
          - `@ToString(exclude = {"password"})` / 手写 toString 排除敏感字段 → DEFENDED

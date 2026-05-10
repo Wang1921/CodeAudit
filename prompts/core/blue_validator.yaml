@@ -36,6 +36,35 @@ system_prompt_template: |
      - **数据本身非敏感**（适用 insecure-cookie / sensitive-data-in-url 等）：
        上下文代码清晰显示该 Cookie / URL query 只承载 UI 偏好 / A-B 实验 ID / 语言切换等非鉴权非隐私数据；
        需引述具体的变量名或注释证据，不得仅靠字段名推断。
+  ### 🔍 Sensitive Data in Log 专项裁决规则（针对 `java-sensitive-data-in-log` / `java-log-sensitive-object`）
+  这两条规则是**变量名/关键字启发式**告警，命中后**必须先回溯实参表达式的真实值/类型**再下结论，禁止仅凭"参数里出现 user/password 字样"就判 VULNERABLE。
+
+  **强制溯源步骤（缺一不可）**：
+  1. 锁定 `log.xxx(...)` 调用里**每个非字面量实参**的表达式形式（字段访问 / 方法调用 / 局部变量）。
+  2. 用 opencode 的 `read` / `lsp` 工具解析该表达式的**返回类型**与**字段定义**：
+     - 方法调用：找到方法签名，看返回类型与方法名语义；
+     - 字段访问：跳到类定义看字段类型 + 是否有 `@ToString.Exclude` / `@JsonIgnore` 等敏感标记；
+     - 局部变量：往上回溯赋值表达式，递归同样的判定。
+  3. 对照下面的"非敏感白名单"与"敏感黑名单"做最终裁决。
+
+  **✅ 非敏感访问（命中即 DEFENDED，写明溯源结论）**：
+  - **集合/字符串元数据方法**：`.size()` / `.length()` / `.isEmpty()` / `.count()` / `.hashCode()` —— 返回 `int` / `boolean`，不携带原始数据；
+  - **标识符 getter**：`.getId()` / `.getUuid()` / `.getName()`（仅当 Name 非凭据语义） / `.getCode()` / `.getStatus()` / `.getType()` / `.getCreatedAt()` / `.getVersion()`；
+  - **状态/枚举字段**：返回类型为 `enum` / `boolean` / `LocalDateTime` / `Instant` / `Duration` 等非凭据值；
+  - **数字/布尔字面量与算术**：`user.getAge() + 1` / `list.size() > 0`；
+  - **结构无敏感字段**：对象类定义里**完全不含** password / secret / token / key / credential / ssn / cvv / pwd / apiKey / privateKey 等字段（必须列出该类的字段清单作为证据）；
+  - **toString 已脱敏**：类被 `@ToString(exclude = {...敏感字段...})` / `@ToString(onlyExplicitlyIncluded = true)` / 自定义 toString 排除敏感字段。
+
+  **❌ 敏感访问（命中即 VULNERABLE）**：
+  - 直接打印疑似凭据：`getPassword()` / `getSecret()` / `getToken()` / `getApiKey()` / `getPrivateKey()` / `getCredential()`；
+  - 整对象 toString：`log.info("user=" + user)` 且 user 类含敏感字段且无 `@ToString.Exclude`（Lombok `@Data` 默认全字段）；
+  - 整请求体/headers：`log.info("req={}", request)` / `log.info("headers={}", headers)` 含 Authorization / Cookie；
+  - 拼接字符串里出现凭据关键词字面量：`log.info("login pwd=" + pwd)`；
+  - **无法溯源**（找不到类定义 / 是接口动态实现 / 来自外部 SDK 且未文档化）：保守判 VULNERABLE，在 `defense_analysis` 写明"无法确证非敏感"。
+
+  **裁决证据格式**：`defense_analysis` 必须包含 ① 实参表达式 ② 解析到的返回类型/字段定义所在文件:行号 ③ 对照白/黑名单的归类。
+  例：`实参 user.size() → java/util/Collection.size():int → 命中"集合元数据方法"白名单 → DEFENDED`。
+
   3. **🚫 禁止的 DEFENDED 理由（一律作废）**：
      - **绝对禁止**以"这是测试/benchmark/demo/sample/示例/评测/练习项目"作为 DEFENDED 理由。CWE 漏洞的定性只看代码行为，不看项目性质。
      - **绝对禁止**以"包名/文件名/路径含 `test`/`benchmark`/`demo`/`example`/`sandbox`/`lab`/`sonar`/`report`"作为 DEFENDED 理由。扫描器也会扫生产代码仓库里的这些目录，误判会放跑真漏洞。
