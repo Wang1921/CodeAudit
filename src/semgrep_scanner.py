@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -269,13 +270,20 @@ class SemgrepScanner:
         end_col = result.get("end", {}).get("col", 1)
 
         extra = result.get("extra", {})
-        lines = extra.get("lines", {})
 
-        code = ""
-        for line_num in range(line, end_line + 1):
-            if str(line_num) in lines:
-                code += lines[str(line_num)] + "\n"
-        code = code.strip()
+        # Semgrep CE 匿名状态下 extra.lines 会被替换为 "requires login";
+        # 历史代码把 extra.lines 当 dict 取也是错的(其实是 str)。
+        # 兜底:占位/空值时直接读源文件对应行,保证 dangerous_code 永远有内容。
+        raw_lines = (extra.get("lines") or "").strip()
+        if raw_lines and raw_lines != "requires login":
+            code = raw_lines
+        else:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    src_lines = fh.read().splitlines()
+                code = "\n".join(src_lines[line - 1:end_line]).strip()
+            except OSError:
+                code = ""
 
         metadata = result.get("extra", {}).get("metadata", {})
         vuln_class = self._extract_vuln_class(result, metadata)
@@ -343,21 +351,112 @@ class SemgrepScanner:
         return "unknown-vulnerability"
 
     def _extract_taint_variable(self, result: dict, code: str) -> str:
-        """从 Semgrep 结果推断污点变量"""
-        try:
-            match = result.get("extra", {}).get("match", "")
+        """从 Semgrep 结果或 dangerous_code 推断污点变量名(供 LLM 反向追踪)。
 
+        优先级:
+          1. Semgrep 命名捕获 extra.metavars 的 $X / $URL 等 (PRO 模式有,CE 匿名通常空)
+          2. extra.match 老逻辑 (CE 匿名通常空)
+          3. dangerous_code 末尾方法调用的实参列表 (剔除字面量后取前 3 个)
+          4. 兜底占位符 — 仅当前 3 步全失败才会落到这里
+        """
+        try:
+            extra = result.get("extra") or {}
+
+            metavars = extra.get("metavars") or {}
+            for k, v in metavars.items():
+                if not isinstance(k, str) or not k.startswith("$"):
+                    continue
+                text = v.get("abstract_content") if isinstance(v, dict) else v
+                if text:
+                    return str(text)[:80]
+
+            match = extra.get("match", "") or ""
             if match:
-                import re
-                var_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[,\)]'
-                variables = re.findall(var_pattern, match)
+                variables = re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*[,\)]', match)
                 if variables:
                     return ", ".join(variables[:3])
+
+            if code:
+                args = [a for a in self._extract_call_args(code) if self._is_likely_var(a)]
+                if args:
+                    return ", ".join(args[:3])
 
             return "potentially_controlled_input"
 
         except Exception:
             return "potentially_controlled_input"
+
+    @staticmethod
+    def _extract_call_args(code: str) -> list[str]:
+        """抽 Java 代码片段最右侧 method(...) 的实参列表;无参时返回 [receiver]。"""
+        if "(" not in code or ")" not in code:
+            return []
+        end = code.rfind(")")
+        depth, start = 1, -1
+        for i in range(end - 1, -1, -1):
+            ch = code[i]
+            if ch == ")":
+                depth += 1
+            elif ch == "(":
+                depth -= 1
+                if depth == 0:
+                    start = i
+                    break
+        if start < 0:
+            return []
+
+        args_str = code[start + 1:end].strip()
+        if not args_str:
+            m = re.search(
+                r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*[a-zA-Z_][a-zA-Z0-9_]*\s*$",
+                code[:start],
+            )
+            return [m.group(1)] if m else []
+
+        out: list[str] = []
+        buf: list[str] = []
+        depth = 0
+        in_str: str | None = None
+        for c in args_str:
+            if in_str:
+                buf.append(c)
+                if c == in_str and (len(buf) < 2 or buf[-2] != "\\"):
+                    in_str = None
+            elif c in ('"', "'"):
+                in_str = c
+                buf.append(c)
+            elif c == "(":
+                depth += 1
+                buf.append(c)
+            elif c == ")":
+                depth -= 1
+                buf.append(c)
+            elif c == "," and depth == 0:
+                out.append("".join(buf))
+                buf = []
+            else:
+                buf.append(c)
+        if buf:
+            out.append("".join(buf))
+        return [a.strip() for a in out if a.strip()]
+
+    @staticmethod
+    def _is_likely_var(arg: str) -> bool:
+        """排除纯字面量,保留含标识符的任何表达式(包括 \"...\" + var 这种字符串拼接)。"""
+        a = arg.strip()
+        if not a:
+            return False
+        if a.lower() in ("true", "false", "null"):
+            return False
+        if re.match(r"^-?\d+(\.\d+)?[fFlLdD]?$", a):
+            return False
+        # 剥字符串字面量(支持 \" 转义) + 数字常量,看是否还残留标识符
+        stripped = re.sub(
+            r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|\b\d+(?:\.\d+)?[fFlLdD]?\b',
+            "",
+            a,
+        )
+        return bool(re.search(r"[a-zA-Z_][a-zA-Z0-9_]*", stripped))
 
     def get_supported_languages(self) -> list[str]:
         """获取支持的语言列表"""
