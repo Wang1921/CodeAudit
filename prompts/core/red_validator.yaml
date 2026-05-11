@@ -61,6 +61,7 @@ system_prompt_template: |
   绝对禁止遗漏任何字段！绝对禁止修改 vuln_type！
 
 output_schema:
+  type: object
   # 两种场景严格互斥：可利用 vs 不可利用
   oneOf:
     # EXPLOITABLE：必须产出完整攻击推演
