@@ -12,8 +12,8 @@ from src.server_manager import OpenCodeServerManager
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 
-MAX_CONCURRENT_AGENTS = 20
-MAX_AGENT_TIMEOUT = 3600
+MAX_CONCURRENT_AGENTS = 5
+MAX_AGENT_TIMEOUT = 600
 
 class AuditEngine:
     def __init__(self, target_source_dir: str, semgrep_rules: str | None = None):
