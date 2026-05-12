@@ -582,12 +582,17 @@ class StateRouter:
             )
 
         if rule.next_recipient and rule.next_message_type:
+            # 链路续接（Reverse→Red→Blue 等）走 high 优先级（help_req_dir），
+            # 避免跟初始 Semgrep 批量派发的任务挤一个 FIFO 队列被饿死。
+            # 实测：WebGoat 1.5h 跑了 100 初始任务，6 条 RedValidator 接力消息全部
+            # 卡在 pending → processing 队尾从未被 pickup → 0 个完整污点链落盘。
             self.bus.write_message(
                 message_type=rule.next_message_type,
                 task_id=task_id,
                 sender=rule.sender,
                 recipient=rule.next_recipient,
                 payload=merged_payload,
+                priority="high",
             )
 
         if rule.on_success_hook is not None:

@@ -12,7 +12,8 @@ from src.server_manager import OpenCodeServerManager
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 
-MAX_CONCURRENT_AGENTS = 5
+MAX_CONCURRENT_AGENTS = 5     # 初始 Semgrep 派发任务的并发上限
+MAX_CHAIN_AGENTS = 3          # 链路续接（Reverse→Red→Blue 等）的专用并发上限
 MAX_AGENT_TIMEOUT = 600
 
 class AuditEngine:
@@ -22,7 +23,10 @@ class AuditEngine:
         self.router = StateRouter(self.bus, self.tracker)
         self.target_source_dir = target_source_dir
         self.semgrep_rules = semgrep_rules
+        # 主 semaphore 给初始 Semgrep 派发用；chain_semaphore 给所有非 SemgrepScanner 发出的
+        # 续接消息用 —— 避免 100+ 初始任务把 FIFO 队列填满后续接消息饿死。
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
+        self.chain_semaphore = asyncio.Semaphore(MAX_CHAIN_AGENTS)
         # 全局服务路由字典：service_name -> service_root_dir
         self.service_route_map: dict = {}
         # 沙盒池管理器
@@ -246,11 +250,29 @@ class AuditEngine:
             )
 
     async def process_task(self, filepath: str):
-        async with self.semaphore:
+        # 先读 envelope 决定走哪个 semaphore（不计入 LLM 并发，纯本地文件读）
+        try:
+            env = self.bus.read_message(filepath)
+        except Exception as e:
+            logging.error(f"读取消息失败 {filepath}: {e}", exc_info=True)
+            try:
+                if os.path.exists(filepath):
+                    self.bus.mark_failed(filepath)
+            except Exception:
+                pass
+            return
+
+        # 链路续接（非 SemgrepScanner 派发）走专用 chain_semaphore，避免被
+        # 初始批量派发的任务挤入 FIFO 队列饿死。Sender 是 SemgrepScanner 的初始
+        # 派发走主 semaphore；其余（ReverseTracer/LogicAuditor/RedValidator 等）
+        # 都是上游 Agent 续接出来的，走 chain_semaphore。
+        sender = env.get("sender", "")
+        sem = self.semaphore if sender == "SemgrepScanner" else self.chain_semaphore
+
+        async with sem:
             task_id: str | None = None
             recipient: str | None = None
             try:
-                env = self.bus.read_message(filepath)
                 recipient = env["recipient"]
                 task_id = env.get("task_id")
                 payload_json = json.dumps(env["payload"], ensure_ascii=False)
