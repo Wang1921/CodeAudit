@@ -230,14 +230,16 @@ class SemgrepScanner:
         method_path = method_path_match.group(1) if method_path_match else ""
         method_name = method_name_match.group(1) if method_name_match else "unknown"
 
-        # 推断 HTTP 方法
+        # 推断 HTTP 方法（依赖 spring-api.yaml message 中的 "注解: $MAPPING" 字段）
         http_method = "GET"
-        if "post" in check_id.lower() or "PostMapping" in message or "POST" in message:
+        if "PostMapping" in message or "post" in check_id.lower() or "POST" in message:
             http_method = "POST"
-        elif "put" in check_id.lower() or "PutMapping" in message or "PUT" in message:
+        elif "PutMapping" in message or "put" in check_id.lower() or "PUT" in message:
             http_method = "PUT"
-        elif "delete" in check_id.lower() or "DeleteMapping" in message or "DELETE" in message:
+        elif "DeleteMapping" in message or "delete" in check_id.lower() or "DELETE" in message:
             http_method = "DELETE"
+        elif "PatchMapping" in message or "patch" in check_id.lower() or "PATCH" in message:
+            http_method = "PATCH"
 
         # 推断微服务名称（从文件路径提取）
         owning_service = self._extract_service_name(path)

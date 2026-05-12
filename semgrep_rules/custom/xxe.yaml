@@ -45,16 +45,12 @@ rules:
                   types:
                     - SAXParser
                     - javax.xml.parsers.SAXParser
-          # StAX: XMLInputFactory
-          - patterns:
-              - pattern-either:
-                  - pattern: $XIF.createXMLStreamReader($INPUT, ...)
-                  - pattern: $XIF.createXMLEventReader($INPUT, ...)
-              - metavariable-type:
-                  metavariable: $XIF
-                  types:
-                    - XMLInputFactory
-                    - javax.xml.stream.XMLInputFactory
+          # StAX: XMLInputFactory（方法名属 javax.xml.stream 专有，省 metavariable-type 以兼容 var 推断失败的情况）
+          - pattern-either:
+              - pattern: $XIF.createXMLStreamReader($INPUT)
+              - pattern: $XIF.createXMLStreamReader($INPUT, ...)
+              - pattern: $XIF.createXMLEventReader($INPUT)
+              - pattern: $XIF.createXMLEventReader($INPUT, ...)
           # org.xml.sax.XMLReader
           - patterns:
               - pattern: $XR.parse($SOURCE)
@@ -85,18 +81,15 @@ rules:
           - pattern: new SAXBuilder().build($INPUT)
           - pattern: new SAXBuilder().build($INPUT, ...)
           - pattern: new org.jdom2.input.SAXBuilder().build($INPUT, ...)
-          # JAXB Unmarshaller
-          - patterns:
+          # JAXB Unmarshaller（unmarshal 方法名相对专属；省 metavariable-type 兼容 var unmarshaller = jc.createUnmarshaller() 这类调用）
+          - pattern-either:
+              - pattern: $UM.unmarshal($INPUT)
               - pattern: $UM.unmarshal($INPUT, ...)
-              - metavariable-type:
-                  metavariable: $UM
-                  types:
-                    - Unmarshaller
-                    - javax.xml.bind.Unmarshaller
-                    - jakarta.xml.bind.Unmarshaller
-          # javax.xml.validation.Validator.validate
+          # javax.xml.validation.Validator.validate（validate(src) 单参形式同样不安全）
           - patterns:
-              - pattern: $V.validate($SRC, ...)
+              - pattern-either:
+                  - pattern: $V.validate($SRC)
+                  - pattern: $V.validate($SRC, ...)
               - metavariable-type:
                   metavariable: $V
                   types:
@@ -114,7 +107,9 @@ rules:
       - pattern-not: $DB.parse("...")
       - pattern-not: $DB.parse("...", ...)
       - pattern-not: $SP.parse("...", $HANDLER)
+      - pattern-not: $XIF.createXMLStreamReader("...")
       - pattern-not: $XIF.createXMLStreamReader("...", ...)
+      - pattern-not: $XIF.createXMLEventReader("...")
       - pattern-not: $XIF.createXMLEventReader("...", ...)
       - pattern-not: $XR.parse("...")
       - pattern-not: new SAXReader().read("...")
