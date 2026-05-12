@@ -245,8 +245,38 @@ def _build_report_fields(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_PLACEHOLDER_PATTERN = re.compile(
+    r"^\s*(n/?a|无|none|null|不适用|暂无|not\s+applicable|未知|未定|-+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_placeholder(text: Any) -> bool:
+    """识别 attack_vector / poc_payload / max_impact 里的占位字符串。
+    schema 拆 3 变体后这种情况应已不可能（路径 B 禁止这些字段），保留作为防御纵深。"""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    return bool(_PLACEHOLDER_PATTERN.match(text))
+
+
 def _save_report_hook(router: "StateRouter", task_id: str, payload: dict[str, Any]) -> None:
-    """BlueValidator 裁决 VULNERABLE 后的接力钩子：Python 直接组装报告落盘，不再经 LLM。"""
+    """BlueValidator 裁决 VULNERABLE 后的接力钩子：Python 直接组装报告落盘，不再经 LLM。
+
+    防御纵深：若 attack_vector / poc_payload / max_impact 任一为占位字符串（"N/A" 等），
+    记 WARNING 并将该字段清空（避免污染 SUMMARY.md），但仍按 VULNERABLE 落盘 —— schema 才是真闸门。
+    """
+    placeholder_fields = [
+        f for f in ("attack_vector", "poc_payload", "max_impact")
+        if _is_placeholder(payload.get(f))
+    ]
+    if placeholder_fields:
+        logging.warning(
+            f"[BlueValidator] {task_id} status=VULNERABLE 但 {placeholder_fields} 是占位字符串。"
+            f"schema oneOf 拆 3 变体后路径 B 应已禁止这些字段——检查 schema 是否生效。"
+            f"占位字段已被清空避免污染报告。"
+        )
+        for f in placeholder_fields:
+            payload[f] = ""
     report = _build_report_fields(payload)
     router._save_vulnerability_report(task_id, report)
 

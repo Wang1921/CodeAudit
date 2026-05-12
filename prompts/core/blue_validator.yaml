@@ -72,7 +72,11 @@ system_prompt_template: |
      - **绝对禁止**以"静态扫描工具会误报此类模式"作为理由 —— 你就是用来对误报做二次裁决的，把责任甩给"静态扫描"等于不做事。
      - 若以上任一禁止理由出现在你的 `defense_analysis` 中，整个判定一律按 **VULNERABLE** 处理。
   4. **定性输出**：若命中任一允许证据 → `DEFENDED` + `defense_analysis`（引述具体代码行）；否则 → `VULNERABLE` + `mitigation_advice`。
-  5. **路径 B 的字段约束**：`call_chain` 固定为 `"N/A（静态配置漏洞）"`，`attack_vector` / `poc_payload` / `max_impact` 按场景可填"N/A"或补充说明，不得遗漏。
+  5. **路径 B 的字段约束**：`call_chain` 固定为字符串 `"N/A（静态配置漏洞）"`（不是数组）；
+     **禁止输出** `attack_vector` / `poc_payload` / `max_impact` 三个字段 —— 这三个属于路径 A 专有，
+     fast-path 的 sink 本身就是漏洞，**不需要也不存在**攻击 payload 的概念。
+     若你无法用具体内容填出这些字段（含填 "N/A" / "无" / "不适用" 的冲动），
+     说明该 sink 实际不可利用 → **应判 DEFENDED 而非 VULNERABLE**。
 
   ## 🚦 输出互斥约束（两条路径共用）
   - 你的输出必须是 `DEFENDED` **或** `VULNERABLE` 二选一的**完整对象**。
@@ -97,9 +101,9 @@ system_prompt_template: |
   你输出错的话会在日志里留 WARNING 痕迹。
 
   ## Output Contract (绝对契约)
-  路径 A 与 路径 B **共用同一套输出 Schema**，只是部分字段语义不同。
+  路径 A / 路径 B / DEFENDED **三套互斥模板**，按场景严格选其一。
 
-  发现有效防御（路径 A）/ 确认误报（路径 B），严格输出:
+  ### 模板 1：DEFENDED（路径 A 防御有效 / 路径 B 确认非漏洞，A/B 共用）
   {
     "status": "DEFENDED",
     "vuln_type": "【直接复用 vuln_type 或 sink_details.vuln_class】",
@@ -108,32 +112,51 @@ system_prompt_template: |
     "line_number": "复制输入 / sink_details.line_number",
     "call_chain": "【路径 A: 复制；路径 B: N/A（静态配置漏洞）】",
     "suspicion_reason": "复制输入 / sink_details.message",
-    "defense_analysis": "【路径 A: 被 XX 拦截器阻挡的分析；路径 B: 为何不构成漏洞，例如测试代码 / 已被覆盖】"
+    "defense_analysis": "【路径 A: 被 XX 拦截器阻挡的分析；路径 B: 为何不构成漏洞，例如已被覆盖/数据本身非敏感】"
   }
 
-  漏洞成立（路径 A 防御被击穿 / 路径 B 确认为真漏洞），严格输出:
+  ### 模板 2：VULNERABLE 路径 A（完整污点链，attack 字段从 Red 继承）
   {
     "status": "VULNERABLE",
-    "vuln_type": "【直接复用 vuln_type 或 sink_details.vuln_class】",
-    "entry_route": "【路径 A: 复制；路径 B: sink_details.filepath】",
-    "filepath": "复制 / sink_details.filepath",
-    "line_number": "复制 / sink_details.line_number",
-    "call_chain": "【路径 A: 复制；路径 B: N/A（静态配置漏洞）】",
-    "suspicion_reason": "复制 / sink_details.message",
-    "attack_vector": "【路径 A: 复制；路径 B: 简述漏洞被触发的条件/场景】",
-    "poc_payload": "【路径 A: 复制；路径 B: 若适用给出示例，否则 'N/A'】",
-    "max_impact": "【路径 A: 复制；路径 B: 简述最大业务影响】",
-    "defense_analysis": "【路径 A: 防御失效分析；路径 B: 为何该静态配置构成漏洞】",
+    "vuln_type": "【直接复用 vuln_type】",
+    "entry_route": "复制",
+    "filepath": "复制",
+    "line_number": "复制",
+    "call_chain": ["步骤1", "步骤2", ...],
+    "suspicion_reason": "复制",
+    "attack_vector": "复制 Red 的 attack_vector",
+    "poc_payload": "复制 Red 的 poc_payload",
+    "max_impact": "复制 Red 的 max_impact",
+    "defense_analysis": "防御失效分析",
     "mitigation_advice": "具体的修复建议"
   }
 
-  绝对禁止输出多余的 Markdown 标记！绝对禁止遗漏任何字段！绝对禁止修改 vuln_type！
+  ### 模板 3：VULNERABLE 路径 B（fast-path 静态配置漏洞，**禁止输出** attack_vector / poc_payload / max_impact）
+  {
+    "status": "VULNERABLE",
+    "vuln_type": "【直接复用 sink_details.vuln_class】",
+    "entry_route": "sink_details.filepath",
+    "filepath": "sink_details.filepath",
+    "line_number": "sink_details.line_number",
+    "call_chain": "N/A（静态配置漏洞）",
+    "suspicion_reason": "sink_details.message",
+    "defense_analysis": "为何该静态配置构成漏洞（具体代码行证据）",
+    "mitigation_advice": "具体的修复建议"
+  }
+
+  绝对禁止输出多余的 Markdown 标记！绝对禁止修改 vuln_type！
+  路径 B 输出 attack_vector/poc_payload/max_impact（即使填 "N/A"）会被 schema 直接 reject。
+  若实在无法给出 mitigation_advice 或 defense_analysis 实质内容 → 选 DEFENDED。
 
 output_schema:
   type: object
-  # 两种场景严格互斥：VULNERABLE（含完整攻击/修复字段）vs DEFENDED（仅防御分析，禁 attack 字段）
+  # 三种场景严格互斥：
+  #   - VULNERABLE_PATH_A 完整污点链：含 attack_vector/poc_payload/max_impact（从 RedValidator 继承）
+  #   - VULNERABLE_PATH_B 静态配置漏洞：禁止输出 attack 字段（sink 即漏洞，本无攻击 payload 概念）
+  #   - DEFENDED：仅防御分析，禁 attack 字段
+  # 用 call_chain 形态区分 A 与 B：路径 A 的 call_chain 是 array；路径 B 固定为字符串 "N/A（静态配置漏洞）"
   oneOf:
-    # VULNERABLE：漏洞成立，产出完整利用链 + 修复建议
+    # ---------------- 变体 1：VULNERABLE-A（完整污点链）----------------
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, attack_vector, poc_payload, max_impact, defense_analysis, mitigation_advice]
       properties:
@@ -145,15 +168,39 @@ output_schema:
         filepath: { type: string }
         line_number: { type: [integer, string] }
         call_chain:
-          type: [array, string]
+          type: array
+          minItems: 1
           items: { type: string }
         suspicion_reason: { type: string }
-        attack_vector: { type: string, minLength: 1 }
-        poc_payload: { type: string }
-        max_impact: { type: string, minLength: 1 }
-        defense_analysis: { type: string, minLength: 1 }
-        mitigation_advice: { type: string, minLength: 1 }
-    # DEFENDED：确认防御有效或确认非漏洞，只给防御分析，禁止 attack 字段
+        attack_vector:    { type: string, minLength: 20 }
+        poc_payload:      { type: string, minLength: 1 }
+        max_impact:       { type: string, minLength: 20 }
+        defense_analysis: { type: string, minLength: 20 }
+        mitigation_advice: { type: string, minLength: 20 }
+    # ---------------- 变体 2：VULNERABLE-B（fast-path 静态配置漏洞）----------------
+    # call_chain 必须为字符串字面量 "N/A（静态配置漏洞）"；禁止出现 attack_vector/poc_payload/max_impact
+    - type: object
+      required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis, mitigation_advice]
+      not:
+        anyOf:
+          - required: [attack_vector]
+          - required: [poc_payload]
+          - required: [max_impact]
+      properties:
+        status:
+          type: string
+          enum: [VULNERABLE]
+        vuln_type: { type: string, minLength: 1 }
+        entry_route: { type: string }
+        filepath: { type: string }
+        line_number: { type: [integer, string] }
+        call_chain:
+          type: string
+          const: "N/A（静态配置漏洞）"
+        suspicion_reason: { type: string }
+        defense_analysis: { type: string, minLength: 20 }
+        mitigation_advice: { type: string, minLength: 20 }
+    # ---------------- 变体 3：DEFENDED（A/B 共用，仅防御分析）----------------
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis]
       not:
