@@ -41,15 +41,29 @@ rules:
           - pattern: new HttpHead($URL)
           - pattern: new HttpPatch($URL)
           - pattern: new HttpOptions($URL)
-          # Spring RestTemplate
+          # Spring RestTemplate —— 方法名独占（getForObject/getForEntity/postForObject/
+          # postForEntity/exchange）保持无类型约束，FP 风险天然低
           - pattern: $RT.getForObject($URL, ...)
           - pattern: $RT.getForEntity($URL, ...)
           - pattern: $RT.postForObject($URL, ...)
           - pattern: $RT.postForEntity($URL, ...)
-          - pattern: $RT.put($URL, ...)
-          - pattern: $RT.delete($URL, ...)
           - pattern: $RT.exchange($URL, ...)
-          - pattern: $RT.execute($URL, ...)
+          # 方法名通用（put/delete/execute）—— 必须用 metavariable-type 限定接收者
+          # 是 RestTemplate，否则会吃掉 Map.put / Collection.remove 等。
+          # var 推断不到类型的极少数局部声明会漏，但生产代码绝大多数 RestTemplate
+          # 是字段注入或显式声明，影响极小。
+          - patterns:
+              - pattern-either:
+                  - pattern: $RT.put($URL, ...)
+                  - pattern: $RT.delete($URL, ...)
+                  - pattern: $RT.execute($URL, ...)
+              - metavariable-type:
+                  metavariable: $RT
+                  types:
+                    - RestTemplate
+                    - org.springframework.web.client.RestTemplate
+                    - AsyncRestTemplate
+                    - org.springframework.web.client.AsyncRestTemplate
           # Spring WebClient
           - pattern: WebClient.create($URL)
           # OkHttp
