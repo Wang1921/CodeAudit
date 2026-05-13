@@ -14,7 +14,11 @@ from src.state_tracker import StateTracker
 
 MAX_CONCURRENT_AGENTS = 5     # 初始 Semgrep 派发任务的并发上限
 MAX_CHAIN_AGENTS = 3          # 链路续接（Reverse→Red→Blue 等）的专用并发上限
-MAX_AGENT_TIMEOUT = 600
+# 单次 LLM HTTP 调用超时（秒）。WebGoat 实测成功任务 p99=127s，max=529s（极端 2/402），
+# 设 300 留 2.4× 安全余量；超时即"卡死"型失败，缩短让槽位更快释放给后续任务。
+MAX_AGENT_TIMEOUT = 300
+# 单任务超时后的重试次数（救偶发 provider 抖动；总最坏耗时 = (RETRY+1)×TIMEOUT）
+MAX_TIMEOUT_RETRIES = 1
 
 class AuditEngine:
     def __init__(self, target_source_dir: str, semgrep_rules: str | None = None):
@@ -300,17 +304,28 @@ class AuditEngine:
                 # 加载当前 Agent 的输出 Schema，启用服务端结构化 JSON 校验
                 output_schema = prompts.get_output_schema(recipient)
 
-                # 使用上下文管理器确保资源释放
-                async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
-                    # 设置 tracker
-                    agent.set_session_tracker(self.tracker)
-                    agent.set_current_task(task_id)
-
-                    result = await agent.execute(
-                        prompt,
-                        allowed_tools=allowed_tools,
-                        output_schema=output_schema,
-                    )
+                # 使用上下文管理器确保资源释放；超时时重试 MAX_TIMEOUT_RETRIES 次，
+                # 每次重置 session 拿干净环境（避免脏 thread state）。
+                result = None
+                for attempt in range(MAX_TIMEOUT_RETRIES + 1):
+                    async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                        agent.set_session_tracker(self.tracker)
+                        agent.set_current_task(task_id)
+                        try:
+                            result = await agent.execute(
+                                prompt,
+                                allowed_tools=allowed_tools,
+                                output_schema=output_schema,
+                            )
+                            break
+                        except TimeoutError as te:
+                            if attempt < MAX_TIMEOUT_RETRIES:
+                                logging.warning(
+                                    f"Agent {recipient} 任务 {task_id} 超时（第 {attempt + 1}/{MAX_TIMEOUT_RETRIES + 1} 次），"
+                                    f"换新 session 重试"
+                                )
+                                continue
+                            raise
 
                 logging.info(f"Agent {recipient} 执行完成。输出: {result}")
 
