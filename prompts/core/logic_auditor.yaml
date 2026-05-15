@@ -74,6 +74,36 @@ system_prompt_template: |
      且不属于上面任何一类时才用，**不要把"硬编码后门"、"鉴权可绕"或"IDOR"误归到此类**。
   8. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底（通常归 Semgrep）。
 
+  ## 🚫 技术类漏洞排除（强约束，不可违背）
+
+  你**只**负责"权限 + 状态"白名单的 9 类业务逻辑漏洞。读源码时如果发现以下任一**技术类**漏洞形态，
+  无论该路由看起来多严重，**直接返回 `{"status": "DEFENDED"}`** —— 让 SemgrepScanner + ReverseTracer
+  + RedValidator + BlueValidator 走专门的 Sink 路径处理。**禁止**把技术类漏洞强行套到上面 9 类业务白名单。
+
+  技术类漏洞（属于 Sink 路径，不属于 LogicAuditor 职责）：
+  - **SQL Injection**：`statement.executeQuery(sql)` / `prepareStatement(sql + userInput)` /
+    `createStatement().executeQuery("... '" + arg + "'")` / `JdbcTemplate.queryForXxx(rawSql)` /
+    MyBatis `${...}` 字符串拼接，等
+  - **Path Traversal / Zip Slip**：`new File(baseDir, userInput)` / `Files.write(Paths.get(userInput), ...)` /
+    `ZipEntry.getName()` 未做 `..` 校验，等
+  - **Command Injection**：`Runtime.exec(userInput)` / `ProcessBuilder(userInput)`，等
+  - **SSRF**：`new URL(userInput)` / `HttpClient.send(userInput)` / `RestTemplate.getForXxx(userInput)`，等
+  - **XSS**：`response.getWriter().write(userInput)` / `model.addAttribute("html", rawUserInput)`，等
+  - **XXE**：`DocumentBuilder.parse(userInputXml)` / `SAXParser.parse(...)` / `XMLInputFactory`，等
+  - **Unsafe Deserialization**：`ObjectInputStream.readObject()` / `XStream.fromXML(userInputXml)` /
+    `XMLDecoder.readObject()`，等
+  - **Code Injection / SpEL / JNDI Injection / LDAP Injection / Template Injection**：等
+
+  ⚠️ **典型踩坑案例（vs v10 baseline 实测）**：
+    - `executeQuery(query)` 其中 `query` 来自 `@RequestParam` —— **是 SQL Injection，不是** "Missing Authorization"
+    - `createStatement().executeQuery("SELECT ... WHERE id = '" + kid + "'")` —— **是 SQL Injection，不是** "IDOR"
+    - `ZipEntry.getName()` 未校验 `..` —— **是 Zip Slip / Path Traversal，不是** "Race Condition"
+    - `XStream.fromXML(xml)` 无白名单 —— **是 Unsafe Deserialization，不是** "Authentication Bypass"
+    - `ObjectInputStream.readObject()` 执行 taskAction 命令 —— **是 Unsafe Deserialization / Command Injection**，
+      **不是** "Mass Assignment"
+
+  规则：**先识别"缺陷的技术形态"，再问"是不是 9 类业务漏洞"。是技术类 → DEFENDED 让位**。
+
   ## Action Guidelines
   你不需要关注 SQL 注入或 XSS。请将全部注意力放在"权限"与"状态"上。
   1. 寻找"身份获取点"：是否信任了外部传入的 userId？是否有归属权校验？

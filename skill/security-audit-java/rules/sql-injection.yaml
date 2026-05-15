@@ -316,29 +316,20 @@ rules:
       owasp: "A03:2021 - Injection"
       vuln_class: "SQL Injection"
       confidence: MEDIUM
+    # 不加 metavariable-type 约束：`.createStatement().executeXxx(...)` 是 JDBC 独占方法链
+    # （Statement 接口本身没有 createStatement 方法，必然来自 java.sql.Connection），
+    # FP 风险极低。这样能兼容 `var connection = ds.getConnection()` 这种 var 类型推断失败的场景
+    # —— v10 baseline 实测 JWTHeaderKIDEndpoint:76 因 var 推断失败导致整条 sink 被漏检。
     patterns:
       - pattern-either:
-          - patterns:
-              - pattern: $CONN.createStatement().executeQuery($SQL)
-              - metavariable-type:
-                  metavariable: $CONN
-                  types:
-                    - Connection
-                    - java.sql.Connection
-          - patterns:
-              - pattern: $CONN.createStatement().executeUpdate($SQL, ...)
-              - metavariable-type:
-                  metavariable: $CONN
-                  types:
-                    - Connection
-                    - java.sql.Connection
-          - patterns:
-              - pattern: $CONN.createStatement().execute($SQL, ...)
-              - metavariable-type:
-                  metavariable: $CONN
-                  types:
-                    - Connection
-                    - java.sql.Connection
+          - pattern: $CONN.createStatement().executeQuery($SQL)
+          - pattern: $CONN.createStatement().executeUpdate($SQL, ...)
+          - pattern: $CONN.createStatement().execute($SQL, ...)
+          - pattern: $CONN.createStatement().executeLargeUpdate($SQL, ...)
+          - pattern: $CONN.createStatement().addBatch($SQL)
+      # 字面量 SQL 不算外部输入
       - pattern-not: $CONN.createStatement().executeQuery("...")
       - pattern-not: $CONN.createStatement().executeUpdate("...", ...)
       - pattern-not: $CONN.createStatement().execute("...", ...)
+      - pattern-not: $CONN.createStatement().executeLargeUpdate("...", ...)
+      - pattern-not: $CONN.createStatement().addBatch("...")
