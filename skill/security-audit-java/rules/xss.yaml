@@ -58,6 +58,19 @@ rules:
                     - java.io.PrintWriter
                     - Writer
                     - java.io.Writer
+          # PrintWriter 变量形式的 format / printf —— 旧版只抓 $R.getWriter().format(...)
+          # 链式调用,变量形式 $W.format / $W.printf 漏报。第 2+ args 才是真正的污点输入。
+          - patterns:
+              - pattern-either:
+                  - pattern: $W.format($FMT, $X, ...)
+                  - pattern: $W.printf($FMT, $X, ...)
+              - metavariable-type:
+                  metavariable: $W
+                  types:
+                    - PrintWriter
+                    - java.io.PrintWriter
+                    - Writer
+                    - java.io.Writer
           # ServletOutputStream
           - patterns:
               - pattern: $O.print($X, ...)

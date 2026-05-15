@@ -148,8 +148,24 @@ rules:
       - pattern-not: new File("...", "...")
       - pattern-not: new java.io.File("...")
       - pattern-not: new java.io.File("...", "...")
-      - pattern-not: Paths.get("...", ...)
-      - pattern-not: java.nio.file.Paths.get("...", ...)
+      # Paths.get 是 varargs(String first, String... more),旧 "...", ... 形态会
+      # 误排除 Paths.get("/safe", userInput) 这种"第 2+ 参数可控"的真漏洞。
+      # 改为列举多 arity 全字面量。
+      - pattern-not: Paths.get("...")
+      - pattern-not: Paths.get("...", "...")
+      - pattern-not: Paths.get("...", "...", "...")
+      - pattern-not: Paths.get("...", "...", "...", "...")
+      - pattern-not: java.nio.file.Paths.get("...")
+      - pattern-not: java.nio.file.Paths.get("...", "...")
+      - pattern-not: java.nio.file.Paths.get("...", "...", "...")
+      - pattern-not: java.nio.file.Paths.get("...", "...", "...", "...")
+      # Path.of(Java 11+) 同 Paths.get 的 varargs 语义
+      - pattern-not: Path.of("...")
+      - pattern-not: Path.of("...", "...")
+      - pattern-not: Path.of("...", "...", "...")
+      - pattern-not: java.nio.file.Path.of("...")
+      - pattern-not: java.nio.file.Path.of("...", "...")
+      - pattern-not: java.nio.file.Path.of("...", "...", "...")
       - pattern-not: new FileInputStream("...")
       - pattern-not: new FileOutputStream("...", ...)
       - pattern-not: new FileReader("...", ...)
@@ -174,9 +190,10 @@ rules:
       - pattern-not: new java.io.RandomAccessFile("...", ...)
       - pattern-not: FileChannel.open(Paths.get("..."), ...)
       - pattern-not: $CL.getResourceAsStream("...")
-      - pattern-not: $SFTP.get("...", ...)
-      - pattern-not: $SFTP.ls("...")
-      - pattern-not: $SFTP.cd("...")
+      # $SFTP.get/ls/cd 字面量排除曾在这里,但 $SFTP 无 metavariable-type 约束,
+      # 误把 Paths.get("/safe", u) 匹配为 $SFTP.get(...) 形态,导致 Path Traversal
+      # 真漏洞被静默排除. 移除这 3 条,主 pattern 已对 $SFTP 限定 ChannelSftp 类型,
+      # 字面量 SFTP 调用本来就不会进入主 pattern,无需 pattern-not 补充.
       - pattern-not: new ClassPathResource("...", ...)
       - pattern-not: new org.springframework.core.io.ClassPathResource("...", ...)
       - pattern-not: new FileSystemResource("...")

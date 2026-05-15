@@ -71,15 +71,33 @@ rules:
                   types:
                     - ChannelExec
                     - com.jcraft.jsch.ChannelExec
-      # 字面量排除：所有参数都是字符串常量
-      - pattern-not: Runtime.getRuntime().exec("...", ...)
-      - pattern-not: java.lang.Runtime.getRuntime().exec("...", ...)
+      # 字面量排除：所有参数都是字符串常量（列举多 arity 而非 "...", ... 通配，
+      # 防止 `new ProcessBuilder("sh", "-c", userInput)` 这种 shell 包装形态被误排除）。
+      # Runtime.exec / new ProcessBuilder / $PB.command 都按 1-5 arity 列举。
+      - pattern-not: Runtime.getRuntime().exec("...")
+      - pattern-not: Runtime.getRuntime().exec("...", "...")
+      - pattern-not: Runtime.getRuntime().exec("...", "...", "...")
+      - pattern-not: java.lang.Runtime.getRuntime().exec("...")
+      - pattern-not: java.lang.Runtime.getRuntime().exec("...", "...")
+      - pattern-not: java.lang.Runtime.getRuntime().exec("...", "...", "...")
       - pattern-not: new ProcessBuilder("...")
-      - pattern-not: new ProcessBuilder("...", ...)
+      - pattern-not: new ProcessBuilder("...", "...")
+      - pattern-not: new ProcessBuilder("...", "...", "...")
+      - pattern-not: new ProcessBuilder("...", "...", "...", "...")
+      - pattern-not: new ProcessBuilder("...", "...", "...", "...", "...")
       - pattern-not: new java.lang.ProcessBuilder("...")
-      - pattern-not: new java.lang.ProcessBuilder("...", ...)
-      - pattern-not: $R.exec("...", ...)
-      - pattern-not: $PB.command("...", ...)
+      - pattern-not: new java.lang.ProcessBuilder("...", "...")
+      - pattern-not: new java.lang.ProcessBuilder("...", "...", "...")
+      - pattern-not: new java.lang.ProcessBuilder("...", "...", "...", "...")
+      - pattern-not: new java.lang.ProcessBuilder("...", "...", "...", "...", "...")
+      - pattern-not: $R.exec("...")
+      - pattern-not: $R.exec("...", "...")
+      - pattern-not: $R.exec("...", "...", "...")
+      - pattern-not: $PB.command("...")
+      - pattern-not: $PB.command("...", "...")
+      - pattern-not: $PB.command("...", "...", "...")
+      - pattern-not: $PB.command("...", "...", "...", "...")
+      - pattern-not: $PB.command("...", "...", "...", "...", "...")
       - pattern-not: Desktop.getDesktop().browse(URI.create("..."))
       - pattern-not: CommandLine.parse("...")
       - pattern-not: org.apache.commons.exec.CommandLine.parse("...")
