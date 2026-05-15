@@ -75,6 +75,32 @@ rules:
                     - ServletOutputStream
                     - javax.servlet.ServletOutputStream
                     - jakarta.servlet.ServletOutputStream
+          # Spring Model/ModelMap.addAttribute("htmlContent", $X) —— Thymeleaf 模板若用 th:utext 渲染
+          # 该字段会输出原始 HTML，构成 XSS。这是常见的 controller-level XSS sink，过去靠 LogicAuditor
+          # 推理，现在补上直接规则。
+          - patterns:
+              - pattern-either:
+                  - pattern: $M.addAttribute($KEY, $X)
+              - metavariable-type:
+                  metavariable: $M
+                  types:
+                    - Model
+                    - org.springframework.ui.Model
+                    - ModelMap
+                    - org.springframework.ui.ModelMap
+                    - ConcurrentModel
+                    - org.springframework.ui.ConcurrentModel
+              - metavariable-regex:
+                  metavariable: $KEY
+                  # 仅 key 名暗示 HTML/raw 输出时报（避免对普通 attribute 误报）
+                  regex: '^"(?i).*(html|raw|content|body|markup|markdown|template).*"$'
+          # ResponseEntity.body($X) —— 直接把内容塞响应体
+          - patterns:
+              - pattern: ResponseEntity.ok().body($X)
+              - metavariable-regex:
+                  metavariable: $X
+                  # 排除明显安全形态：字面量、显式 escape 调用
+                  regex: '^(?!").*'
       # 字面量排除（包含 format 字符串形式）
       - pattern-not: $R.getWriter().print("...", ...)
       - pattern-not: $R.getWriter().println("...", ...)
@@ -85,3 +111,11 @@ rules:
       - pattern-not: $W.write("...", ...)
       - pattern-not: $O.print("...", ...)
       - pattern-not: $O.println("...", ...)
+      - pattern-not: $M.addAttribute($KEY, "...")
+      # 显式 escape 调用排除
+      - pattern-not: $R.getWriter().print(Encode.forHtml(...), ...)
+      - pattern-not: $W.print(Encode.forHtml(...), ...)
+      - pattern-not: $W.println(Encode.forHtml(...), ...)
+      - pattern-not: $W.write(Encode.forHtml(...), ...)
+      - pattern-not: $W.print(StringEscapeUtils.escapeHtml4(...), ...)
+      - pattern-not: $W.println(StringEscapeUtils.escapeHtml4(...), ...)

@@ -145,3 +145,41 @@ rules:
       - pattern: org.apache.commons.codec.digest.DigestUtils.md5Hex(...)
       - pattern: org.apache.commons.codec.digest.DigestUtils.sha1(...)
       - pattern: org.apache.commons.codec.digest.DigestUtils.sha1Hex(...)
+
+      # ---------------- EC 短曲线（< 224 位被视为弱） ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: new ECGenParameterSpec($CURVE)
+              - pattern: new java.security.spec.ECGenParameterSpec($CURVE)
+          - metavariable-regex:
+              metavariable: $CURVE
+              # NIST 弃用的短曲线（< 224 位）
+              regex: '^"(?i)(secp160r1|secp160r2|secp160k1|secp192r1|secp192k1|prime192v[123]|c2pnb163v[123]|c2tnb191v[123]|sect163[krt][12]|sect193[rt][12]|P-192)"$'
+
+      # ---------------- Bouncy Castle 弱密码 / 弱模式 ----------------
+      - patterns:
+          - pattern-either:
+              - pattern: new RC4Engine()
+              - pattern: new RC2Engine()
+              - pattern: new DESEngine()
+              - pattern: new DESedeEngine()
+              - pattern: new BlowfishEngine()
+              - pattern: org.bouncycastle.crypto.engines.RC4Engine()
+
+      # ---------------- 自定义 XOR 异或"加密"模式 ----------------
+      # 经典反模式：把 byte[] 数组按位置 ^= key[i % key.length]，自以为是"加密"实则可逆。
+      # 命中存在大量 FP（合法的 bit-twiddling），仅在循环体内异或单字节常量时报，confidence LOW。
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  for (...) {
+                    ...
+                    $BUF[$I] ^= $KEY[$J];
+                    ...
+                  }
+              - pattern: |
+                  for (...) {
+                    ...
+                    $BUF[$I] = ($CAST) ($BUF[$I] ^ $KEY[$J]);
+                    ...
+                  }
