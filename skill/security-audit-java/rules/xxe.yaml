@@ -1,19 +1,33 @@
 rules:
-  - id: java-xxe
-    message: |
-      🚨 XXE (CWE-611) Sink: XML 解析接口接收非字面量输入。
-      若工厂未显式关闭 DTD / external-general-entities / external-parameter-entities，
-      攻击者可构造恶意 XML（`<!ENTITY xxe SYSTEM "file:///etc/passwd">`）读取
-      任意文件、发起 SSRF 或 DoS（billion laughs）。
+  # ============================================================================
+  # XXE (CWE-611) 拆 3 个 id，按解析器形态分类：
+  #   - java-xxe-dom-parser     : DOM 系列（DocumentBuilder / SAXReader / SAXBuilder / jdom2）
+  #   - java-xxe-sax-stream     : SAX & StAX 流式解析（SAXParser / XMLReader / XMLInputFactory）
+  #   - java-xxe-transform-validate : TRAX / SchemaFactory / Validator / XPath / JAXB
+  #
+  # 拆开的好处：
+  #   1) 每种解析器有不同 metavariable-type，精度更高，可独立配置 metadata.confidence；
+  #   2) 修复指引按解析器分类（disallow-doctype-decl 适用 JAXP，setProperty 适用 StAX）；
+  #   3) ReportGenerator 聚合时能看到分类分布，便于复盘哪类解析器最容易踩坑。
+  # ============================================================================
 
-      修复建议：
-      1. 工厂层显式禁用（JAXP 共享 feature）：
+  # ---------------- DOM 系列（DocumentBuilder / dom4j SAXReader / jdom2 SAXBuilder） ----------------
+  - id: java-xxe-dom-parser
+    message: |
+      🚨 XXE (CWE-611) Sink: DOM 解析器（DocumentBuilder / dom4j SAXReader / jdom2 SAXBuilder）
+      解析非字面量输入。这些 API 默认启用 DTD 解析和外部实体引用，
+      攻击者可注入 `<!ENTITY xxe SYSTEM "file:///etc/passwd">` 读取任意文件、
+      发起 SSRF（http://internal/）或触发 billion-laughs DoS。
+
+      修复建议（DOM）：
+      1. JAXP DocumentBuilderFactory：
          factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
          factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
          factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-      2. DocumentBuilderFactory 加 `setXIncludeAware(false)` + `setExpandEntityReferences(false)`;
-      3. 改用 JSON / Protobuf 等不支持外部实体的数据格式;
-      4. 对照 OWASP XXE Prevention Cheat Sheet 逐项套用。
+         factory.setXIncludeAware(false);
+         factory.setExpandEntityReferences(false);
+      2. dom4j SAXReader：`reader.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);`
+      3. jdom2 SAXBuilder：`builder.setFeature(... 同上 ...);`
     severity: ERROR
     languages: [java]
     metadata:
@@ -37,6 +51,45 @@ rules:
                   types:
                     - DocumentBuilder
                     - javax.xml.parsers.DocumentBuilder
+          # dom4j SAXReader
+          - pattern: new SAXReader().read($INPUT)
+          - pattern: new SAXReader().read($INPUT, ...)
+          # jdom2 SAXBuilder
+          - pattern: new SAXBuilder().build($INPUT)
+          - pattern: new SAXBuilder().build($INPUT, ...)
+          - pattern: new org.jdom2.input.SAXBuilder().build($INPUT, ...)
+      # 字面量排除
+      - pattern-not: $DB.parse("...")
+      - pattern-not: $DB.parse("...", ...)
+      - pattern-not: new SAXReader().read("...")
+      - pattern-not: new SAXReader().read("...", ...)
+      - pattern-not: new SAXBuilder().build("...")
+      - pattern-not: new SAXBuilder().build("...", ...)
+
+  # ---------------- SAX / StAX 流式解析（SAXParser / XMLReader / XMLInputFactory） ----------------
+  - id: java-xxe-sax-stream
+    message: |
+      🚨 XXE (CWE-611) Sink: SAX / StAX 流式 XML 解析器接收非字面量输入。
+
+      与 DOM 相比，SAX/StAX 是流式 + 事件回调，但**默认同样启用外部实体解析**，
+      攻击者仍可通过 `<!ENTITY>` 注入读文件 / SSRF / DoS。
+
+      修复建议（SAX / StAX）：
+      1. SAXParserFactory: `spf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);`
+      2. XMLReader: `reader.setFeature(... 同上 ...);`
+      3. StAX XMLInputFactory：
+         xif.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+         xif.setProperty("javax.xml.stream.isSupportingExternalEntities", false);
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
           # JAXP SAX: SAXParser
           - patterns:
               - pattern: $SP.parse($INPUT, $HANDLER)
@@ -45,16 +98,6 @@ rules:
                   types:
                     - SAXParser
                     - javax.xml.parsers.SAXParser
-          # StAX: XMLInputFactory
-          - patterns:
-              - pattern-either:
-                  - pattern: $XIF.createXMLStreamReader($INPUT, ...)
-                  - pattern: $XIF.createXMLEventReader($INPUT, ...)
-              - metavariable-type:
-                  metavariable: $XIF
-                  types:
-                    - XMLInputFactory
-                    - javax.xml.stream.XMLInputFactory
           # org.xml.sax.XMLReader
           - patterns:
               - pattern: $XR.parse($SOURCE)
@@ -63,7 +106,52 @@ rules:
                   types:
                     - XMLReader
                     - org.xml.sax.XMLReader
-          # TRAX / Schema
+          # StAX: XMLInputFactory（方法名属 javax.xml.stream 专有，省 metavariable-type 以兼容 var 推断失败）
+          - pattern: $XIF.createXMLStreamReader($INPUT)
+          - pattern: $XIF.createXMLStreamReader($INPUT, ...)
+          - pattern: $XIF.createXMLEventReader($INPUT)
+          - pattern: $XIF.createXMLEventReader($INPUT, ...)
+      # 字面量排除
+      - pattern-not: $SP.parse("...", $HANDLER)
+      - pattern-not: $XR.parse("...")
+      - pattern-not: $XIF.createXMLStreamReader("...")
+      - pattern-not: $XIF.createXMLStreamReader("...", ...)
+      - pattern-not: $XIF.createXMLEventReader("...")
+      - pattern-not: $XIF.createXMLEventReader("...", ...)
+
+  # ---------------- XML 转换 / 校验 / 反序列化（TRAX / Schema / Validator / XPath / JAXB） ----------------
+  - id: java-xxe-transform-validate
+    message: |
+      🚨 XXE (CWE-611) Sink: XML 转换 / 校验 / 绑定接口接收非字面量 Source。
+
+      涉及接口：
+        - TransformerFactory.newTransformer(Source)   ← XSLT 转换器
+        - SchemaFactory.newSchema(Source)             ← XSD 校验
+        - Validator.validate(Source)                  ← XSD 校验
+        - XPath.evaluate(expr, Source, ...)           ← XPath
+        - JAXB Unmarshaller.unmarshal(input)          ← 反序列化
+
+      这些 API 都接受 javax.xml.transform.Source，底层走 JAXP，
+      默认带 DTD 解析 + 外部实体能力，外部输入流入即可被 XXE 注入。
+
+      修复建议：
+      1. TransformerFactory: `tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");`
+         + `tf.setAttribute(XMLConstants.ACCESS_EXTERNAL_STYLESHEET, "");`
+      2. SchemaFactory / Validator: `sf.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");`
+         + `setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");`
+      3. JAXB: 配合 SAXSource 用安全配置过的 XMLReader（先关 DTD / external-entities），
+         不要直接 `unmarshal(InputStream)`。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          # TRAX TransformerFactory
           - patterns:
               - pattern: $TF.newTransformer($SRC)
               - metavariable-type:
@@ -71,6 +159,7 @@ rules:
                   types:
                     - TransformerFactory
                     - javax.xml.transform.TransformerFactory
+          # SchemaFactory
           - patterns:
               - pattern: $SF.newSchema($SRC)
               - metavariable-type:
@@ -78,31 +167,17 @@ rules:
                   types:
                     - SchemaFactory
                     - javax.xml.validation.SchemaFactory
-          # dom4j
-          - pattern: new SAXReader().read($INPUT)
-          - pattern: new SAXReader().read($INPUT, ...)
-          # jdom2
-          - pattern: new SAXBuilder().build($INPUT)
-          - pattern: new SAXBuilder().build($INPUT, ...)
-          - pattern: new org.jdom2.input.SAXBuilder().build($INPUT, ...)
-          # JAXB Unmarshaller
+          # javax.xml.validation.Validator.validate（单参 / 双参形式都不安全）
           - patterns:
-              - pattern: $UM.unmarshal($INPUT, ...)
-              - metavariable-type:
-                  metavariable: $UM
-                  types:
-                    - Unmarshaller
-                    - javax.xml.bind.Unmarshaller
-                    - jakarta.xml.bind.Unmarshaller
-          # javax.xml.validation.Validator.validate
-          - patterns:
-              - pattern: $V.validate($SRC, ...)
+              - pattern-either:
+                  - pattern: $V.validate($SRC)
+                  - pattern: $V.validate($SRC, ...)
               - metavariable-type:
                   metavariable: $V
                   types:
                     - Validator
                     - javax.xml.validation.Validator
-          # XPath Compile/Evaluate with XML source
+          # XPath compile / evaluate（带 XML Source 的形式）
           - patterns:
               - pattern: $XP.evaluate($EXPR, $SOURCE, ...)
               - metavariable-type:
@@ -110,14 +185,9 @@ rules:
                   types:
                     - XPath
                     - javax.xml.xpath.XPath
-      # 字面量排除
-      - pattern-not: $DB.parse("...")
-      - pattern-not: $DB.parse("...", ...)
-      - pattern-not: $SP.parse("...", $HANDLER)
-      - pattern-not: $XIF.createXMLStreamReader("...", ...)
-      - pattern-not: $XIF.createXMLEventReader("...", ...)
-      - pattern-not: $XR.parse("...")
-      - pattern-not: new SAXReader().read("...")
-      - pattern-not: new SAXReader().read("...", ...)
-      - pattern-not: new SAXBuilder().build("...")
-      - pattern-not: new SAXBuilder().build("...", ...)
+          # JAXB Unmarshaller（unmarshal 方法名相对专属；省 metavariable-type 兼容 var 推断失败）
+          - pattern: $UM.unmarshal($INPUT)
+          - pattern: $UM.unmarshal($INPUT, ...)
+      # 字面量 / null 排除
+      - pattern-not: $UM.unmarshal("...")
+      - pattern-not: $UM.unmarshal(null)

@@ -23,5 +23,22 @@ if [[ ! -d "$RULES_DIR" ]]; then
     exit 4
 fi
 
-semgrep --json --config "$RULES_DIR" "$TARGET" > "$OUT" 2>/dev/null
+# 默认排除目录：测试代码 / 教学反例 / 构建产物 / IDE 元数据 —— 这些不应判为漏洞。
+# 与主引擎 src/semgrep_scanner.py 的 DEFAULT_EXCLUDE_GLOBS 保持同步。
+EXCLUDE_GLOBS=(
+    # 测试代码（单元 / 集成 / e2e），漏洞模式多是断言用，不应判 sink
+    "**/test/**" "**/it/**" "**/tests/**" "**/__tests__/**"
+    # WebGoat 风格的教学反例 / 安全示范目录
+    "**/mitigation/**" "**/securepasswords/**"
+    # 构建产物 / 第三方
+    "**/target/**" "**/build/**" "**/.gradle/**" "**/node_modules/**" "**/dist/**" "**/out/**"
+    # IDE / 工具元数据
+    "**/.idea/**" "**/.vscode/**"
+)
+EXCLUDE_ARGS=()
+for g in "${EXCLUDE_GLOBS[@]}"; do
+    EXCLUDE_ARGS+=(--exclude "$g")
+done
+
+semgrep --json --config "$RULES_DIR" "${EXCLUDE_ARGS[@]}" "$TARGET" > "$OUT" 2>/dev/null
 echo "$OUT"

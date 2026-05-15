@@ -76,17 +76,29 @@ rules:
                     - org.jdbi.v3.core.Handle
                     - org.skife.jdbi.v2.Handle
           # Spring JdbcTemplate 动态 SQL（无参数占位）
+          # 方法名独占（queryForXxx 系列）保留无类型约束，FP 风险天然低
           - pattern: $JDBC.queryForList($SQL, ...)
           - pattern: $JDBC.queryForObject($SQL, ...)
           - pattern: $JDBC.queryForMap($SQL, ...)
           - pattern: $JDBC.query($SQL, ...)
-          - pattern: $JDBC.update($SQL, ...)
-          - pattern: $JDBC.execute($SQL, ...)
           - pattern: $JDBC.batchUpdate($SQL, ...)
           - pattern: $JDBC.queryForRowSet($SQL, ...)
           - pattern: $JDBC.queryForStream($SQL, ...)
           - pattern: $JDBC.queryForInt($SQL, ...)
           - pattern: $JDBC.queryForLong($SQL, ...)
+          # 方法名通用（update/execute）—— 必须用 metavariable-type 限定，否则会吃
+          # 掉 MessageDigest.update / 各类 DAO.execute(...) 等。
+          - patterns:
+              - pattern-either:
+                  - pattern: $JDBC.update($SQL, ...)
+                  - pattern: $JDBC.execute($SQL, ...)
+              - metavariable-type:
+                  metavariable: $JDBC
+                  types:
+                    - JdbcTemplate
+                    - NamedParameterJdbcTemplate
+                    - org.springframework.jdbc.core.JdbcTemplate
+                    - org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
       # 字面量排除
       - pattern-not: $STMT.executeQuery("...")
       - pattern-not: $STMT.executeUpdate("...", ...)
@@ -218,3 +230,115 @@ rules:
           metavariable: $SQL
           # 匹配含 `${...}` 的字符串字面量
           regex: '^"[^"]*\$\{[^}]+\}'
+
+  # ---------------- Spring 现代 reactive / R2DBC / DatabaseClient ----------------
+  # Spring 5+ 的响应式持久化接口（R2dbcEntityTemplate / DatabaseClient）和
+  # Spring 6 的 JdbcClient.sql(...) 都接受原生 SQL 字符串。
+  # 不像 JdbcTemplate 那样在签名上把 PreparedStatement 占位符当成"主路径"，
+  # 这些 fluent API 默认就是字符串拼接，特别容易被遗漏。
+  - id: java-sql-injection-spring-reactive-modern
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: Spring reactive / 现代 fluent SQL 接口接收非字面量 SQL。
+
+      涉及接口：
+        - R2dbcEntityTemplate.select(Query) / .getDatabaseClient().sql(sql)
+        - DatabaseClient.sql(sql)            （Spring R2DBC）
+        - JdbcClient.sql(sql)                 （Spring 6 新增）
+
+      这些 fluent API 默认按字符串拼接处理 SQL，必须用 `.bind("param", value)` 或
+      `.bindValue(idx, value)` 绑定参数，不能直接把用户输入拼进 sql 字符串。
+
+      修复建议：
+      1. R2DBC: `databaseClient.sql("SELECT * FROM u WHERE id = :id").bind("id", id)`；
+      2. JdbcClient: `jdbcClient.sql("...").param("id", id).query(User.class).single()`；
+      3. 动态 ORDER BY / LIMIT 用枚举/白名单校验，绝不拼接。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://docs.spring.io/spring-framework/reference/data-access/jdbc/jdbc-client.html
+        - https://docs.spring.io/spring-framework/reference/data-access/r2dbc.html
+    patterns:
+      - pattern-either:
+          # Spring R2DBC DatabaseClient.sql(...)
+          - patterns:
+              - pattern: $DC.sql($SQL)
+              - metavariable-type:
+                  metavariable: $DC
+                  types:
+                    - DatabaseClient
+                    - org.springframework.r2dbc.core.DatabaseClient
+          # Spring 6 JdbcClient.sql(...)
+          - patterns:
+              - pattern: $JC.sql($SQL)
+              - metavariable-type:
+                  metavariable: $JC
+                  types:
+                    - JdbcClient
+                    - org.springframework.jdbc.core.simple.JdbcClient
+          # R2dbcEntityTemplate fluent
+          - patterns:
+              - pattern-either:
+                  - pattern: $RT.getDatabaseClient().sql($SQL)
+                  - pattern: $RT.select($SQL, ...)
+              - metavariable-type:
+                  metavariable: $RT
+                  types:
+                    - R2dbcEntityTemplate
+                    - org.springframework.data.r2dbc.core.R2dbcEntityTemplate
+      # 字面量 SQL 排除
+      - pattern-not: $DC.sql("...")
+      - pattern-not: $JC.sql("...")
+      - pattern-not: $RT.getDatabaseClient().sql("...")
+      - pattern-not: $RT.select("...", ...)
+
+  # ---------------- 链式 createStatement().executeQuery($SQL) ----------------
+  # 显式抓"未存中间变量"的链式调用，对应 `connection.createStatement().executeQuery(query)` 形态。
+  # 现有 `$STMT.executeQuery($SQL)` 规则依赖 LSP 推出 `$STMT` 的类型，
+  # 链式表达式中 `connection.createStatement()` 返回值没绑定到具名变量，
+  # 在部分 Semgrep 版本对 lambda/链式调用的类型推断会失败，这里加一条形态规则兜底召回。
+  - id: java-sql-injection-chained-statement
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: 通过 JDBC Connection 链式调用 createStatement().execute*($SQL)
+      执行非字面量 SQL。等价于把用户输入拼进 SQL 后立即执行。
+
+      修复建议同 `java-sql-injection`：改用 PreparedStatement 占位符 + setXxx。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: $CONN.createStatement().executeQuery($SQL)
+              - metavariable-type:
+                  metavariable: $CONN
+                  types:
+                    - Connection
+                    - java.sql.Connection
+          - patterns:
+              - pattern: $CONN.createStatement().executeUpdate($SQL, ...)
+              - metavariable-type:
+                  metavariable: $CONN
+                  types:
+                    - Connection
+                    - java.sql.Connection
+          - patterns:
+              - pattern: $CONN.createStatement().execute($SQL, ...)
+              - metavariable-type:
+                  metavariable: $CONN
+                  types:
+                    - Connection
+                    - java.sql.Connection
+      - pattern-not: $CONN.createStatement().executeQuery("...")
+      - pattern-not: $CONN.createStatement().executeUpdate("...", ...)
+      - pattern-not: $CONN.createStatement().execute("...", ...)
