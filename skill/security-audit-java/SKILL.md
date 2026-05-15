@@ -127,7 +127,20 @@ for entry in pending_llm.json:
 
 按"controller 入口 → 中间方法 → sink"格式记录，每步含 `class.method (file:line)`。
 
-#### 3.5 证据裁决（VULNERABLE / DEFENDED）
+#### 3.5 按 vuln_type 查 reference 文档（强制）
+
+**先**读 `$SKILL_DIR/reference/INDEX.md` 找到当前 finding 的 `vuln_type` 对应的 reference 文档，
+**严格按文档的 6 段流程**执行：
+1. **sink 模式速查** —— 确认这是个真 sink 还是别的类似形态
+2. **数据流追溯重点** —— 按文档指引找污点源
+3. **防御机制速查** —— 用 codesearch / lsp 找文档列出的防御函数 / 注解
+4. **常见误判** —— 自查避免落入"看似合理的 DEFENDED"陷阱
+5. **证据引用范例** —— 按文档格式填 `defense_analysis` 或 `suspicion_reason`
+6. **PoC 模板** —— VULNERABLE 时按文档 PoC 选项填 `attack_vector` / `poc_payload` / `max_impact`
+
+每种 vuln_type 都有专属 reference 文档（按家族分组，共 9 份）。**不读对应 reference 文档直接裁决 = 审计未尽职**。
+
+#### 3.6 证据裁决（VULNERABLE / DEFENDED）
 
 按 `$SKILL_DIR/rubrics/defended-evidence.md` 的规范：
 - **7 类允许的 DEFENDED 证据** —— 必须引用具体行号 / 代码片段
@@ -189,8 +202,14 @@ python3 "$SKILL_DIR/scripts/build_report.py" findings.json
 SKILL.md                       — 当前文件（工作流骨架）
 install.sh                     — 一键安装到 OpenCode / Claude skill 目录
 rules/*.yaml                   — Semgrep 规则（由 scan.sh 调用）
-rubrics/defended-evidence.md   — DEFENDED 证据规范（阶段 3.5）
-rubrics/red-hints.md           — 按 vuln_type 的 PoC 构造提示
+rubrics/defended-evidence.md   — DEFENDED 证据规范（阶段 3.6）
+rubrics/red-hints.md           — 按 vuln_type 的 PoC 构造提示（兜底，被 reference/* 取代）
+reference/INDEX.md             — vuln_type → 分析步骤文档映射（阶段 3.5 入口）
+reference/*.md                 — 9 份按家族分组的"分析步骤"文档：
+                                 injection-family / deserialization-reflection / xxe /
+                                 ssrf / path-traversal-family / xss / redirect-family /
+                                 crypto-family / credentials-backdoor / cookie-trust-boundary /
+                                 info-disclosure / authz-family / business-logic-family
 scripts/scan.sh                — semgrep 薄封装（含 14 条 --exclude）
 scripts/dispatch.py            — 分流 + 去重 + fast-path 自动产 finding（无 LLM）
 scripts/classify.py            — CWE + severity 查表（纯函数无 LLM）
