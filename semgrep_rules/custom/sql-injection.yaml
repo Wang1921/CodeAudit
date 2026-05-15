@@ -41,15 +41,12 @@ rules:
                     - CallableStatement
                     - java.sql.CallableStatement
           # Connection.prepareStatement / prepareCall：SQL 拼接同样危险
-          - patterns:
-              - pattern-either:
-                  - pattern: $CONN.prepareStatement($SQL, ...)
-                  - pattern: $CONN.prepareCall($SQL, ...)
-              - metavariable-type:
-                  metavariable: $CONN
-                  types:
-                    - Connection
-                    - java.sql.Connection
+          # 不加 metavariable-type 约束：prepareStatement / prepareCall 是 java.sql.Connection
+          # 独占方法名（其他类没有此方法），FP 风险极低。这样能兼容 `var connection = ds.getConnection()`
+          # 推断失败的场景 —— v11 baseline 实测 Assignment5.java:42 因 var 推断失败被漏，
+          # 修复后该 sink 应被命中。
+          - pattern: $CONN.prepareStatement($SQL, ...)
+          - pattern: $CONN.prepareCall($SQL, ...)
           # jOOQ DSLContext —— 原生 SQL 执行入口
           - patterns:
               - pattern-either:

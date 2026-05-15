@@ -82,13 +82,59 @@ rules:
                   types:
                     - ChannelSftp
                     - com.jcraft.jsch.ChannelSftp
-          # Spring Resource —— ClassPathResource / FileSystemResource / UrlResource
+          # Spring Resource 系列 —— ClassPathResource / FileSystemResource /
+          # UrlResource / PathResource / InputStreamResource 都接收路径/URL 字符串构造
           - pattern: new ClassPathResource($PATH, ...)
           - pattern: new org.springframework.core.io.ClassPathResource($PATH, ...)
           - pattern: new FileSystemResource($PATH)
+          - pattern: new FileSystemResource($PATH, ...)
           - pattern: new org.springframework.core.io.FileSystemResource($PATH)
+          - pattern: new org.springframework.core.io.FileSystemResource($PATH, ...)
           - pattern: new UrlResource($PATH)
           - pattern: new org.springframework.core.io.UrlResource($PATH)
+          - pattern: new PathResource($PATH)
+          - pattern: new org.springframework.core.io.PathResource($PATH)
+          - pattern: new InputStreamResource($PATH, ...)
+          - pattern: new org.springframework.core.io.InputStreamResource($PATH, ...)
+          - pattern: ResourceUtils.getFile($PATH)
+          - pattern: org.springframework.util.ResourceUtils.getFile($PATH)
+          - pattern: ResourceUtils.getURL($PATH)
+          - pattern: org.springframework.util.ResourceUtils.getURL($PATH)
+          # Java 11+ Path.of —— 等价 Paths.get
+          - pattern: Path.of($PATH, ...)
+          - pattern: java.nio.file.Path.of($PATH, ...)
+          # Hadoop HDFS Path (HFS / HDFS 文件封装) —— 路径遍历可读写 HDFS 任意位置
+          - pattern: new Path($PATH)
+          - pattern: new Path($PARENT, $PATH)
+          - pattern: new org.apache.hadoop.fs.Path($PATH)
+          - pattern: new org.apache.hadoop.fs.Path($PARENT, $PATH)
+          # Spring MultipartFile.transferTo($PATH) —— 文件上传转存的典型路径遍历点
+          - patterns:
+              - pattern-either:
+                  - pattern: $MF.transferTo($PATH)
+              - metavariable-type:
+                  metavariable: $MF
+                  types:
+                    - MultipartFile
+                    - org.springframework.web.multipart.MultipartFile
+          # Apache Commons IO FileUtils —— 常见文件读写工具类
+          - pattern: FileUtils.readFileToString($PATH, ...)
+          - pattern: FileUtils.readFileToByteArray($PATH)
+          - pattern: FileUtils.readLines($PATH, ...)
+          - pattern: FileUtils.writeStringToFile($PATH, ...)
+          - pattern: FileUtils.write($PATH, ...)
+          - pattern: FileUtils.writeByteArrayToFile($PATH, ...)
+          - pattern: FileUtils.copyFile($PATH, ...)
+          - pattern: FileUtils.copyDirectory($PATH, ...)
+          - pattern: FileUtils.deleteDirectory($PATH)
+          - pattern: FileUtils.forceDelete($PATH)
+          - pattern: org.apache.commons.io.FileUtils.readFileToString($PATH, ...)
+          - pattern: org.apache.commons.io.FileUtils.writeStringToFile($PATH, ...)
+          - pattern: org.apache.commons.io.FileUtils.copyFile($PATH, ...)
+          # Guava Files —— 同样常见的文件工具类
+          - pattern: com.google.common.io.Files.asByteSource($PATH)
+          - pattern: com.google.common.io.Files.asCharSource($PATH, ...)
+          - pattern: com.google.common.io.Files.readLines($PATH, ...)
           # Apache VFS
           - patterns:
               - pattern: $FS.resolveFile($PATH, ...)
@@ -134,6 +180,28 @@ rules:
       - pattern-not: new ClassPathResource("...", ...)
       - pattern-not: new org.springframework.core.io.ClassPathResource("...", ...)
       - pattern-not: new FileSystemResource("...")
+      - pattern-not: new FileSystemResource("...", ...)
       - pattern-not: new org.springframework.core.io.FileSystemResource("...")
       - pattern-not: new UrlResource("...")
+      - pattern-not: new PathResource("...")
+      - pattern-not: new org.springframework.core.io.PathResource("...")
+      - pattern-not: ResourceUtils.getFile("...")
+      - pattern-not: org.springframework.util.ResourceUtils.getFile("...")
+      - pattern-not: ResourceUtils.getURL("...")
+      - pattern-not: Path.of("...", ...)
+      - pattern-not: java.nio.file.Path.of("...", ...)
+      - pattern-not: new Path("...")
+      - pattern-not: new Path("...", "...")
+      - pattern-not: new org.apache.hadoop.fs.Path("...")
+      - pattern-not: $MF.transferTo("...")
+      - pattern-not: FileUtils.readFileToString("...", ...)
+      - pattern-not: FileUtils.readFileToByteArray("...")
+      - pattern-not: FileUtils.readLines("...", ...)
+      - pattern-not: FileUtils.writeStringToFile("...", ...)
+      - pattern-not: FileUtils.write("...", ...)
+      - pattern-not: FileUtils.writeByteArrayToFile("...", ...)
+      - pattern-not: FileUtils.copyFile("...", ...)
+      - pattern-not: FileUtils.copyDirectory("...", ...)
+      - pattern-not: FileUtils.deleteDirectory("...")
+      - pattern-not: FileUtils.forceDelete("...")
       - pattern-not: $FS.resolveFile("...", ...)
