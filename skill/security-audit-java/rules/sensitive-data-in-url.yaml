@@ -39,7 +39,7 @@ rules:
     patterns:
       - pattern-either:
           # ---------------- 直接写在任意字符串里（最宽泛，覆盖 URL 构造 / 拼接前缀 / sendRedirect 等） ----------------
-          - pattern-regex: '"[^"]*[?&](?i:password|passwd|pwd|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|api[_-]?secret|secret|api[_-]?key|apikey|private[_-]?key|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|session[_-]?id)\s*='
+          - pattern-regex: '"[^"]*[?&](?i:password|passwd|pwd|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|api[_-]?secret|secret|api[_-]?key|apikey|private[_-]?key|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|session[_-]?id)(?![a-z])\s*='
       # 排除 URL query **的"key 名定义"场景**（getParameter / 配置读取 / 文档说明等不是真正"传输"）。
       # 这类用法在接收端读取参数，属于 source 而非 sink。
       - pattern-not: $X.getParameter("...password...")

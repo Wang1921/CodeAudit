@@ -54,7 +54,7 @@ rules:
                 - org.apache.commons.logging.Log
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
 
       # Logger.log(Level, msg, ...)
       - patterns:
@@ -67,7 +67,7 @@ rules:
                 - org.apache.logging.log4j.Logger
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
 
       # ---------------- System.out / System.err ----------------
       - patterns:
@@ -82,7 +82,7 @@ rules:
               - pattern: System.err.format($MSG, ...)
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(?<![a-z])(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
 
       # ---------------- printStackTrace → stdout/stderr 或 PrintWriter（把堆栈连敏感上下文一起打） ----------------
       # 这是更弱的信号（堆栈里**可能**带敏感上下文），置 warning；
@@ -90,3 +90,107 @@ rules:
       - pattern: $E.printStackTrace()
       - pattern: $E.printStackTrace(System.out)
       - pattern: $E.printStackTrace(System.err)
+
+  # ---------------- 启发式：Logger 打印可能含敏感字段的业务对象 ----------------
+  # 覆盖 java-sensitive-data-in-log 抓不到的典型场景：
+  #   User user = ...;             // User 类含 String password 字段
+  #   log.info("user: {}", user);  // toString() 会把 password 一起打出
+  # Semgrep 没有 dataflow 看不到对象内部字段，改用**变量名启发式** + BlueValidator 二次核验。
+  # 规则启用状态：**默认启用**；confidence: LOW 明确标注需人工/LLM 复核。
+  - id: java-log-sensitive-object
+    message: |
+      🚨 Sensitive Data in Log (CWE-532) — 疑似打印含敏感字段的业务对象（启发式）。
+
+      日志参数里出现常见"容器对象"变量名，对象所属类若含 password / token / secret /
+      community string / privKey 等字段且 `toString()` 未脱敏，会随日志泄露。
+
+      覆盖的变量名关键字（按领域分组）：
+      - **身份/用户**：user / account / customer / employee / member / person / subscriber / tenant
+      - **凭据/鉴权**：credential / cred / login / principal / identity / subject / token / oauth / jwt / bearer
+      - **协议客户端**（常携带 user+password）：snmp / ldap / smtp / imap / pop3 / ftp / sftp / ssh
+      - **DB/消息客户端**（常携带连接 URL + 凭据）：datasource / jdbc / database / redis / mongo / cassandra / kafka / rabbit
+      - **密钥管理**：vault / keystore / truststore
+      - **HTTP 容器**（可能含 Authorization / Cookie）：cookie / header / headers
+      - **通用请求容器**：kwargs / params / args / options / payload / request / session / body / profile
+      - **配置容器**（往往含 DB 密码 / API Key）：properties / props
+
+      这是**变量名启发式告警**（Semgrep 没 dataflow 追不到对象内部字段），confidence=LOW。
+
+      验证方法（BlueValidator / 人工）：
+      0. **先回溯实参表达式**（最重要的一步）：判断打印的是**对象本身**还是**对象的某个安全属性**。
+         - `log.info("user count: {}", user.size())` → 打印 `int`，**非敏感** → DEFENDED
+         - `log.info("uid={}", user.getId())` / `.getName()` / `.getStatus()` → 打印标量 ID/状态，**非敏感** → DEFENDED
+         - `log.info("user={}", user)` / `"user=" + user` → 整对象 toString，进入下一步判定
+         - `log.info("pwd={}", user.getPassword())` → 直接打印凭据 → **VULNERABLE**
+      1. 打开该对象所属类定义（通常在 model / entity / dto / domain 包，或 SDK 源码）
+      2. 检查是否含敏感字段：password / secret / token / privKey / communityString / apiKey 等
+         - 类定义里**完全不含**敏感字段 → DEFENDED
+         - 含敏感字段 → 进入下一步
+      3. 检查 toString() / Lombok 注解：
+         - `@Data` / `@ToString` 默认包含所有字段 → **风险**
+         - `@ToString(exclude = {"password"})` / 手写 toString 排除敏感字段 → DEFENDED
+         - Java record 默认 toString 也包含所有字段 → **风险**
+      4. 若是协议 SDK 对象（Snmp4j `UsmUser` / JSch `Session` / Redis `JedisPool`）
+         往往内部持有密码/密钥，直接打印必泄露
+
+      修复建议：
+      1. Lombok：对敏感字段加 `@ToString.Exclude`；或类级 `@ToString(onlyExplicitlyIncluded = true)`
+      2. 手写 toString 只暴露非敏感字段（如 id / name / createTime）
+      3. 改打印必要字段而非整个对象：`log.info("userId={}", user.getId())`
+      4. 对 SDK 对象先做脱敏包装再日志化，或只打 `obj.getClass().getSimpleName()`
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in Log"
+      confidence: LOW
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+    patterns:
+      - pattern-either:
+          # Logger 标准 API 的第二参数（format 占位符 + 对象）
+          - pattern: $LOG.info($MSG, $OBJ, ...)
+          - pattern: $LOG.debug($MSG, $OBJ, ...)
+          - pattern: $LOG.warn($MSG, $OBJ, ...)
+          - pattern: $LOG.warning($MSG, $OBJ, ...)
+          - pattern: $LOG.error($MSG, $OBJ, ...)
+          - pattern: $LOG.trace($MSG, $OBJ, ...)
+          - pattern: $LOG.fatal($MSG, $OBJ, ...)
+          - pattern: $LOG.severe($MSG, $OBJ, ...)
+      - metavariable-type:
+          metavariable: $LOG
+          types:
+            - Logger
+            - org.slf4j.Logger
+            - org.apache.logging.log4j.Logger
+            - org.apache.log4j.Logger
+            - java.util.logging.Logger
+            - org.apache.commons.logging.Log
+      - metavariable-regex:
+          metavariable: $OBJ
+          # 变量名 / 方法调用 / 属性访问中含常见"业务对象 or 容器"关键字。
+          # Semgrep metavariable-regex 是**全串匹配**，所以用 \w* 允许前后缀
+          # 以覆盖 currentUserPrincipal / userDto / ldapConnection / snmpv3User 等形式。
+          # 按领域分组（见规则 message 的详细说明）：
+          #   身份      user|account|customer|employee|member|person|subscriber|tenant
+          #   凭据鉴权  credential|cred|login|principal|identity|subject|token|oauth|jwt|bearer
+          #   协议客户端 snmp|ldap|smtp|imap|pop3|ftp|sftp|ssh
+          #   DB/MQ     datasource|jdbc|database|redis|mongo|cassandra|kafka|rabbit|rabbitmq
+          #   密钥管理  vault|keystore|truststore
+          #   HTTP 容器 cookie|header|headers
+          #   通用容器  kwargs|params|args|options|payload|request|session|body|profile
+          #   配置容器  properties|props
+          # confidence: LOW — 存在 tokenize / userAgent / propsed 等小 FP，由 BlueValidator 二次核验。
+          regex: '(?i)\w*(user|account|customer|employee|member|person|subscriber|tenant|credential|cred|login|principal|identity|subject|token|oauth|jwt|bearer|snmp|ldap|smtp|imap|pop3|ftp|sftp|ssh|datasource|jdbc|database|redis|mongo|cassandra|kafka|rabbit|rabbitmq|vault|keystore|truststore|cookie|header|headers|kwargs|params|args|options|payload|request|session|body|profile|properties|props)\w*'
+      # 排除：$OBJ 是字符串字面量（已由 java-sensitive-data-in-log 关键字规则覆盖）
+      - pattern-not: $LOG.info($MSG, "...", ...)
+      - pattern-not: $LOG.debug($MSG, "...", ...)
+      - pattern-not: $LOG.warn($MSG, "...", ...)
+      - pattern-not: $LOG.warning($MSG, "...", ...)
+      - pattern-not: $LOG.error($MSG, "...", ...)
+      - pattern-not: $LOG.trace($MSG, "...", ...)
+      - pattern-not: $LOG.fatal($MSG, "...", ...)
+      - pattern-not: $LOG.severe($MSG, "...", ...)
