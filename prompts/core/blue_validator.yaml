@@ -172,11 +172,16 @@ output_schema:
           minItems: 1
           items: { type: string }
         suspicion_reason: { type: string }
-        attack_vector:    { type: string, minLength: 20 }
+        # minLength 从 20 降到 5 ——
+        # v10 baseline 实测有 9 个真漏洞（SQL Injection 4、Unsafe Deserialization 2、
+        # Command Injection 1、Path Traversal 1、NoSQL Injection 1）因这 4 个字段任意
+        # 一个未达 20 字符导致 schema 整体 reject，最终 structured_output=null 报告丢失。
+        # 降到 5 字符仍能挡住纯 hallucination 输出，同时把 LLM 短而准的回答留下来。
+        attack_vector:    { type: string, minLength: 5 }
         poc_payload:      { type: string, minLength: 1 }
-        max_impact:       { type: string, minLength: 20 }
-        defense_analysis: { type: string, minLength: 20 }
-        mitigation_advice: { type: string, minLength: 20 }
+        max_impact:       { type: string, minLength: 5 }
+        defense_analysis: { type: string, minLength: 5 }
+        mitigation_advice: { type: string, minLength: 5 }
     # ---------------- 变体 2：VULNERABLE-B（fast-path 静态配置漏洞）----------------
     # call_chain 必须为字符串字面量 "N/A（静态配置漏洞）"；禁止出现 attack_vector/poc_payload/max_impact
     - type: object
@@ -198,8 +203,9 @@ output_schema:
           type: string
           const: "N/A（静态配置漏洞）"
         suspicion_reason: { type: string }
-        defense_analysis: { type: string, minLength: 20 }
-        mitigation_advice: { type: string, minLength: 20 }
+        # 同变体 1：minLength 20 → 5，避免短但准确的输出被整体 reject
+        defense_analysis: { type: string, minLength: 5 }
+        mitigation_advice: { type: string, minLength: 5 }
     # ---------------- 变体 3：DEFENDED（A/B 共用，仅防御分析）----------------
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis]
