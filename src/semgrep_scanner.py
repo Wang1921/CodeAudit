@@ -8,6 +8,31 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# 默认排除的目录 glob：覆盖测试、教学反例、构建产物等"不应判为漏洞"的代码。
+# 用 CLI `--exclude` 一次性传给 semgrep，所有规则统一生效（比给 33 个 yaml 逐个加 paths.exclude 简洁）。
+# 维护规则：增加条目时给出"为什么排除"的一行注释；删除条目要确认不会导致工程内真实代码被忽略。
+DEFAULT_EXCLUDE_GLOBS = [
+    # 测试代码（单元 / 集成 / e2e），漏洞模式多是断言用，不应判 sink
+    "**/test/**",
+    "**/it/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    # WebGoat 风格的教学反例 / 安全示范目录
+    "**/mitigation/**",
+    "**/securepasswords/**",
+    # 构建产物 / 第三方
+    "**/target/**",
+    "**/build/**",
+    "**/.gradle/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/out/**",
+    # IDE / 工具元数据
+    "**/.idea/**",
+    "**/.vscode/**",
+]
+
+
 class SemgrepScanner:
     def __init__(self, target_dir: str, rules_path: str | None = None):
         """
@@ -91,6 +116,10 @@ class SemgrepScanner:
         # 添加多个 --config 参数
         for config in configs:
             cmd.extend(["--config", str(config)])
+
+        # 统一应用排除 glob（替代逐规则文件 paths.exclude，避免规则文件改动放大）
+        for glob in DEFAULT_EXCLUDE_GLOBS:
+            cmd.extend(["--exclude", glob])
 
         logger.info(f"执行 Semgrep 扫描: {' '.join(cmd)}")
 
