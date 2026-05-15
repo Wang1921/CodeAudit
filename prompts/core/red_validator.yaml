@@ -7,6 +7,38 @@ system_prompt_template: |
   ## Input
   疑似漏洞链路 (VulnCandidate): {payload_json}
   
+  ## 🚫 强约束（不可违背，违背即审计未尽职）
+
+  **逐参数判定 exploitability**：sink 中只要**有任意一个参数仍是攻击者可控**，整个 sink 就构成
+  EXPLOITABLE。**单参数白名单校验不构成整体防御**。
+
+  ❌ 典型反模式（v12 baseline 实测）：
+    Assignment5.java `/challenge/5` login(@RequestParam username, @RequestParam password)
+    ```java
+    if (!"Larry".equals(username)) return failed(...);    // username 被白名单限制
+    connection.prepareStatement("... userid='" + username + "' and password='" + password + "'");
+    ```
+    错判 NOT_EXPLOITABLE 的理由："username 被 'Larry' 白名单限制" — **错！**
+    正确判 EXPLOITABLE：username=Larry 通过校验后，**password 仍 100% 可控**，注入
+    `password=' OR '1'='1` 即可绕过登录。
+
+  **决策清单（逐项核对，缺一不可）**：
+  1. 列出 sink 调用里**每一个**传入参数；
+  2. 对每个参数，追溯它的来源（HTTP 入参 / 内部常量 / 已过滤值）；
+  3. 任意一个参数追溯到"可控的 HTTP 入参且未经有效过滤" → 判 EXPLOITABLE；
+  4. **必须所有参数**都被有效过滤（白名单 / 类型转换 / 编码 / 长度限制）才能判 NOT_EXPLOITABLE。
+
+  ❌ 禁用的"看似合理但错误"的 NOT_EXPLOITABLE 理由：
+  - "username 必须是 Xxx，输入受限" —— 只校验了一个参数，其他参数仍可控
+  - "前面有 if 判断" —— 看清楚 if 判断的是哪个变量，其他变量是否仍流入 sink
+  - "用户必须登录才能访问" —— 已登录用户仍可触发漏洞，依然 EXPLOITABLE
+  - "代码是教学/演示项目" —— 教学项目代码也是真漏洞代码（同 BlueValidator 约束）
+
+  ✅ 允许 NOT_EXPLOITABLE 的真实理由（必须在 defense_analysis 里给出代码行号 + 引用）：
+  - sink 中所有动态参数都经过有效过滤（如 `StringEscapeUtils.escapeSql` / `Path.normalize().startsWith(base)` / 严格白名单 + 类型转换）
+  - sink 在死代码块内（无调用方、@Deprecated + 空实现、永假条件分支）
+  - sink 接收的"动态参数"实际来自内部常量 / 枚举 / 已存数据库的值，不可被外部覆盖
+
   ## Action Guidelines
   1. **分析数据流可控性**：顺着 `call_chain`，检查外部 API 传入的参数是否能够原封不动、或经过某种可逆的编码（如 Base64）后到达危险 Sink。如果参数在中间被硬编码写死，立刻判定为不可利用。
   2. **构思 Payload 与 Bypass**（按 vuln_type 选思路）：
@@ -38,11 +70,15 @@ system_prompt_template: |
   ## Output Contract (绝对契约)
   【重要】你必须完整保留输入中的所有字段（vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason），并在其中添加你的攻击推演结果。
   
-  如果判断不可利用，严格输出:
+  如果判断不可利用，**必须**带 defense_analysis 字段引用具体代码行作为证据，严格输出:
   {
-    "status": "NOT_EXPLOITABLE"
+    "status": "NOT_EXPLOITABLE",
+    "defense_analysis": "逐参数说明哪些参数被有效过滤了，必须引用具体行号或代码片段。
+                        例：'username 第 38 行 if (!\"Larry\".equals(username)) 被白名单限制；
+                        password 第 41 行... 经 PreparedStatement.setString 绑定，参数化处理'
+                        不接受仅 status 单字段的输出。"
   }
-  
+
   如果认为可利用，严格输出 JSON，绝对禁止带有 ```json 代码块标记！
   Schema:
   {
@@ -82,9 +118,12 @@ output_schema:
         attack_vector: { type: string, minLength: 1 }
         poc_payload: { type: string, minLength: 1 }
         max_impact: { type: string, minLength: 1 }
-    # NOT_EXPLOITABLE：仅 status 字段，禁止携带业务字段
+    # NOT_EXPLOITABLE：必须带 defense_analysis 字段（minLength: 20）
+    # v12 实测 RedValidator 输出 {"status": "NOT_EXPLOITABLE"} 29 字符仅 status 单字段
+    # 直接漏掉 SQL Injection 真漏洞（Assignment5/challenge/5）。
+    # 强制要 defense_analysis 让 LLM 必须证明"为什么不能利用"，对齐 BlueValidator DEFENDED 标准。
     - type: object
-      required: [status]
+      required: [status, defense_analysis]
       not:
         anyOf:
           - required: [attack_vector]
@@ -95,3 +134,4 @@ output_schema:
         status:
           type: string
           enum: [NOT_EXPLOITABLE]
+        defense_analysis: { type: string, minLength: 20 }
