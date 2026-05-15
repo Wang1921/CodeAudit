@@ -12,9 +12,16 @@ import aiohttp
 
 class TrackerHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass # 禁用 HTTP 请求日志
+        """覆盖 SimpleHTTPRequestHandler 默认实现，禁掉 stdout 上每条请求的访问日志。
+
+        前端大屏会以 1Hz 轮询 /state.json，默认日志会把 stderr 刷满淹没业务日志。
+        """
+        pass
 
     def do_GET(self):
+        """HTTP 路由分发：/state.json 吐 tracker.state 快照；/、/index.html 吐主大屏；
+        /reports.html 吐漏洞看板；/reports/list.json 吐聚合后的漏洞列表；其余 404。
+        """
         if self.path == '/state.json':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -115,12 +122,18 @@ class StateTracker:
         self._start_session_poller()
 
     def _setup_logging(self):
+        """挂两个 logging Handler：一个把日志推到前端大屏 state.logs，
+        一个落到 .a2a_logs/audit.log（RotatingFileHandler，10MB×5 个备份）。
+        """
         class StateLogHandler(logging.Handler):
             def __init__(self, tracker):
                 super().__init__()
                 self.tracker = tracker
 
             def emit(self, record):
+                """logging.Handler 协议钩子：把每条 log record 推送到 tracker.add_log，
+                供前端大屏实时显示。异常一律走 handleError 不抛出。
+                """
                 try:
                     msg = self.format(record)
                     self.tracker.add_log(msg, record.levelname)
@@ -151,6 +164,9 @@ class StateTracker:
             logging.warning(f"无法设置文件日志处理器: {e}")
 
     def add_log(self, msg, level):
+        """向前端大屏 state.logs 追加一条日志（带时间戳和颜色级别），
+        最多保留最近 50 条，超出按 FIFO 丢弃，避免内存无界增长。
+        """
         from datetime import datetime
         with self._lock:
             color = "text-gray-400"
@@ -167,6 +183,11 @@ class StateTracker:
                 self.state["logs"].pop(0)
 
     def agent_start(self, task_id, role, description="处理中"):
+        """登记一个 Agent 任务开始（出现在前端大屏左上"运行中 Agent"列表）。
+
+        若 task_id 已存在则保持原状不重复添加；start_time 用 epoch 秒记录，
+        供 update_agent_times 计算耗时。
+        """
         with self._lock:
             # 添加或更新 Agent
             agent = next((a for a in self.state["agents"] if a["id"] == task_id), None)
@@ -181,6 +202,9 @@ class StateTracker:
                 })
 
     def update_agent_times(self):
+        """周期性刷新所有运行中 Agent 的累计耗时（秒），
+        由 engine.run() 内的后台协程以 1Hz 调用，让大屏计时器走动起来。
+        """
         import time
         with self._lock:
             now = time.time()
@@ -189,17 +213,29 @@ class StateTracker:
                     agent["time"] = int(now - agent["start_time"])
 
     def agent_finish(self, task_id):
+        """登记一个 Agent 任务完成：从运行中列表移除该 task，
+        completed_tasks +1 并刷新前端大屏的总进度百分比。
+        """
         with self._lock:
             self.completed_tasks += 1
             self.state["progress"] = min(100, int((self.completed_tasks / max(1, self.total_tasks)) * 100))
             self.state["agents"] = [a for a in self.state["agents"] if a["id"] != task_id]
 
     def add_task(self):
+        """登记新增一个待执行任务（total_tasks +1），
+        进度百分比 = completed_tasks / total_tasks，会立即在前端体现为"分母变大"。
+        """
         with self._lock:
             self.total_tasks += 1
             self.state["progress"] = min(100, int((self.completed_tasks / max(1, self.total_tasks)) * 100))
 
     def update_kanban(self, category, item_id, item_type, route, status="PENDING", details=None):
+        """把一个漏洞条目挪到前端看板的指定列。
+
+        category 取值：suspicious / red / blue / resolved；同 id 在跨列移动时会先从
+        其他列移除再追加到目标列。category=resolved + status=CONFIRMED 时累加 vulns.high
+        计数（前端右上的"已确认高危"徽章）。
+        """
         with self._lock:
             item = {"id": item_id, "type": item_type, "route": route}
             if category == "resolved":
@@ -218,6 +254,9 @@ class StateTracker:
             self.state["kanban"][category].append(item)
 
     def update_kanban_item(self, item_id, details):
+        """就地更新看板某条目的字段（保持原列不动），
+        返回 True 表示找到并更新；False 表示该 item_id 在四列中均不存在。
+        """
         with self._lock:
             # 在所有类别中查找并更新该项目
             for category in self.state["kanban"].values():
@@ -230,6 +269,9 @@ class StateTracker:
             return False
 
     def add_tokens(self, tokens: int):
+        """累加 LLM token 消耗（前端右上的总 token 徽章），调用方一般是
+        engine.process_task 每次 LLM 调用后用 result.pop("_tokens", 0) 喂进来。
+        """
         with self._lock:
             self.state["tokens"] += tokens
 
@@ -336,6 +378,10 @@ class StateTracker:
     def _start_session_poller(self):
         """启动会话状态轮询任务"""
         def poll_loop():
+            """后台线程：自带一个独立 asyncio loop，每秒触发
+            update_sessions_from_opencode() 拉取每个 task 的最新 session 消息和 token 用量，
+            脱离主引擎事件循环不影响主流程节流。
+            """
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:

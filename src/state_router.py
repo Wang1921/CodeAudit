@@ -56,14 +56,23 @@ _RESOLVED_DETAILS = (
 
 
 def _has_vuln_type(p: dict[str, Any]) -> bool:
+    """LogicAuditor 输出是否给出了 vuln_type（或 Semgrep 风格的 vuln_class）—— 用于
+    success_check 判定该结论是否值得继续往下游 RedValidator 派发。
+    """
     return bool(p.get("vuln_type") or p.get("vuln_class"))
 
 
 def _red_hit(p: dict[str, Any]) -> bool:
+    """RedValidator 是否判定为可利用：要么 status==EXPLOITABLE，
+    要么直接吐出了 attack_vector 字段（兼容旧 schema 的兜底）。
+    """
     return p.get("status") == "EXPLOITABLE" or "attack_vector" in p
 
 
 def _blue_hit(p: dict[str, Any]) -> bool:
+    """BlueValidator 是否确认存在漏洞：要么 status==VULNERABLE，
+    要么直接给出了 mitigation_advice 字段（兼容旧 schema 的兜底）。
+    """
     return p.get("status") == "VULNERABLE" or "mitigation_advice" in p
 
 
@@ -548,6 +557,13 @@ class StateRouter:
         parsed: dict[str, Any],
         orig_env: dict[str, Any],
     ) -> None:
+        """对单个 RouteRule 跑一次"是否命中 + 命中后做什么"决策。
+
+        命中（rule.success_check(parsed) 返回 True）→ 按 rule.success_kanban_*
+        更新前端看板并按 rule.next_agent 派发下一条 A2A 消息；
+        未命中且 rule 配了 miss_kanban_label → 仅做"已审计/未发现"的看板兜底更新，
+        不再向下游派发。
+        """
         merged_payload = self._build_merged_payload(
             orig_env.get("payload", {}) or {}, parsed
         )

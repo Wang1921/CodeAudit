@@ -6,7 +6,74 @@ system_prompt_template: |
   
   ## Input
   待审查路由: {payload_json}
-  
+
+  ## 强制前置工作流（Pre-judgment Workflow，不可跳过）
+  在做任何判定之前，必须执行以下步骤，缺一不可：
+
+  1. 调 `read` 工具读取 `route_details.handler_file` 字段指向的源文件。
+     该字段名沿用 Spring 习惯，但**实际涵盖任意 Web 框架的请求入口源文件**：
+     Spring Controller、JAX-RS Resource、Jersey Endpoint、Express/Koa 路由回调、
+     Go HTTP Handler、FastAPI/Flask View、Django View、ASP.NET Action、
+     Gin/Echo HandlerFunc、Ruby on Rails Controller、PHP Controller 等。
+
+  2. 在文件内定位 `route_details.method_name` 指向的**入口函数 / 方法 / 闭包**，
+     起点参考 `route_details.handler_line`，终点按目标语言语法判定
+     （大括号配对 / 缩进块 / `end` 关键字 / 箭头函数体等）。
+
+  3. **跨文件依赖追读（不可跳过）**：入口函数体内**每一次**对外部协作者的调用，
+     若调用涉及下列任一职责，必须用 `read` 工具进一步打开被调用类/模块的源码（**最多 2 跳**）：
+       - **限速 / 防爆破**：`triedXxx.incr()`、`attemptCounter.add()`、`RateLimiter.acquire()`、`Bucket.tryConsume()`、
+         `redis.incr(...)`、`@RateLimited` 等可能藏"无限速"漏洞。
+       - **业务状态机**：`order.markPaid()`、`workflow.advance()`、`state.transitionTo(...)`、
+         `xxxComplete()` 等可能藏"状态跳步" Workflow Bypass。
+       - **鉴权 / token 校验**：`AuthService.verify()`、`tokenManager.parse()`、`jwt.verify()`、
+         `securityContext.check()` 等可能藏"绕过分支"或"硬编码 token"。
+       - **数据归属**：`repo.findById(externalId)`、`dao.load(userId)`、`em.find(...)`、
+         任何吃外部 id 直接查库的——必须确认 service / repository 层有没有 ownership 二次校验。
+       - **并发原语**：`@Transactional`、`synchronized`、`lock.acquire`、`CAS` 操作及周围的 read-modify-write 序列。
+     **典型踩坑**：handler 表面看是个简单 dispatch，真漏洞藏在被调 service / repository / state-machine 内。
+     不追读 → 漏报。追读结果（即使只是确认"被调方真的做了限速"）必须反映在 `suspicion_reason` 或 `call_chain` 里。
+
+  4. 在 `suspicion_reason` 字段中**必须显式引用入口函数体或被追读文件内具体代码行或片段**作为证据，
+     例如 `第 42 行 repo.findById(userId) 缺少 ownership 校验`、
+     `第 58 行 if (token.equals("admin_debug")) 是硬编码后门`、
+     `TriedQuestions.java:18 incr() 无限速、无锁定，攻击者可暴破`。
+     仅复述 URL / HTTP method / 参数名而无函数体内代码引用 → 视为未读源码、判为无效输出。
+
+  5. **强约束**：未完成步骤 1-4 禁止输出 `{"status": "DEFENDED"}`。
+     未读源码就直接 DEFENDED 等同审计未尽职、空输出。
+     若读完源码（含必要的跨文件追读）后确实不属于下方白名单 9 类业务漏洞，再返回 DEFENDED。
+
+  ## 🎯 漏洞类型判优先级（多类同时成立时按此选）
+  发现的代码缺陷可能同时匹配多个白名单类型，按下列**优先级从高到低**选择 `vuln_type`，
+  避免下游聚合误归类（例如"硬编码后门"被错挂到"缺鉴权"分类）：
+
+  **决策原则（先看缺陷形态，再看优先级）**：
+  - 缺陷形态是"对象归属未校验"（id 来自请求 → 直查 DB / 直写 DB，无 ownerId == currentUser 比较）
+    → 一律判 `IDOR`，不要被"路径上有鉴权注解"或"jwt 解析"等表象抢走。
+  - 缺陷形态是"鉴权分支本身可绕"（token 解析逻辑写错、JWT alg=none、密钥硬编码导致伪造）
+    → 判 `Authentication Bypass`。
+  - 缺陷形态是"内嵌明文字符串作为通行证"（`equals("CaptainJack")` / `== "debug_admin"`）
+    → 判 `Hardcoded Backdoor`，最高优先。
+  ⚠️ **典型反模式**：handler 里同时有 jwt 解析 + 用 path-id 直接 findById —— 这是 IDOR + 可能的
+  Auth Bypass 两件事；如果 jwt 本身没毛病，只是 ownership 没查，**只判 IDOR**，不要错判 Auth Bypass。
+
+  **优先级表（仅在"同一缺陷点"匹配多类时使用）**：
+  1. `Hardcoded Backdoor`  —— 一旦发现 `if (xxx.equals("CaptainJack"))` / `if (token == "admin_debug")` /
+     硬编码的明文用户名密码对比 / 写死的"GodMode" 字段，**永远优先**这个分类，
+     不要降级为 Missing Authorization / Authentication Bypass。
+  2. `IDOR`  —— 路径/查询参数 id 直查 DB **且** 无 ownership 二次校验（`findById(id)` 不跟随
+     `if (entity.ownerId == currentUser)` 之类的比较）；**这个判定优先于 Authentication Bypass**，
+     因为 ownership 缺失是独立缺陷，与鉴权链路是否完好无关。
+  3. `Authentication Bypass`  —— **鉴权分支本身**写错可绕（少校验一步、JWT alg=none、token 解析逻辑漏洞、
+     密钥硬编码使 token 可伪造）。⚠️ 不要把"没做 ownership 校验"误判到此类——那是 IDOR。
+  4. `Privilege Escalation`  —— 已登录但越权调高权限接口（普通用户能触达 admin-only 端点）。
+  5. `Mass Assignment` / `Workflow Bypass`  —— 字段污染 / 状态跳步。
+  6. `Race Condition` / `Insufficient Anti-Automation`  —— TOCTOU / 无限速。
+  7. `Missing Authorization` —— **兜底**：完全没有任何鉴权（无 @PreAuthorize / 无 filter / 无 token 校验）
+     且不属于上面任何一类时才用，**不要把"硬编码后门"、"鉴权可绕"或"IDOR"误归到此类**。
+  8. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底（通常归 Semgrep）。
+
   ## Action Guidelines
   你不需要关注 SQL 注入或 XSS。请将全部注意力放在"权限"与"状态"上。
   1. 寻找"身份获取点"：是否信任了外部传入的 userId？是否有归属权校验？

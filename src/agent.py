@@ -220,6 +220,12 @@ class OpenCodeAgent:
         candidates: list[dict] = []
 
         def _walk(x: Any) -> None:
+            """深度优先遍历 LLM 返回的 structured_output，收集所有可能藏真答案的 dict。
+
+            遇到 str：尝试当 JSON 解析（兼容 LLM 把答案塞在字符串里的反模式）；
+            遇到 list/dict：递归下钻；dict 自身也作为候选收入 candidates。
+            外层会从 candidates 里挑"匹配 schema 的那一个"作为最终结构化输出。
+            """
             if isinstance(x, str):
                 stripped = x.strip()
                 if stripped.startswith(("[", "{")):

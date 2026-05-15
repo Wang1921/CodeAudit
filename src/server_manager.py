@@ -45,6 +45,12 @@ class OpenCodeServerManager:
         self._idle_timeout = 60.0  # 服务器空闲超过60秒才允许回收
 
     def _get_free_port(self) -> int:
+        """问操作系统要一个当前空闲的临时端口。
+
+        实现是 bind 到 port 0 让内核挑端口，然后立刻关闭 socket 把端口号让出去。
+        注意：返回后到 OpenCode 真正 bind 之间存在极小 TOCTOU 窗口（理论上可被别人抢），
+        实际撞车概率低，被抢时上层启动失败会自动重试。
+        """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('', 0))
             return s.getsockname()[1]
@@ -339,6 +345,11 @@ class OpenCodeServerManager:
         return 1
 
     async def shutdown_all(self):
+        """引擎收尾：关闭沙盒池中所有 OpenCode server 子进程并关掉共享 aiohttp session。
+
+        实现要点：先在锁内一次性原子清空 self._servers 字典（避免并发 get_or_start_server
+        把刚 pop 出来的实例又塞回来），再在锁外并发 dispose 所有实例，避免逐个串行等待。
+        """
         logging.info("🛑 [ServerManager] 关闭所有沙盒 Server...")
         # 原子清空字典，随后并发 dispose 所有 info
         async with self._dict_lock:

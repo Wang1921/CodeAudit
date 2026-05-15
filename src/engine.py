@@ -14,10 +14,21 @@ from src.state_tracker import StateTracker
 
 MAX_CONCURRENT_AGENTS = 5     # 初始 Semgrep 派发任务的并发上限
 MAX_CHAIN_AGENTS = 3          # 链路续接（Reverse→Red→Blue 等）的专用并发上限
-# 单次 LLM HTTP 调用超时（秒）。WebGoat 实测成功任务 p99=127s，max=529s（极端 2/402），
-# 设 300 留 2.4× 安全余量；超时即"卡死"型失败，缩短让槽位更快释放给后续任务。
+# 单次 LLM HTTP 调用超时（秒，默认值）。
+# WebGoat 实测成功任务 p99=127s、max=529s（极端 2/402），设 300 留 2.4× 安全余量；
+# 超时即"卡死"型失败，缩短让槽位更快释放给后续任务。
 MAX_AGENT_TIMEOUT = 300
-# 单任务超时后的重试次数（救偶发 provider 抖动；总最坏耗时 = (RETRY+1)×TIMEOUT）
+
+# 个别 Agent 的超时覆盖表：recipient -> timeout_seconds。
+# 用于刚需更大 read 预算的 Agent；未列出的 Agent 一律使用 MAX_AGENT_TIMEOUT。
+# 维护规则：每加一个条目都要写清"为什么单独提高"和支撑数据，避免无依据的全局松绑。
+PER_AGENT_TIMEOUT = {
+    # LogicAuditor 强制前置工作流要求"读 handler 文件 + 跨文件追读最多 2 跳"，
+    # v9 baseline 实测 ROUTE 失败 10/115（v8 仅 1/115），单独提到 480s 缓解 timeout。
+    "LogicAuditor": 480,
+}
+
+# 单任务超时后的重试次数（救偶发 provider 抖动；总最坏耗时 = (RETRY+1) × TIMEOUT）
 MAX_TIMEOUT_RETRIES = 1
 
 class AuditEngine:
@@ -84,6 +95,11 @@ class AuditEngine:
         return self.target_source_dir
 
     def _get_prompt_for_agent(self, agent_name: str, payload_json: str) -> str:
+        """按 recipient agent 名称加载并渲染对应 prompt 模板。
+
+        ReportGenerator 已退化为纯 Python 字段映射（见 state_router._build_report_fields），
+        不再走 LLM；对未知 agent 抛 ValueError，避免误派发到没有 prompt 的角色。
+        """
         if agent_name == "ReverseTracer":
             return prompts.format_reverse_tracer_prompt(payload_json)
         elif agent_name == "LogicAuditor":
@@ -254,6 +270,17 @@ class AuditEngine:
             )
 
     async def process_task(self, filepath: str):
+        """处理 A2A 总线上的单条任务消息（一个 .json envelope 文件）。
+
+        职责：
+          1. 读取 envelope，按 sender 决定走主 semaphore 还是 chain_semaphore（避免饥饿）。
+          2. 拦截 Orchestrator 的跨微服务追踪请求，转给专用 handler 去重处理。
+          3. 否则按 recipient 加载 prompt / output_schema / per-agent timeout，
+             调 OpenCodeAgent 跑一次 LLM，落库结果并交给 StateRouter 决定后续路由。
+
+        异常处理：所有错误捕获后通过 bus.mark_failed(filepath) 落到 failed/ 目录，
+        不抛出，让 dispatcher 继续处理其他任务。
+        """
         # 先读 envelope 决定走哪个 semaphore（不计入 LLM 并发，纯本地文件读）
         try:
             env = self.bus.read_message(filepath)
@@ -307,8 +334,11 @@ class AuditEngine:
                 # 使用上下文管理器确保资源释放；超时时重试 MAX_TIMEOUT_RETRIES 次，
                 # 每次重置 session 拿干净环境（避免脏 thread state）。
                 result = None
+                # 按 recipient 查 PER_AGENT_TIMEOUT 覆盖表，未列出的 Agent 用默认 MAX_AGENT_TIMEOUT。
+                # 例：LogicAuditor 需要更长预算做跨文件追读。
+                agent_timeout = PER_AGENT_TIMEOUT.get(recipient, MAX_AGENT_TIMEOUT)
                 for attempt in range(MAX_TIMEOUT_RETRIES + 1):
-                    async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
+                    async with OpenCodeAgent(port=port, timeout=agent_timeout) as agent:
                         agent.set_session_tracker(self.tracker)
                         agent.set_current_task(task_id)
                         try:
@@ -539,6 +569,16 @@ class AuditEngine:
             raise
 
     async def run(self):
+        """引擎主循环：发现微服务 → 初始 Semgrep 扫描 → 不断轮询 A2A 总线 dispatch 任务。
+
+        启动顺序：
+          1. 若 .a2a_bus 各目录均空（fresh start），先 _discover_microservices() 摊出服务映射，
+             按服务数动态扩容沙盒池，再调 SemgrepScanner 灌入第一批任务。
+          2. 否则视为 resume，跳过初始扫描直接进入主循环。
+          3. 主循环每轮 get_pending_tasks() 取一批 envelope，并发交给 process_task()，
+             同时维护 inflight 集合做反压；监测到 pending/processing 全空即收尾。
+          4. 收尾阶段做最终 build_summary，关闭沙盒池、tracker 等资源。
+        """
         tracker_task: asyncio.Task | None = None
         inflight: set[asyncio.Task] = set()
         try:
