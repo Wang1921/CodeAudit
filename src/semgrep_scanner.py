@@ -8,28 +8,35 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# 默认排除的目录 glob：覆盖测试、教学反例、构建产物等"不应判为漏洞"的代码。
+# 默认排除的目录 / 文件 glob：覆盖测试、教学反例、构建产物等"不应判为漏洞"的代码。
 # 用 CLI `--exclude` 一次性传给 semgrep，所有规则统一生效（比给 33 个 yaml 逐个加 paths.exclude 简洁）。
+#
+# ⚠️ semgrep --exclude 语法约束：**不支持 `**` globstar**（v10 baseline 实测过）。
+# 用单层目录名（如 "test"）即可匹配任意嵌套位置；用 `*.foo` 匹配文件后缀。
+# 旧版用 `**/test/**` 会被当字面量字符串，匹配不到任何路径 → 测试代码全漏到引擎里。
 # 维护规则：增加条目时给出"为什么排除"的一行注释；删除条目要确认不会导致工程内真实代码被忽略。
 DEFAULT_EXCLUDE_GLOBS = [
     # 测试代码（单元 / 集成 / e2e），漏洞模式多是断言用，不应判 sink
-    "**/test/**",
-    "**/it/**",
-    "**/tests/**",
-    "**/__tests__/**",
+    "test",
+    "it",
+    "tests",
+    "__tests__",
+    "playwright",
     # WebGoat 风格的教学反例 / 安全示范目录
-    "**/mitigation/**",
-    "**/securepasswords/**",
+    "mitigation",
+    "securepasswords",
     # 构建产物 / 第三方
-    "**/target/**",
-    "**/build/**",
-    "**/.gradle/**",
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/out/**",
+    "target",
+    "build",
+    ".gradle",
+    "node_modules",
+    "dist",
+    "out",
+    # Maven Wrapper 启动器（系统辅助代码，非业务）
+    "wrapper",
     # IDE / 工具元数据
-    "**/.idea/**",
-    "**/.vscode/**",
+    ".idea",
+    ".vscode",
 ]
 
 

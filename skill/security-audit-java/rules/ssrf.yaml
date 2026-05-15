@@ -1,16 +1,31 @@
 rules:
-  - id: java-ssrf
+  # ============================================================================
+  # SSRF (CWE-918) 规则拆 2 个 id：
+  #   - java-ssrf-http-execution      ← 明确的"执行 HTTP 请求"sink (HIGH)
+  #   - java-ssrf-uri-construction    ← 仅构造 URI/URL 对象 (LOW)，必须靠污点链验证
+  #
+  # 拆开的原因（v10 baseline 实测 26 raw 命中 / ~62% FP）：
+  # 单 id 把"构造 URI"和"执行 HTTP"混在一起，导致大量"构造 URI 用于解析 host
+  # / 拼邮件链接 / response.location 头"的非出站代码也被标记为 SSRF sink。
+  # 拆开后：
+  #   * execution id 高置信 → 直接走 Red/Blue 验证
+  #   * construction id 低置信 + taint_required: true → 必须 ReverseTracer 追到
+  #     HTTP 入口才落 sink，纯本地解析/构造场景一律 NOT_EXPLOITABLE
+  # ============================================================================
+
+  # ---------------- 执行 HTTP 请求（HIGH confidence）----------------
+  - id: java-ssrf-http-execution
     message: |
-      🚨 SSRF (CWE-918) Sink: HTTP/URL 客户端接收非字面量 URL。
-      若 URL 来自外部输入，攻击者可指向内网服务或云元数据接口
+      🚨 SSRF (CWE-918) Sink: HTTP 客户端接收非字面量 URL 发起出站请求。
+      若 URL 来自外部输入，攻击者可指向内网服务、云元数据接口
       (http://169.254.169.254/、http://localhost:8500/、file:///etc/passwd)
       间接读取敏感数据、探测内网或攻击内部服务。
 
       修复建议：
-      1. 对 URL 做白名单（仅允许预期的外部业务域名）；
-      2. 禁用 HTTP 重定向或对 redirect 目标再次校验；
-      3. 解析 host 后禁止私有/保留段
-         (10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7 等)；
+      1. URL 白名单（仅允许预期的外部业务域名）；
+      2. 解析 host 后禁止私有/保留段
+         (10/8、172.16/12、192.168/16、127/8、169.254/16、::1、fc00::/7)；
+      3. 禁用 HTTP 重定向或对 redirect 目标再次校验；
       4. 使用独立出网代理或网络命名空间做出站控制。
     severity: ERROR
     languages: [java]
@@ -19,18 +34,17 @@ rules:
         - "CWE-918: Server-Side Request Forgery"
       owasp: "A10:2021 - Server-Side Request Forgery"
       vuln_class: "SSRF"
-      confidence: MEDIUM
+      confidence: HIGH
       references:
         - https://cwe.mitre.org/data/definitions/918.html
         - https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
     patterns:
       - pattern-either:
-          # java.net.URL / URI
-          - pattern: new URL($URL)
-          - pattern: new URL($URL, ...)
-          - pattern: URI.create($URL)
-          - pattern: new URI($URL)
-          # java.net.http (JDK 11+)
+          # JDK 原生：openConnection 链（构造 + 立即出站）
+          - pattern: new URL($X).openConnection()
+          - pattern: new java.net.URL($X).openConnection()
+          - pattern: URI.create($X).toURL().openConnection()
+          # JDK 11+ java.net.http
           - pattern: HttpRequest.newBuilder($URL)
           - pattern: $BUILDER.uri($URL)
           # Apache HttpClient 4/5
@@ -41,25 +55,31 @@ rules:
           - pattern: new HttpHead($URL)
           - pattern: new HttpPatch($URL)
           - pattern: new HttpOptions($URL)
-          # Spring RestTemplate
+          # Spring RestTemplate —— 方法名独占
           - pattern: $RT.getForObject($URL, ...)
           - pattern: $RT.getForEntity($URL, ...)
           - pattern: $RT.postForObject($URL, ...)
           - pattern: $RT.postForEntity($URL, ...)
-          - pattern: $RT.put($URL, ...)
-          - pattern: $RT.delete($URL, ...)
           - pattern: $RT.exchange($URL, ...)
-          - pattern: $RT.execute($URL, ...)
+          # 方法名通用（put/delete/execute）必须用 metavariable-type 限定
+          - patterns:
+              - pattern-either:
+                  - pattern: $RT.put($URL, ...)
+                  - pattern: $RT.delete($URL, ...)
+                  - pattern: $RT.execute($URL, ...)
+              - metavariable-type:
+                  metavariable: $RT
+                  types:
+                    - RestTemplate
+                    - org.springframework.web.client.RestTemplate
+                    - AsyncRestTemplate
+                    - org.springframework.web.client.AsyncRestTemplate
           # Spring WebClient
           - pattern: WebClient.create($URL)
           # OkHttp
           - pattern: $BUILDER.url($URL)
           # Jsoup
           - pattern: Jsoup.connect($URL)
-          # URLConnection / HttpURLConnection openConnection 链
-          - pattern: new URL($X).openConnection()
-          - pattern: new java.net.URL($X).openConnection()
-          - pattern: URI.create($X).toURL().openConnection()
           # Apache AsyncHttpClient
           - pattern: new DefaultAsyncHttpClient().prepareGet($URL)
           - pattern: $AHC.prepareGet($URL)
@@ -74,7 +94,7 @@ rules:
               - metavariable-type:
                   metavariable: $URL
                   type: String
-          # Retrofit / Feign 动态 URL（@Url 参数场景）
+          # Retrofit
           - patterns:
               - pattern: $RETROFIT.baseUrl($URL)
               - metavariable-type:
@@ -83,10 +103,8 @@ rules:
                     - Retrofit.Builder
                     - retrofit2.Retrofit.Builder
       # 字面量排除
-      - pattern-not: new URL("...")
-      - pattern-not: new URL("...", ...)
-      - pattern-not: URI.create("...")
-      - pattern-not: new URI("...")
+      - pattern-not: new URL("...").openConnection()
+      - pattern-not: URI.create("...").toURL().openConnection()
       - pattern-not: HttpRequest.newBuilder("...")
       - pattern-not: $BUILDER.uri("...")
       - pattern-not: new HttpGet("...")
@@ -107,3 +125,45 @@ rules:
       - pattern-not: WebClient.create("...")
       - pattern-not: $BUILDER.url("...")
       - pattern-not: Jsoup.connect("...")
+
+  # ---------------- 仅构造 URI/URL 对象（LOW confidence，需污点链验证）----------------
+  - id: java-ssrf-uri-construction
+    message: |
+      ⚠️ SSRF 候选 (CWE-918) Sink：仅构造 URI/URL 对象，本身不发起出站请求。
+      若该对象后续被传给 HTTP 客户端（HttpClient/RestTemplate/WebClient/openConnection 等）
+      且原始输入来自外部 HTTP 入口，则构成 SSRF。
+
+      ⚠️ 大量非出站场景（仅供参考，并非 sink）：
+      - 用 URI 解析 host 做白名单校验
+      - 拼装邮件正文 / response.location 头里的链接字符串
+      - 解析重定向目标但不真请求
+
+      因此本规则 confidence=LOW 且 taint_required=true：必须 ReverseTracer
+      追到 HTTP 入口（@RequestParam / request.getParameter）才落 sink，
+      纯本地构造的一律标 NOT_EXPLOITABLE。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp: "A10:2021 - Server-Side Request Forgery"
+      vuln_class: "SSRF"
+      confidence: LOW
+      taint_required: true
+    patterns:
+      - pattern-either:
+          - pattern: new URL($X)
+          - pattern: new URL($X, ...)
+          - pattern: new java.net.URL($X)
+          - pattern: URI.create($X)
+          - pattern: new URI($X)
+      # 字面量排除
+      - pattern-not: new URL("...")
+      - pattern-not: new URL("...", ...)
+      - pattern-not: new java.net.URL("...")
+      - pattern-not: URI.create("...")
+      - pattern-not: new URI("...")
+      # 链式 openConnection 已归 execution id，这里排除避免重复命中
+      - pattern-not: new URL($X).openConnection()
+      - pattern-not: new java.net.URL($X).openConnection()
+      - pattern-not: URI.create($X).toURL().openConnection()

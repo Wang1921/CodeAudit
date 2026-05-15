@@ -25,15 +25,18 @@ fi
 
 # 默认排除目录：测试代码 / 教学反例 / 构建产物 / IDE 元数据 —— 这些不应判为漏洞。
 # 与主引擎 src/semgrep_scanner.py 的 DEFAULT_EXCLUDE_GLOBS 保持同步。
+# ⚠️ semgrep --exclude 不支持 ** globstar；用单层目录名即可匹配任意嵌套位置。
 EXCLUDE_GLOBS=(
     # 测试代码（单元 / 集成 / e2e），漏洞模式多是断言用，不应判 sink
-    "**/test/**" "**/it/**" "**/tests/**" "**/__tests__/**"
+    "test" "it" "tests" "__tests__" "playwright"
     # WebGoat 风格的教学反例 / 安全示范目录
-    "**/mitigation/**" "**/securepasswords/**"
+    "mitigation" "securepasswords"
     # 构建产物 / 第三方
-    "**/target/**" "**/build/**" "**/.gradle/**" "**/node_modules/**" "**/dist/**" "**/out/**"
+    "target" "build" ".gradle" "node_modules" "dist" "out"
+    # Maven Wrapper 启动器
+    "wrapper"
     # IDE / 工具元数据
-    "**/.idea/**" "**/.vscode/**"
+    ".idea" ".vscode"
 )
 EXCLUDE_ARGS=()
 for g in "${EXCLUDE_GLOBS[@]}"; do
