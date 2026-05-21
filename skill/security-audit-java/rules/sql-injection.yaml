@@ -228,6 +228,108 @@ rules:
           # 匹配含 `${...}` 的字符串字面量
           regex: '^"[^"]*\$\{[^}]+\}'
 
+  # ---------------- MyBatis SqlSession 编程式查询 ----------------
+  # SqlSession.selectOne / selectList / selectMap / insert / update / delete
+  # 直接接收非字面量 SQL 字符串时等同于 JDBC Statement.execute(sql)，
+  # 绕过了 Mapper XML/注解的参数绑定机制，必须手动保证 SQL 安全。
+  - id: java-mybatis-sqlsession-injection
+    message: |
+      🚨 MyBatis SqlSession SQL Injection (CWE-89) Sink: SqlSession 的 selectXxx / insert / update / delete
+      方法直接接收非字面量 SQL 字符串。这绕过了 Mapper XML/注解的参数绑定机制（#{param}），
+      等同于 JDBC Statement.execute(sql)，任何用户输入拼入即构成 SQL 注入。
+
+      常见 bug 模式：
+        sqlSession.selectOne("SELECT * FROM user WHERE id=" + id);   // 漏洞
+        sqlSession.selectList(dynamicSql);                            // 漏洞（dynamicSql 含用户输入）
+
+      修复建议：
+      1. 改用 Mapper 接口 + #{param} 参数绑定，不要直接调 SqlSession 传 SQL；
+      2. 若必须动态构造 SQL，用 MyBatis Dynamic SQL 或 @SelectProvider + @Param 白名单；
+      3. 绝不要把用户输入拼进 SqlSession 的 statement 参数。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://mybatis.org/mybatis-3/java-api.html
+        - https://cwe.mitre.org/data/definitions/89.html
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $SS.selectOne($SQL, ...)
+                  - pattern: $SS.selectList($SQL, ...)
+                  - pattern: $SS.selectMap($SQL, ...)
+                  - pattern: $SS.select($SQL, ...)
+                  - pattern: $SS.insert($SQL, ...)
+                  - pattern: $SS.update($SQL, ...)
+                  - pattern: $SS.delete($SQL, ...)
+              - metavariable-type:
+                  metavariable: $SS
+                  types:
+                    - SqlSession
+                    - org.apache.ibatis.session.SqlSession
+                    - SqlSessionTemplate
+                    - org.mybatis.spring.SqlSessionTemplate
+      # 字面量排除
+      - pattern-not: $SS.selectOne("...", ...)
+      - pattern-not: $SS.selectList("...", ...)
+      - pattern-not: $SS.selectMap("...", ...)
+      - pattern-not: $SS.select("...", ...)
+      - pattern-not: $SS.insert("...", ...)
+      - pattern-not: $SS.update("...", ...)
+      - pattern-not: $SS.delete("...", ...)
+
+  # ---------------- MyBatis @*Provider 动态 SQL ----------------
+  # @SelectProvider / @InsertProvider / @UpdateProvider / @DeleteProvider
+  # 通过 Provider 类动态生成 SQL，如果 Provider 方法返回拼接了用户输入的字符串，
+  # 则等同于在注解里用 ${}，但比 ${} 更隐蔽——静态分析不易追踪 Provider 内部拼接。
+  #
+  # 本规则匹配所有 @*Provider 注解的使用点，confidence 为 MEDIUM：
+  # 因为 Provider 内部可能做白名单校验，不一定真的有注入，但值得人工审查。
+  - id: java-mybatis-provider-sql-injection
+    message: |
+      🚨 MyBatis @*Provider SQL Injection Risk (CWE-89): 使用了 @SelectProvider / @InsertProvider /
+      @UpdateProvider / @DeleteProvider 动态 SQL Provider。
+
+      Provider 类的方法负责生成 SQL 字符串，若内部拼接了用户输入（@Param 参数），
+      则等同于 SQL 注入。比注解里的 ${} 更隐蔽——需要检查 Provider 实现类是否安全。
+
+      常见 bug 模式：
+        @SelectProvider(type = UserSqlBuilder.class, method = "buildQuery")
+        List<User> findByName(@Param("name") String name);
+        // UserSqlBuilder.buildQuery() 里 "SELECT * FROM user WHERE name='" + name + "'"  → 漏洞
+
+      修复建议：
+      1. Provider 方法内使用 MyBatis Dynamic SQL 库（org.mybatis.dynamic.sql）构造查询，不拼接字符串；
+      2. 若必须拼接，在 Provider 内对 @Param 参数做严格白名单校验；
+      3. 优先改用 @Select + #{param}，或改用 MyBatis-Plus QueryWrapper。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://mybatis.org/mybatis-3/sqlprovider-annotations.html
+        - https://cwe.mitre.org/data/definitions/89.html
+    patterns:
+      - pattern-either:
+          - pattern: "@SelectProvider(...)"
+          - pattern: "@InsertProvider(...)"
+          - pattern: "@UpdateProvider(...)"
+          - pattern: "@DeleteProvider(...)"
+          - pattern: "@org.apache.ibatis.annotations.SelectProvider(...)"
+          - pattern: "@org.apache.ibatis.annotations.InsertProvider(...)"
+          - pattern: "@org.apache.ibatis.annotations.UpdateProvider(...)"
+          - pattern: "@org.apache.ibatis.annotations.DeleteProvider(...)"
+
   # ---------------- Spring 现代 reactive / R2DBC / DatabaseClient ----------------
   # Spring 5+ 的响应式持久化接口（R2dbcEntityTemplate / DatabaseClient）和
   # Spring 6 的 JdbcClient.sql(...) 都接受原生 SQL 字符串。
