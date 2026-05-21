@@ -119,6 +119,46 @@ rules:
       - pattern-not: $XIF.createXMLEventReader("...")
       - pattern-not: $XIF.createXMLEventReader("...", ...)
 
+  # ---------------- DOM 解析器：部分防护但不完整（缺少 disallow-doctype-decl） ----------------
+  # 场景：代码设置了 FEATURE_SECURE_PROCESSING 或其他安全特性，
+  # 但缺少最关键的 disallow-doctype-decl = true，DTD 声明仍可被解析。
+  - id: java-xxe-incomplete-hardening
+    message: |
+      ⚠️ XXE (CWE-611) Sink: DOM 解析器设置了部分安全特性但缺少 disallow-doctype-decl。
+      FEATURE_SECURE_PROCESSING 限制 XSLT 处理但不阻止 DTD/外部实体解析；
+      必须同时设置 `factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)`
+      才能完全阻断 XXE 攻击面。
+
+      修复建议：
+      1. 在 factory.setFeature 调用序列中增加：
+         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+      2. 同时设置 external-general-entities=false 和 external-parameter-entities=false；
+      3. setExpandEntityReferences(false) 阻止实体展开。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    patterns:
+      # 匹配：DocumentBuilderFactory.newInstance() 后设置了 setFeature 但没有 disallow-doctype-decl
+      - pattern: $FACTORY.newDocumentBuilder()
+      - pattern-inside: |
+          $FACTORY = DocumentBuilderFactory.newInstance();
+          ...
+          $FACTORY.setFeature($KEY, $VAL);
+          ...
+      # 排除：已设置 disallow-doctype-decl 的安全实现
+      - pattern-not-inside: |
+          $FACTORY.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+          ...
+
   # ---------------- XML 转换 / 校验 / 反序列化（TRAX / Schema / Validator / XPath / JAXB） ----------------
   - id: java-xxe-transform-validate
     message: |

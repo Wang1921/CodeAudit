@@ -78,6 +78,25 @@ rules:
               - metavariable-type:
                   metavariable: $JSON
                   type: String
+          # Elasticsearch via custom REST client — indexName / typeName / dataId 拼接 URL
+          # 典型模式：baseUrl + "/" + indexName + "/" + typeName + "/_search"
+          # RestUtil / RestTemplate 封装直接发 HTTP 请求到拼接的 ES URL
+          - patterns:
+              - pattern: $URL.append("/").append($INDEX)
+              - pattern-inside: |
+                  $INDEX = $INDEX.trim().toLowerCase();
+                  ...
+          # Elasticsearch RestHighLevelClient / RestClient —— 索引名来自参数
+          - patterns:
+              - pattern-either:
+                  - pattern: new SearchRequest($INDEX)
+                  - pattern: new GetRequest($INDEX, ...)
+                  - pattern: new IndexRequest($INDEX)
+                  - pattern: new UpdateRequest($INDEX, ...)
+                  - pattern: new DeleteRequest($INDEX, ...)
+              - metavariable-type:
+                  metavariable: $INDEX
+                  type: String
       # 字面量排除
       - pattern-not: Document.parse("...")
       - pattern-not: Document.parse("...", ...)

@@ -1,0 +1,113 @@
+rules:
+  # ============================================================================
+  # 动态类加载 (CWE-470) — 与 unsafe-reflection 互补：
+  #   unsafe-reflection 覆盖 Class.forName / ClassLoader.loadClass / Method.invoke 等
+  #   通用反射 API；本规则聚焦 **框架级动态类加载入口**——
+  #   Quartz Job、Spring Bean、自定义规则引擎等通过配置字段指定类名
+  #   并由框架实例化的场景。这类场景 Class.forName 被框架代码调用，
+  #   unsafe-reflection 能命中框架本身但无法表达"配置字段来自用户输入"的语义。
+  # ============================================================================
+
+  # ---------------- Quartz 定时任务动态类加载 ----------------
+  - id: java-dynamic-class-loading-quartz
+    message: |
+      🚨 Dynamic Class Loading (CWE-470) Sink: Quartz 定时任务通过配置字段指定 jobClassName。
+      `Class.forName(jobClassName)` 由框架内部调用，若 jobClassName 来自管理员输入，
+      攻击者可加载 org.jeecg 包下的可滥用类实现 RCE（即使有包名白名单 + 接口校验，
+      白名单包空间内可能存在可被滥用的实现类）。
+
+      修复建议：
+      1. jobClassName 白名单从包名前缀收紧为具体的类全限定名集合；
+      2. 管理接口增加二次审批 / 操作审计；
+      3. 仅允许注解标记的类（如 @QuartzJob）被加载。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-470: Use of Externally-Controlled Input to Select Classes or Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Unsafe Reflection"
+      confidence: MEDIUM
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/470.html
+    patterns:
+      - pattern-either:
+          # Quartz JobDetail 构建：jobClassName 字段来自实体
+          - pattern: JobBuilder.newJob($CLASS)
+          # QuartzJobServiceImpl 中常见的 Class.forName 模式
+          - patterns:
+              - pattern: Class.forName($JOB_CLASS)
+              - pattern-inside: |
+                  $JOB_CLASS = $ENTITY.getJobClassName();
+                  ...
+      # 字面量排除
+      - pattern-not: JobBuilder.newJob("...")
+      - pattern-not: Class.forName("...")
+
+  # ---------------- 自定义规则引擎 / 填值规则动态类加载 ----------------
+  - id: java-dynamic-class-loading-rule-engine
+    message: |
+      🚨 Dynamic Class Loading (CWE-470) Sink: 规则引擎通过配置字段指定实现类名。
+      `Class.forName(ruleClass)` 由框架内部调用，若 ruleClass 来自用户输入，
+      攻击者可在白名单包空间内寻找可被滥用的实现类。
+
+      修复建议：
+      1. 规则类名白名单从包名前缀收紧为具体类名集合；
+      2. 管理接口增加权限校验和操作审计；
+      3. 实现类注册制：必须通过 @Component / @Service 注解声明才能被加载。
+    severity: ERROR
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-470: Use of Externally-Controlled Input to Select Classes or Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Unsafe Reflection"
+      confidence: MEDIUM
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/470.html
+    patterns:
+      - pattern-either:
+          # Class.forName 接收实体字段 / Map 值 / 请求参数
+          - patterns:
+              - pattern: Class.forName($RULE_CLASS)
+              - pattern-inside: |
+                  $RULE_CLASS = $ENTITY.getRuleClass();
+                  ...
+          - patterns:
+              - pattern: Class.forName($RULE_CLASS)
+              - pattern-inside: |
+                  $RULE_CLASS = $MAP.get("...");
+                  ...
+      # 字面量排除
+      - pattern-not: Class.forName("...")
+
+  # ---------------- Spring Bean 动态注册 / 条件化加载 ----------------
+  - id: java-dynamic-class-loading-spring-bean
+    message: |
+      🚨 Dynamic Class Loading (CWE-470) Sink: Spring BeanDefinition 动态注册。
+      `BeanDefinitionBuilder.beanDefinition(className)` 接收非字面量类名，
+      若 className 来自外部输入，攻击者可注入任意类到 Spring 容器。
+
+      修复建议：
+      1. className 仅接受代码常量或配置白名单；
+      2. 动态注册的 Bean 限制为特定接口实现。
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-470: Use of Externally-Controlled Input to Select Classes or Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Unsafe Reflection"
+      confidence: MEDIUM
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/470.html
+    patterns:
+      - pattern-either:
+          - pattern: BeanDefinitionBuilder.genericBeanDefinition($CLASS)
+          - pattern: BeanDefinitionBuilder.rootBeanDefinition($CLASS)
+      # 字面量排除
+      - pattern-not: BeanDefinitionBuilder.genericBeanDefinition("...")
+      - pattern-not: BeanDefinitionBuilder.rootBeanDefinition("...")

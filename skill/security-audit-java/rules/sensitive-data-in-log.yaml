@@ -84,13 +84,6 @@ rules:
               metavariable: $MSG
               pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
 
-      # ---------------- printStackTrace → stdout/stderr 或 PrintWriter（把堆栈连敏感上下文一起打） ----------------
-      # 这是更弱的信号（堆栈里**可能**带敏感上下文），置 warning；
-      # 命中后由 BlueValidator 结合上下文决定。
-      - pattern: $E.printStackTrace()
-      - pattern: $E.printStackTrace(System.out)
-      - pattern: $E.printStackTrace(System.err)
-
   # ---------------- 启发式：Logger 打印可能含敏感字段的业务对象 ----------------
   # 覆盖 java-sensitive-data-in-log 抓不到的典型场景：
   #   User user = ...;             // User 类含 String password 字段

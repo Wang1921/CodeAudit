@@ -101,6 +101,32 @@ rules:
           # FastJson 2.x
           - pattern: JSONReader.Feature.SupportAutoType
           - pattern: com.alibaba.fastjson2.JSONReader.Feature.SupportAutoType
+          # FastJson 2.x —— JSON.parseObject 接收非字面量输入且目标类型为 Object / 无类型约束
+          # 即使未显式开启 SupportAutoType，fastjson2 在特定配置下仍可能被绕过
+          - patterns:
+              - pattern-either:
+                  - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA)
+                  - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA, Object.class)
+                  - pattern: com.alibaba.fastjson2.JSON.parse($DATA)
+                  - pattern: com.alibaba.fastjson2.JSON.parseArray($DATA)
+              - metavariable-type:
+                  metavariable: $DATA
+                  type: String
+          # FastJson 2.x —— JSON.parseObject 指定目标类但输入来自外部请求
+          # 当目标类含敏感字段或嵌套多态时仍存在风险
+          - patterns:
+              - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA, $CLASS)
+              - metavariable-type:
+                  metavariable: $DATA
+                  type: String
+          # Jackson ObjectMapper —— readValue 接收非字面量输入（未启用 DefaultTyping 也可能被利用）
+          - patterns:
+              - pattern: $OM.readValue($DATA, $CLASS)
+              - metavariable-type:
+                  metavariable: $OM
+                  types:
+                    - ObjectMapper
+                    - com.fasterxml.jackson.databind.ObjectMapper
       # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
       - pattern-not: $XS.fromXML("...", ...)
       - pattern-not: new Yaml().load("...", ...)
@@ -109,3 +135,10 @@ rules:
       - pattern-not: new Yaml(...).loadAs("...", ...)
       - pattern-not: new Yaml().loadAll("...", ...)
       - pattern-not: new Yaml(...).loadAll("...", ...)
+      # FastJson 2.x 字面量排除
+      - pattern-not: com.alibaba.fastjson2.JSON.parseObject("...")
+      - pattern-not: com.alibaba.fastjson2.JSON.parseObject("...", $CLASS)
+      - pattern-not: com.alibaba.fastjson2.JSON.parse("...")
+      - pattern-not: com.alibaba.fastjson2.JSON.parseArray("...")
+      # Jackson ObjectMapper 字面量排除
+      - pattern-not: $OM.readValue("...", $CLASS)

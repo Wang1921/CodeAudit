@@ -33,6 +33,12 @@ rules:
           - pattern: new Template($NAME, new StringReader($SRC), $CFG)
           - pattern: new Template($NAME, new StringReader($SRC), $CFG, ...)
           - pattern: new Template($NAME, $SRC, $CFG)
+          # FreeMarker：StringTemplateLoader.putTemplate + cfg.getTemplate 模式
+          # 用户可控内容通过 putTemplate 注入模板，再由 getTemplate 触发解析
+          - pattern: $OBJ.putTemplate($NAME, $CONTENT)
+          # FreeMarker：Configuration.getTemplate 由变量指定模板名
+          # 攻击者可控制模板名实现路径遍历加载非预期模板
+          - pattern: $OBJ.getTemplate($NAME)
           # Pebble：getLiteralTemplate 直接接受模板字符串
           - pattern: $ENGINE.getLiteralTemplate($TEMPLATE)
           # Thymeleaf：TemplateEngine 直接处理字符串模板（StringTemplateResolver 场景）
@@ -62,6 +68,8 @@ rules:
       - pattern-not: new Template($NAME, new StringReader("..."), $CFG)
       - pattern-not: new Template($NAME, new StringReader("..."), $CFG, ...)
       - pattern-not: new Template($NAME, "...", $CFG)
+      - pattern-not: $OBJ.putTemplate("...", "...")
+      - pattern-not: $OBJ.getTemplate("...")
       - pattern-not: $ENGINE.getLiteralTemplate("...")
       - pattern-not: $TE.process("...", $CTX)
       - pattern-not: $MF.compile(new StringReader("..."), $NAME)

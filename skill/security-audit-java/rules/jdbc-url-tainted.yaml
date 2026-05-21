@@ -32,7 +32,7 @@ rules:
       - pattern-either:
           - pattern: DriverManager.getConnection($URL, ...)
           - pattern: java.sql.DriverManager.getConnection($URL, ...)
-          # Apache Commons DBCP / HikariCP 的 setUrl
+          # Apache Commons DBCP / HikariCP / Druid 的 setUrl
           - patterns:
               - pattern: $DS.setUrl($URL)
               - metavariable-type:
@@ -45,6 +45,8 @@ rules:
                     - com.zaxxer.hikari.HikariDataSource
                     - HikariConfig
                     - com.zaxxer.hikari.HikariConfig
+                    - DruidDataSource
+                    - com.alibaba.druid.pool.DruidDataSource
           - patterns:
               - pattern: $DS.setJdbcUrl($URL)
               - metavariable-type:
@@ -54,6 +56,18 @@ rules:
                     - com.zaxxer.hikari.HikariDataSource
                     - HikariConfig
                     - com.zaxxer.hikari.HikariConfig
+          # 动态数据源框架：DataSourceProperty.setUrl / setPassword
+          # 典型场景：管理员通过 API 配置多数据源，dbUrl/dbPassword 来自数据库实体
+          - patterns:
+              - pattern-either:
+                  - pattern: $DSP.setUrl($URL)
+                  - pattern: $DSP.setPassword($PWD)
+                  - pattern: $DSP.setUsername($USER)
+              - metavariable-type:
+                  metavariable: $DSP
+                  types:
+                    - DataSourceProperty
+                    - com.baomidou.dynamic.datasource.spring.boot.autoconfigure.DataSourceProperty
       # 字面量排除
       - pattern-not: DriverManager.getConnection("...", ...)
       - pattern-not: java.sql.DriverManager.getConnection("...", ...)
