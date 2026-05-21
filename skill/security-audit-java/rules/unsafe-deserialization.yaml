@@ -26,8 +26,11 @@ rules:
       - pattern-either:
           # Java 原生反序列化
           - pattern: new ObjectInputStream($STREAM).readObject()
+          - pattern: new ObjectInputStream($STREAM).readUnshared()
           - patterns:
-              - pattern: $OIS.readObject()
+              - pattern-either:
+                  - pattern: $OIS.readObject()
+                  - pattern: $OIS.readUnshared()
               - pattern-either:
                   - pattern-inside: |
                       ObjectInputStream $OIS = ...;
@@ -37,13 +40,18 @@ rules:
                       ...
           # XStream
           - pattern: $XSTREAM.fromXML($DATA, ...)
-          # SnakeYAML
-          - pattern: new Yaml().load($DATA, ...)
-          - pattern: new Yaml(...).load($DATA, ...)
-          - pattern: new Yaml().loadAs($DATA, ...)
-          - pattern: new Yaml(...).loadAs($DATA, ...)
-          - pattern: new Yaml().loadAll($DATA, ...)
-          - pattern: new Yaml(...).loadAll($DATA, ...)
+          # SnakeYAML（排除 SafeConstructor —— 安全用法）
+          - patterns:
+              - pattern-either:
+                  - pattern: new Yaml().load($DATA, ...)
+                  - pattern: new Yaml().loadAs($DATA, ...)
+                  - pattern: new Yaml().loadAll($DATA, ...)
+                  - pattern: new Yaml($CTOR, ...).load($DATA, ...)
+                  - pattern: new Yaml($CTOR, ...).loadAs($DATA, ...)
+                  - pattern: new Yaml($CTOR, ...).loadAll($DATA, ...)
+              - pattern-not: new Yaml(new SafeConstructor(), ...).load($DATA, ...)
+              - pattern-not: new Yaml(new SafeConstructor(), ...).loadAs($DATA, ...)
+              - pattern-not: new Yaml(new SafeConstructor(), ...).loadAll($DATA, ...)
           # XMLDecoder —— 任何非字面量参数均高危，反序列化过程中执行 XML 中的字节码
           - pattern: new XMLDecoder($STREAM)
           - pattern: new java.beans.XMLDecoder($STREAM)
@@ -112,21 +120,6 @@ rules:
               - metavariable-type:
                   metavariable: $DATA
                   type: String
-          # FastJson 2.x —— JSON.parseObject 指定目标类但输入来自外部请求
-          # 当目标类含敏感字段或嵌套多态时仍存在风险
-          - patterns:
-              - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA, $CLASS)
-              - metavariable-type:
-                  metavariable: $DATA
-                  type: String
-          # Jackson ObjectMapper —— readValue 接收非字面量输入（未启用 DefaultTyping 也可能被利用）
-          - patterns:
-              - pattern: $OM.readValue($DATA, $CLASS)
-              - metavariable-type:
-                  metavariable: $OM
-                  types:
-                    - ObjectMapper
-                    - com.fasterxml.jackson.databind.ObjectMapper
       # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
       - pattern-not: $XS.fromXML("...", ...)
       - pattern-not: new Yaml().load("...", ...)
@@ -137,8 +130,5 @@ rules:
       - pattern-not: new Yaml(...).loadAll("...", ...)
       # FastJson 2.x 字面量排除
       - pattern-not: com.alibaba.fastjson2.JSON.parseObject("...")
-      - pattern-not: com.alibaba.fastjson2.JSON.parseObject("...", $CLASS)
       - pattern-not: com.alibaba.fastjson2.JSON.parse("...")
       - pattern-not: com.alibaba.fastjson2.JSON.parseArray("...")
-      # Jackson ObjectMapper 字面量排除
-      - pattern-not: $OM.readValue("...", $CLASS)
