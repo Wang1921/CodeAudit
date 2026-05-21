@@ -1,6 +1,6 @@
 ---
 name: security-audit-java
-description: Java 安全审计 Agent 运行时指导。为 CodeAudit 引擎的 4 个专业 Agent（ReverseTracer / RedValidator / BlueValidator / LogicAuditor）提供领域知识注入。当用户在 Java 项目语境下提出安全审计需求时触发。支持 Maven / Gradle / 多模块项目。兼容 OpenCode 与 Claude Code。
+description: Java 安全审计 Agent 运行时指导。当 ReverseTracer / RedValidator / BlueValidator / LogicAuditor 任一 Agent 运行时，按角色加载对应的领域知识。当用户在 Java 项目语境下提出安全审计需求时触发。支持 Maven / Gradle / 多模块项目。兼容 OpenCode 与 Claude Code。
 ---
 
 # Java 安全审计 Agent 运行时指导
@@ -8,14 +8,18 @@ description: Java 安全审计 Agent 运行时指导。为 CodeAudit 引擎的 4
 本 Skill 为 CodeAudit 引擎的各 Agent 提供运行时领域知识，不独立执行扫描。
 扫描由引擎的 SemgrepScanner 完成，Agent 按角色分工协作完成漏洞验证和裁决。
 
-## Agent 角色概览
+## 如何使用
 
-| Agent | 职责 | 指导文档 |
-|---|---|---|
-| **ReverseTracer** | 从 sink 逆向追踪污点变量至外部入口 | [guides/reverse-tracer.md](guides/reverse-tracer.md) |
-| **RedValidator** | 验证可利用性，构造攻击向量和 PoC | [guides/red-validator.md](guides/red-validator.md) |
-| **BlueValidator** | 最终裁决：防御是否有效 / 静态 sink 定性 | [guides/blue-validator.md](guides/blue-validator.md) |
-| **LogicAuditor** | 审查 API 路由的业务逻辑安全 | [guides/logic-auditor.md](guides/logic-auditor.md) |
+当你作为某个 Agent 角色工作时，用 `read` 工具读取对应的指导文档：
+
+| 你的角色 | 读取此文件 |
+|---|---|
+| **ReverseTracer** | `$SKILL_DIR/guides/reverse-tracer.md` |
+| **RedValidator** | `$SKILL_DIR/guides/red-validator.md` |
+| **BlueValidator** | `$SKILL_DIR/guides/blue-validator.md` |
+| **LogicAuditor** | `$SKILL_DIR/guides/logic-auditor.md` |
+
+需要按漏洞类型查阅深度分析时，读取 `$SKILL_DIR/reference/INDEX.md` 找到对应文档。
 
 ## Agent 协作流程
 
@@ -29,10 +33,6 @@ SemgrepScanner ──→ ReverseTracer ──→ RedValidator ──→ BlueVali
 2. Sink → ReverseTracer 追踪污点链 → RedValidator 验证可利用性 → BlueValidator 最终裁决
 3. API 路由 → LogicAuditor 审查业务逻辑 → RedValidator → BlueValidator
 4. BlueValidator 输出最终裁定（VULNERABLE / DEFENDED）→ 汇入报告
-
-## 漏洞类型参考
-
-各 Agent 按漏洞类型查阅深度分析文档：[reference/INDEX.md](reference/INDEX.md)
 
 ## 共享约束
 
