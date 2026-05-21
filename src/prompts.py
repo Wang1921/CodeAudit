@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -7,6 +8,19 @@ import yaml
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
+
+# Skill guides 目录：按 agent 角色提供领域知识注入
+_SKILL_DIR = Path(__file__).resolve().parent.parent / "skill" / "security-audit-java"
+_GUIDES_DIR = _SKILL_DIR / "guides"
+
+
+def load_agent_guide(agent_name: str) -> str:
+    """加载 skill/guides/ 下对应 agent 的运行时指导文档。"""
+    guide_path = _GUIDES_DIR / f"{agent_name}.md"
+    if guide_path.exists():
+        return guide_path.read_text(encoding="utf-8")
+    logger.debug("Agent guide not found: %s", guide_path)
+    return ""
 
 
 def _load_yaml_doc(relative_path: str) -> dict[str, Any]:
@@ -49,16 +63,32 @@ BLUE_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/blue_validator.yaml")
 RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
 
 def format_reverse_tracer_prompt(payload_json: str) -> str:
-    return REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    prompt = REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    guide = load_agent_guide("reverse-tracer")
+    if guide:
+        prompt += f"\n\n## Agent 运行时指导\n{guide}"
+    return prompt
 
 def format_logic_auditor_prompt(payload_json: str) -> str:
-    return LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    prompt = LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    guide = load_agent_guide("logic-auditor")
+    if guide:
+        prompt += f"\n\n## Agent 运行时指导\n{guide}"
+    return prompt
 
 def format_red_validator_prompt(payload_json: str) -> str:
-    return RED_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    prompt = RED_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    guide = load_agent_guide("red-validator")
+    if guide:
+        prompt += f"\n\n## Agent 运行时指导\n{guide}"
+    return prompt
 
 def format_blue_validator_prompt(payload_json: str) -> str:
-    return BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    prompt = BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+    guide = load_agent_guide("blue-validator")
+    if guide:
+        prompt += f"\n\n## Agent 运行时指导\n{guide}"
+    return prompt
 
 def format_retry_prompt(error_details: str, raw_output: str) -> str:
     return RETRY_PROMPT_TEMPLATE.replace("{error_details}", error_details).replace("{raw_output}", raw_output)

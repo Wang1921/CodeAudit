@@ -48,15 +48,9 @@ if [[ -L "$TARGET" || -d "$TARGET" ]]; then
     rm -rf "$TARGET"
 fi
 
-# 直接复制而非软链：OpenCode skill 解析器更倾向真实文件，且 rules/*.yaml 需要从 skill cwd 读取。
 cp -r "$SCRIPT_DIR" "$TARGET"
-
-# 给脚本加可执行位
-chmod +x "$TARGET"/scripts/*.sh "$TARGET"/scripts/*.py 2>/dev/null || true
 
 echo "安装完成。"
 echo "  SKILL.md：$TARGET/SKILL.md"
-echo "  规则：   $TARGET/rules/（共 $(find "$TARGET/rules" -name '*.yaml' | wc -l) 个 yaml 文件）"
-echo ""
-echo "OpenCode：在任意 agent 里调用 \`skill({ name: \"${SKILL_NAME}\" })\` 加载。"
-echo "Claude Code：发起 Java 安全审计相关请求时会自动触发。"
+echo "  指导文档：$TARGET/guides/（共 $(find "$TARGET/guides" -name '*.md' | wc -l) 个）"
+echo "  参考文档：$TARGET/reference/（共 $(find "$TARGET/reference" -name '*.md' | wc -l) 个）"
