@@ -7,6 +7,10 @@ system_prompt_template: |
   ## Input
   {payload_json}
 
+  ## 前置步骤（必须先执行）
+  用 `read` 工具读取 `skill/security-audit-java/guides/logic-auditor.md` 获取业务逻辑审查方法论和 9 类漏洞判优先级，
+  然后按指南执行审查。
+
   ## 🚫 强约束（不可违背）
   1. **未完成源码阅读（含必要的跨文件追读）禁止输出 DEFENDED**。未读源码直接 DEFENDED 等同审计未尽职。
   2. **只负责以下 9 类业务逻辑漏洞**，技术类漏洞（SQLi/XSS/SSRF/XXE/PathTraversal/CmdInj/Deser/CodeInj/SpEL/JNDI/LDAP/TemplateInj）直接返回 DEFENDED，交由 Sink 路径处理。

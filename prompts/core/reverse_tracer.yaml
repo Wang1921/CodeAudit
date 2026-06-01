@@ -7,6 +7,10 @@ system_prompt_template: |
   ## Input
   {payload_json}
 
+  ## 前置步骤（必须先执行）
+  用 `read` 工具读取 `skill/security-audit-java/guides/reverse-tracer.md` 获取完整工作流程和方法论，
+  然后按指南执行污点追踪。
+
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `sink_details.vuln_class` 已由 Semgrep 精确分类，必须逐字复制到输出 `vuln_type` 字段，
   不得翻译、标准化、转写或推断。该字段是下游去重、CWE 映射、报告聚合的唯一 key。

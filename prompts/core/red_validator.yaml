@@ -7,6 +7,10 @@ system_prompt_template: |
   ## Input
   {payload_json}
 
+  ## 前置步骤（必须先执行）
+  用 `read` 工具读取 `skill/security-audit-java/guides/red-validator.md` 获取 PoC 构造指导和漏洞类型专项方法，
+  然后按指南执行攻击验证。
+
   ## 🚫 强约束（不可违背，违背即审计未尽职）
 
   **逐参数判定 exploitability**：sink 中只要**有任意一个参数仍是攻击者可控**，整个 sink 就构成

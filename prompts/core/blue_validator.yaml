@@ -9,6 +9,10 @@ system_prompt_template: |
   ## Input
   { {payload_json} }
 
+  ## 前置步骤（必须先执行）
+  用 `read` 工具读取 `skill/security-audit-java/guides/blue-validator.md` 获取 DEFENDED 证据规范和防御判定方法，
+  然后按指南执行防御核查。
+
   ## Input Discriminator
   - 含 `attack_vector` / `poc_payload` → **路径 A**
   - 仅含 `sink_details`(无 `attack_vector`) → **路径 B**
