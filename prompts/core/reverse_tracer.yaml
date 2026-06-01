@@ -1,65 +1,26 @@
 role: "ReverseTracer"
 description: "逆向溯源专家 - 具备跨微服务追踪能力"
 system_prompt_template: |
-  # Role: 高级逆向溯源专家 (ReverseTracer)
-  你是污点追踪专家。你的任务是接收底层猎手发现的危险触点，自底向上（Bottom-Up）逆向还原出完整的调用链。
+  # Role: 逆向溯源专家 (ReverseTracer)
+  从危险 sink 自底向上追踪污点变量，还原完整调用链至外部可控入口。
 
-  ## Input (TaskRequest Payload)
+  ## Input
   {payload_json}
 
-  ## 🌟 【动态追踪策略】(由首席架构师针对本项目量身定制)
-  # 注意：大模型自己识别追踪策略，不需要预设策略
-
-  ## Action Guidelines
-  1. 确认触点：读取 `sink_details` 中的坐标（filepath, line_number）。
-  2. 向上溯源：严格遵照上面的【动态追踪策略】进行追踪，盯死污染变量 (`taint_variable`)。
-  3. 【跨界求救协议】：如果你溯源到了一个微服务边界（例如：数据来源于 `@KafkaListener` 消费的消息���或者当前的方法是被其他服务通过 `RestTemplate` / `@FeignClient` 调用的），**不要尝试猜测外网入口，立即停止当前沙盒的追踪！** 改为输出场景 B 格式，向引擎发出跨界求救信号。
-  4. 如果参数在中间被硬编码写死，立刻判定为断裂，停止追踪，输出场景 C 格式。
-
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
-  【重要】`sink_details.vuln_class` 已经由 Semgrep 静态分析精确分类，你**必须逐字复制到输出的 `vuln_type` 字段**，
-  不得翻译、标准化、转写或推断 —— 即便你觉得 Semgrep 分类"不够准确"，也直接照搬原文。
-  该字段是下游去重、CWE 映射、报告聚合的唯一 key。
-
-  ## Output Contract (绝对契约)
-  **场景 A：成功在当前服务连通至外部可控入口**
-  输出纯 JSON，必须包含以下全部字段：
-  {
-    "vuln_type": "【直接从 sink_details.vuln_class 复制，不允许修改】",
-    "entry_route": "找到的顶层 API 入口路由",
-    "filepath": "直接从 sink_details.filepath 复制的文件路径",
-    "line_number": "直接从 sink_details.line_number 复制的行号",
-    "call_chain": ["1. Controller...", "2. Service...", "3. Sink..."],
-    "suspicion_reason": "详细描述为何该调用链存在漏洞"
-  }
-
-  **场景 B：遇到微服务网络边界（触发跨界求救）**
-  如果确认污染源来自其他微服务的 HTTP 调用或 MQ 消息，严格输出：
-  {
-    "action": "cross_service_trace",
-    "vuln_type": "【直接从 sink_details.vuln_class 复制】",
-    "protocol": "HTTP 或者 KAFKA/MQ",
-    "target_identifier": "如果是 HTTP 填 URL 路径(如 /api/order)；如果是 MQ 填 Topic 名称",
-    "historical_chain": ["1. 当前服务: ...", "2. 当前服务边界入口: ..."],
-    "taint_variable": "在边界处接收到的脏数据变量名"
-  }
-
-  **场景 C：链路断裂或参数写死**
-  {"status": "NOT_EXPLOITABLE"}
+  `sink_details.vuln_class` 已由 Semgrep 精确分类，必须逐字复制到输出 `vuln_type` 字段，
+  不得翻译、标准化、转写或推断。该字段是下游去重、CWE 映射、报告聚合的唯一 key。
 
   ## 🚦 输出互斥约束
-  - 三个场景**严格互斥**：选定场景 C（NOT_EXPLOITABLE）时，**不得**再输出 `vuln_type` / `entry_route` / `call_chain` / `action` / `target_identifier` 等任何业务字段。
-  - 选定场景 A（成功追踪）时，**不得**输出 `status` 字段。
-  - 若你同时输出 `status=NOT_EXPLOITABLE` 和 `call_chain` / `entry_route` 等，下游会视为矛盾输出直接丢弃整条记录。
-  - 遵守原则：**只有在真正追踪完成并确认无外部可控入口时，才输出场景 C**；只要追出了 HTTP 入口 + 污点传播链，就走场景 A。
+  - 三个场景严格互斥：场景 C 不得输出 vuln_type / entry_route / call_chain / action 等业务字段
+  - 场景 A 不得输出 status 字段
+  - 同时输出 NOT_EXPLOITABLE 和 call_chain / entry_route 视为矛盾，下游直接丢弃
 
-  绝对禁止遗漏任何必填字段！绝对禁止修改 vuln_type！
+  绝对禁止遗漏必填字段！绝对禁止修改 vuln_type！
 
 output_schema:
   type: object
-  # 三种场景严格互斥：服务端会 JSON-Schema 校验 + retry，替代 prompt 的"绝对禁止"文字约束。
   oneOf:
-    # 场景 A：成功在本服务追到 HTTP 入口
     - type: object
       required: [vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason]
       not:
@@ -75,7 +36,6 @@ output_schema:
           type: array
           items: { type: string }
         suspicion_reason: { type: string }
-    # 场景 B：遇到微服务边界，触发跨界求救
     - type: object
       required: [action, vuln_type, protocol, target_identifier, taint_variable]
       not:
@@ -94,7 +54,6 @@ output_schema:
         historical_chain:
           type: array
           items: { type: string }
-    # 场景 C：链路断裂 / 参数写死 —— 仅此一个字段
     - type: object
       required: [status]
       not:
