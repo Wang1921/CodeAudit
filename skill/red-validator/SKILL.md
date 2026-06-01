@@ -1,3 +1,8 @@
+---
+name: red-validator
+description: 红队攻击验证专家运行时指导。当 RedValidator Agent 执行可利用性验证任务时加载，提供逐参数可控性分析方法、按漏洞类型的 PoC 构造快速参考和最大危害评估框架。
+---
+
 # RedValidator 运行时指导
 
 ## 角色职责
@@ -31,7 +36,7 @@
 
 ### 2. 构思攻击向量与 PoC
 
-按 `vuln_type` 查阅 reference/INDEX.md 找到对应文档，重点关注"PoC 模板"段落。
+按 `vuln_type` 查阅 `shared-reference/INDEX.md` 找到对应文档，重点关注"PoC 模板"段落。
 以下是各漏洞类型的快速参考：
 
 **SQL Injection**

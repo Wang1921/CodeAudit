@@ -8,7 +8,7 @@ system_prompt_template: |
   {payload_json}
 
   ## 前置步骤（必须先执行）
-  用 `read` 工具读取 `skill/security-audit-java/guides/logic-auditor.md` 获取业务逻辑审查方法论和 9 类漏洞判优先级，
+  用 `skill` 工具加载 `logic-auditor` skill 获取业务逻辑审查方法论和 9 类漏洞判优先级，
   然后按指南执行审查。
 
   ## 🚫 强约束（不可违背）

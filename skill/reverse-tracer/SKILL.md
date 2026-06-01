@@ -1,3 +1,8 @@
+---
+name: reverse-tracer
+description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行污点追踪任务时加载，提供从 sink 到外部入口的完整工作流程、污点净化识别、调用链构建规范和漏洞类型专项追踪要点。
+---
+
 # ReverseTracer 运行时指导
 
 ## 角色职责
@@ -73,7 +78,7 @@
 
 ## 漏洞类型专项指导
 
-按 `vuln_class` 查阅 reference/INDEX.md 找到对应文档，重点关注"数据流追溯"段落。
+按 `vuln_class` 查阅 `shared-reference/INDEX.md` 找到对应文档，重点关注"数据流追溯"段落。
 
 常见漏洞的追踪要点：
 - **SQL Injection**：追踪 SQL 字符串的拼接来源，区分 `${}` 和 `#{}`

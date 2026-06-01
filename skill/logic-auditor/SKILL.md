@@ -1,3 +1,8 @@
+---
+name: logic-auditor
+description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent 审查 API 路由的业务逻辑安全时加载，提供跨文件追读方法论、9 类漏洞判优先级、技术类排除规则和漏洞类型专项参考索引。
+---
+
 # LogicAuditor 运行时指导
 
 ## 角色职责
@@ -90,7 +95,7 @@
 
 ## 漏洞类型专项指导
 
-按 `vuln_type` 查阅 reference/INDEX.md：
+按 `vuln_type` 查阅 `shared-reference/INDEX.md` 找到对应文档：
 - IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass → `authz-family.md`
 - Mass Assignment / Workflow Bypass / Race Condition → `business-logic-family.md`
 - Hardcoded Backdoor → `credentials-backdoor.md`

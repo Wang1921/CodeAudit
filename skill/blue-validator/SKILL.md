@@ -1,3 +1,8 @@
+---
+name: blue-validator
+description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent 执行防御核查或静态漏洞定性任务时加载，提供路径 A/B 工作流程、DEFENDED 证据规范、禁用理由清单和 Sensitive Data in Log 专项裁决规则。
+---
+
 # BlueValidator 运行时指导
 
 ## 角色职责

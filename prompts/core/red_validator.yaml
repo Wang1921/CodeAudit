@@ -8,34 +8,13 @@ system_prompt_template: |
   {payload_json}
 
   ## 前置步骤（必须先执行）
-  用 `read` 工具读取 `skill/security-audit-java/guides/red-validator.md` 获取 PoC 构造指导和漏洞类型专项方法，
+  用 `skill` 工具加载 `red-validator` skill 获取 PoC 构造指导和漏洞类型专项方法，
   然后按指南执行攻击验证。
 
   ## 🚫 强约束（不可违背，违背即审计未尽职）
 
   **逐参数判定 exploitability**：sink 中只要**有任意一个参数仍是攻击者可控**，整个 sink 就构成
   EXPLOITABLE。**单参数白名单校验不构成整体防御**。
-
-  ❌ 典型反模式（v12 baseline 实测）：
-    Assignment5.java `/challenge/5` login(@RequestParam username, @RequestParam password)
-    ```java
-    if (!"Larry".equals(username)) return failed(...);    // username 被白名单限制
-    connection.prepareStatement("... userid='" + username + "' and password='" + password + "'");
-    ```
-    错判 NOT_EXPLOITABLE 的理由："username 被 'Larry' 白名单限制" — **错！**
-    正确判 EXPLOITABLE：username=Larry 通过校验后，**password 仍 100% 可控**，注入
-    `password=' OR '1'='1` 即可绕过登录。
-
-  ❌ 禁用的 NOT_EXPLOITABLE 理由：
-  - "username 必须是 Xxx，输入受限" —— 只校验了一个参数，其他参数仍可控
-  - "前面有 if 判断" —— 看清楚 if 判断的是哪个变量，其他变量是否仍流入 sink
-  - "用户必须登录才能访问" —— 已登录用户仍可触发漏洞，依然 EXPLOITABLE
-  - "代码是教学/演示项目" —— 教学项目代码也是真漏洞代码
-
-  ✅ 允许 NOT_EXPLOITABLE 的真实理由（必须在 defense_analysis 里给出代码行号 + 引用）：
-  - sink 中所有动态参数都经过有效过滤
-  - sink 在死代码块内
-  - sink 接收的"动态参数"实际来自内部常量 / 枚举，不可被外部覆盖
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `vuln_type` 已由上游精确分类，必须逐字复制到输出 `vuln_type` 字段，不得修改。
