@@ -2,9 +2,10 @@
 
 按 finding 的 `vuln_type` 查下表找到对应的 reference 文档。
 本 skill 版本文档仅包含 **sink 模式速查 / 数据流追溯重点 / 常见误判** 段落（溯源所需），
-不含防御机制或 PoC 模板（由下游 red-validator / blue-validator 的 skill 提供）。
+不含防御机制、PoC 模板（由下游 skill 提供），也不含业务逻辑类漏洞（由 logic-auditor 处理）。
 
 未在表内的 `vuln_type` 按"injection-family.md"的通用模板处理。
+业务逻辑类漏洞（IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass / Mass Assignment / Workflow Bypass / Race Condition / Insufficient Anti-Automation / Hardcoded Backdoor / Open Redirect）由 logic-auditor 自顶向下审查，不经过污点追踪。
 
 ## 映射表
 
@@ -41,11 +42,3 @@
 | **Stack Trace Exposure** | [info-disclosure.md](info-disclosure.md) |
 | **Sensitive Data in Log** | [info-disclosure.md](info-disclosure.md) |
 | **Sensitive Data in URL** | [info-disclosure.md](info-disclosure.md) |
-| **IDOR** | [authz-family.md](authz-family.md) |
-| **Missing Authorization** | [authz-family.md](authz-family.md) |
-| **Privilege Escalation** | [authz-family.md](authz-family.md) |
-| **Authentication Bypass** | [authz-family.md](authz-family.md) |
-| **Mass Assignment** | [business-logic-family.md](business-logic-family.md) |
-| **Workflow Bypass** | [business-logic-family.md](business-logic-family.md) |
-| **Race Condition** | [business-logic-family.md](business-logic-family.md) |
-| **Insufficient Anti-Automation** | [business-logic-family.md](business-logic-family.md) |
