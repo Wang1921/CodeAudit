@@ -325,6 +325,10 @@ class AuditEngine:
                 target_cwd = self._get_service_dir(sink_file) # 局部空投：进入微服务子目录
                 allowed_tools = "lsp,read,codesearch" # 开启重型武器 lsp
 
+                # 按 recipient 查 PER_AGENT_TIMEOUT 覆盖表，未列出的 Agent 用默认 MAX_AGENT_TIMEOUT。
+                # 例：LogicAuditor 需要更长预算做跨文件追读。
+                agent_timeout = PER_AGENT_TIMEOUT.get(recipient, MAX_AGENT_TIMEOUT)
+
                 # 获取 Claude Agent（自动管理会话）
                 agent = await self.agent_manager.get_agent(target_cwd, timeout=agent_timeout)
 
@@ -333,9 +337,6 @@ class AuditEngine:
 
                 # 使用 Claude Agent 执行任务
                 result = None
-                # 按 recipient 查 PER_AGENT_TIMEOUT 覆盖表，未列出的 Agent 用默认 MAX_AGENT_TIMEOUT。
-                # 例：LogicAuditor 需要更长预算做跨文件追读。
-                agent_timeout = PER_AGENT_TIMEOUT.get(recipient, MAX_AGENT_TIMEOUT)
 
                 # 设置 session tracker
                 agent.set_session_tracker(self.tracker)
