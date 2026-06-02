@@ -1,0 +1,75 @@
+```mermaid
+flowchart TB
+    subgraph Scan["1. Semgrep 静态扫描"]
+        SG[SemgrepScanner] --> |sink 点| SINK["Sinks<br/>(SQL注入/命令注入/XXE/...)<br/>234 findings"]
+        SG --> |API 路由| ROUTE["Routes<br/>(Spring @GetMapping/@PostMapping/...)<br/>API endpoints"]
+    end
+
+    subgraph Trace["2. 污点追踪"]
+        RT[ReverseTracer<br/>逆向溯源专家] --> |场景A: 追到入口| TRACE_OK["完整调用链<br/>vuln_type + entry_route<br/>+ call_chain"]
+        RT --> |场景B: 微服务边界| CROSS["跨界求救<br/>cross_service_trace"]
+        RT --> |场景C: 链路断裂| NOT_EXP["NOT_EXPLOITABLE"]
+    end
+
+    subgraph Logic["2. 业务逻辑审查"]
+        LA[LogicAuditor<br/>业务逻辑推演专家] --> |发现缺陷| LOGIC_VULN["IDOR / 缺鉴权 /<br/>硬编码后门 / 竞态..."]
+        LA --> |逻辑严密| LOGIC_DEF["DEFENDED"]
+    end
+
+    subgraph Red["3. 红队攻击验证"]
+        RV[RedValidator<br/>红队攻击专家] --> |可利用| EXPLOIT["EXPLOITABLE<br/>attack_vector + poc_payload<br/>+ max_impact"]
+        RV --> |不可利用| NOT_EXP2["NOT_EXPLOITABLE<br/>+ defense_analysis"]
+    end
+
+    subgraph Blue["4. 蓝队防御核查"]
+        BV[BlueValidator<br/>蓝队防御专家] --> |防御无效| VULN["VULNERABLE<br/>完整漏洞报告<br/>+ mitigation_advice"]
+        BV --> |防御有效| DEFENDED["DEFENDED<br/>+ defense_analysis"]
+    end
+
+    subgraph Report["5. 报告生成"]
+        RPT[build_summary_report] --> SUMMARY["SUMMARY.md<br/>按严重度/类型/文件汇总<br/>+ 漏洞清单 + PoC"]
+    end
+
+    %% 主流程：Sink 路径
+    SINK --> |需要污点追踪| RT
+    SINK --> |静态漏洞<br/>(弱加密/硬编码/...)| BV
+
+    %% 主流程：Route 路径
+    ROUTE --> LA
+
+    %% ReverseTracer → RedValidator
+    TRACE_OK --> RV
+
+    %% LogicAuditor → RedValidator
+    LOGIC_VULN --> RV
+
+    %% RedValidator → BlueValidator
+    EXPLOIT --> BV
+
+    %% BlueValidator → Report
+    VULN --> RPT
+    DEFENDED -.-> |不计入漏洞| RPT
+
+    %% 跨微服务追踪
+    CROSS -.-> |引擎调度<br/>其他服务| RT
+
+    %% Skill 指导注入（右侧注释）
+    G1["guides/reverse-tracer.md<br/>污点追踪方法论"] -.-> RT
+    G2["guides/red-validator.md<br/>PoC构造指导"] -.-> RV
+    G3["guides/blue-validator.md<br/>DEFENDED证据规范"] -.-> BV
+    G4["guides/logic-auditor.md<br/>9类业务漏洞审查"] -.-> LA
+
+    %% 样式
+    style Scan fill:#e8f5e9,stroke:#4caf50
+    style Trace fill:#fff3e0,stroke:#ff9800
+    style Logic fill:#fff3e0,stroke:#ff9800
+    style Red fill:#ffebee,stroke:#f44336
+    style Blue fill:#e3f2fd,stroke:#2196f3
+    style Report fill:#f3e5f5,stroke:#9c27b0
+    style VULN fill:#ffcdd2,stroke:#f44336,color:#b71c1c
+    style EXPLOIT fill:#ffcdd2,stroke:#f44336,color:#b71c1c
+    style DEFENDED fill:#c8e6c9,stroke:#4caf50,color:#1b5e20
+    style NOT_EXP fill:#e0e0e0,stroke:#9e9e9e
+    style NOT_EXP2 fill:#e0e0e0,stroke:#9e9e9e
+    style LOGIC_DEF fill:#c8e6c9,stroke:#4caf50,color:#1b5e20
+```
