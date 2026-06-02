@@ -8,32 +8,6 @@
 | 例子 | `String password = "admin123"` | `if (input.equals("admin123")) return success()` |
 | 风险 | 被泄露后任意人可用 | 知道字面量即可绕过认证 |
 
-## sink 模式速查
-
-### Hardcoded Credentials
-- `String password / secret / apiKey / token / privateKey = "literal"` —— 字段/局部变量赋值
-- `@Value("plaintext-password")` 注入
-- `Properties.setProperty("db.password", "literal")`
-- `Connection conn = DriverManager.getConnection(url, "user", "literal-password")` —— 内联凭证
-- `Cipher.init(..., new SecretKeySpec("literal-key".getBytes(), "AES"))`
-- 配置文件 `application.properties` / `.yml` 含明文密码（按文件路径过滤）
-
-### Hardcoded Backdoor
-- `if ($X.equals("literal")) return success(...)`
-- `if ("literal".equals($X)) return $OK.build()`
-- `if ($X.equals(getStaticPassword())) ...` 其中 `getStaticPassword()` 返回字面量
-- 多用户身份验证里某个字面量是 master 凭证
-
-## 数据流追溯重点
-
-### Hardcoded Credentials
-fast-path：直接看变量赋值是否字面量字符串即可。
-
-### Hardcoded Backdoor
-1. 找 `if-equals-literal` 模式；
-2. 看 if 分支内：是否 `return success(...)` / `return $OK.build()` / `setAuthenticated(true)` / `setAdmin(true)` 等"放行/提权"动作；
-3. 反向：if 分支只是返回错误码 / 失败结果（如 `return failed(...)`）则**不是**后门，可能只是错误处理。
-
 ## 防御机制速查
 
 ### Credentials
@@ -84,13 +58,3 @@ suspicion_reason: "Line 42 String password = \"dave\";
                   — DB 查询失败时不抛错而是返回 fallback 字面量 \"dave\",
                   完成方 if (userid_6b.equals(getPassword())) 时输入 \"dave\" 即登录成功."
 ```
-
-## PoC 模板
-
-| 类型 | 攻击思路 |
-|---|---|
-| Hardcoded JWT secret | 拿到源码 → 自签包含 `admin=true` claim 的 token |
-| Hardcoded DB 密码 | 直接连数据库（如果数据库网络可达） |
-| Hardcoded API key | 用该 key 调用第三方服务（如 Stripe / Twilio）造成账单 |
-| Hardcoded Backdoor | 直接输入硬编码字面量登录获 admin |
-| Fallback Backdoor | 触发 DB 失败（拒绝服务 / 网络隔离） + 输入 fallback 字面量 |

@@ -4,27 +4,6 @@
 
 应用根据外部参数做跳转或转发。攻击者控制目标 URL → 钓鱼 / 内网探测 / 二次攻击。
 
-## sink 模式速查
-
-### Open Redirect（302 跳转）
-- `response.sendRedirect($URL)` —— Servlet API
-- `return "redirect:" + $URL` —— Spring MVC（String 视图）
-- `RedirectView($URL)` / `new RedirectView($URL).renderMergedOutputModel(...)`
-- `ResponseEntity.status(302).header("Location", $URL).build()`
-- `ModelAndView("redirect:" + $URL)` —— Spring MVC
-
-### Unvalidated Forward（服务器内部转发）
-- `request.getRequestDispatcher($PATH).forward(request, response)` —— 转到任意内部资源
-- `return "forward:" + $PATH` —— Spring MVC
-
-## 数据流追溯重点
-
-1. 找跳转 / 转发 sink；
-2. 看 URL/path 来源：
-   - `@RequestParam String url` / `@RequestParam String returnTo`
-   - 数据库读出的 URL（Stored Redirect）
-3. 任一可控 + 无白名单 → VULNERABLE。
-
 ## 防御机制速查
 
 ### 主机白名单
@@ -77,17 +56,3 @@ suspicion_reason: "Line 21 return \"redirect:\" + url;
                   — url 来自 @RequestParam (line 18),未做任何 host 校验,
                   攻击者输入 url=https://evil.com/phishing 即可被钓鱼."
 ```
-
-## PoC 模板
-
-| 场景 | poc_payload |
-|---|---|
-| 基础重定向 | `url=https://evil.com/phishing` |
-| Protocol-relative | `url=//evil.com/phishing` |
-| 白名单绕过 (子串) | `url=https://attacker.com/?safe=safedomain.com` |
-| 白名单绕过 (前缀+@) | `url=https://safedomain.com@evil.com/` |
-| 白名单绕过 (前缀+.) | `url=https://safedomain.com.evil.com/` |
-| URL 双重编码 | `url=https%3A%2F%2Fsafe.com%2540evil.com` |
-| Unvalidated Forward | `path=/WEB-INF/web.xml` / `path=/admin/internal-only.jsp` |
-| Data URI（部分浏览器） | `url=data:text/html,<script>alert(1)</script>` |
-| JavaScript scheme | `url=javascript:alert(1)` （仅在 `href` 等 sink 生效，非 sendRedirect）|

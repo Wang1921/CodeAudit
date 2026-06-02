@@ -1,7 +1,8 @@
 # Reference Index — 漏洞类型 → 分析步骤文档映射
 
-阶段 3 单条裁决时，按 finding 的 `vuln_type` 查下表找到对应的 reference 文档，
-**严格按文档的"sink 模式 / 数据流追溯 / 防御机制 / 常见误判 / 证据引用 / PoC 模板"6 段流程**执行。
+按 finding 的 `vuln_type` 查下表找到对应的 reference 文档。
+本 skill 版本文档仅包含 **sink 模式速查 / 数据流追溯重点 / 常见误判** 段落（溯源所需），
+不含防御机制或 PoC 模板（由下游 red-validator / blue-validator 的 skill 提供）。
 
 未在表内的 `vuln_type` 按"injection-family.md"的通用模板处理。
 

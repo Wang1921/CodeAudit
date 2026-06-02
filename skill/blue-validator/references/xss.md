@@ -1,34 +1,5 @@
 # XSS (Cross-Site Scripting, CWE-79)
 
-## sink 模式速查
-
-### Servlet API 直接输出
-- `response.getWriter().print/println/write/append/format/printf($X)`
-- `response.getOutputStream().print/println/write($X)`
-- `PrintWriter/Writer $W; $W.print/println/write($X)` (持有 writer 变量)
-- `ServletOutputStream $O; $O.print/println($X)`
-
-### Spring MVC
-- `Model/ModelMap.addAttribute($KEY, $X)` —— 关键看模板用 `th:text`（转义）还是 `th:utext`（不转义）
-- `ResponseEntity.body($X)` —— 直接塞响应体
-
-### Thymeleaf / JSP
-- Thymeleaf `th:utext="${...}"` ⚠️ 不转义
-- JSP `<%= ... %>` ⚠️ 不转义
-- JSP EL `${...}`（容器版本不同有差异）
-
-### 邮件 / 通知体
-- `JavaMailSender.send(...)` 的 HTML 邮件正文含外部输入（属 Email Header Injection / Stored XSS）
-
-## 数据流追溯重点
-
-1. 找输出 sink；
-2. 看输出内容来源：
-   - `@RequestParam String input` 等直接入参
-   - 数据库读取（Stored XSS）
-   - 文件 / 缓存读取
-3. 任一可控 + 无 HTML/JS 转义 → VULNERABLE。
-
 ## 防御机制速查
 
 ### 输出编码（按上下文）
@@ -84,15 +55,3 @@ suspicion_reason: "Line 35 model.addAttribute(\"htmlContent\", commentBody);
                   commentBody 来自 @RequestParam (line 22),未经任何 HTML 转义,
                   可注入 <script>alert(document.cookie)</script>."
 ```
-
-## PoC 模板
-
-| Context | poc_payload |
-|---|---|
-| HTML 元素内容 | `<script>alert(1)</script>` / `<img src=x onerror=alert(1)>` |
-| HTML 属性双引号内 | `"><svg/onload=alert(1)>` / `" onmouseover="alert(1)` |
-| JavaScript 字符串内 | `</script><script>alert(1)</script>` |
-| URL 参数 | `javascript:alert(1)` (href / iframe.src) |
-| DOM-based XSS | `#</script><script>alert(1)</script>` (URL fragment) |
-| Bypass simple filter | `<sCrIpT>alert(1)</script>` / `<scr<script>ipt>alert(1)</script>` |
-| Bypass CSP (nonce-based) | 找 nonce 泄露的辅助渠道或 `script-src 'self'` 时上传 JS 文件 |
