@@ -10,7 +10,6 @@ from typing import Any, AsyncIterator
 import jsonschema
 from claude_agent_sdk import (
     ClaudeAgentOptions,
-    ClaudeSDKClient,
     query,
     Message,
     TextBlock,
@@ -66,7 +65,6 @@ class ClaudeAgent:
         self.cwd = cwd
         self.timeout = timeout
         self.system_prompt = system_prompt
-        self._client: ClaudeSDKClient | None = None
         self._session_tracker = None
         self._current_task_id = None
 
@@ -111,7 +109,6 @@ class ClaudeAgent:
         prompt: str,
         allowed_tools: str = "read,grep,lsp,codesearch",
         output_schema: dict | None = None,
-        format_retry_count: int = 4,
     ) -> dict[str, Any]:
         """
         执行 prompt，返回结果
@@ -233,10 +230,8 @@ class ClaudeAgent:
         return None
 
     async def close(self):
-        """关闭 agent"""
-        if self._client:
-            await self._client.disconnect()
-            self._client = None
+        """关闭 agent（当前实现无需清理资源）"""
+        pass
 
 
 class ClaudeAgentAsync(ClaudeAgent):
