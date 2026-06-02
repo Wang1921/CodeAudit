@@ -95,7 +95,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 ## 漏洞类型专项指导
 
-按 `vuln_type` 查阅 `shared-reference/INDEX.md` 找到对应文档：
+按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档：
 - IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass → `authz-family.md`
 - Mass Assignment / Workflow Bypass / Race Condition → `business-logic-family.md`
 - Hardcoded Backdoor → `credentials-backdoor.md`
