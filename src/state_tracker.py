@@ -303,6 +303,10 @@ class StateTracker:
         sessions = self.state["session_registry"].copy()
 
         for task_id, session_info in sessions.items():
+            # 跳过 Claude Agent 会话（使用 cwd 作为标识，无 HTTP 端口）
+            if session_info.get("server_port") == 0 and session_info.get("hostname") == "cli":
+                continue
+
             try:
                 base_url = f"http://{session_info['hostname']}:{session_info['server_port']}"
 
@@ -380,6 +384,7 @@ class StateTracker:
         def poll_loop():
             """后台线程：自带一个独立 asyncio loop，每秒触发
             update_sessions_from_opencode() 拉取每个 task 的最新 session 消息和 token 用量，
+            （注意：Claude Agent 会话会被跳过，因为它们没有 HTTP 端口）
             脱离主引擎事件循环不影响主流程节流。
             """
             loop = asyncio.new_event_loop()

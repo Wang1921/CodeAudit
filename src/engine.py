@@ -6,9 +6,9 @@ from pathlib import Path
 
 from src import prompts
 from src.a2a_bus import A2ABusManager
-from src.agent import OpenCodeAgent
+from src.claude_agent import ClaudeAgent
 from src.semgrep_scanner import SemgrepScanner
-from src.server_manager import OpenCodeServerManager
+from src.claude_manager import ClaudeAgentManager
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 
@@ -44,8 +44,8 @@ class AuditEngine:
         self.chain_semaphore = asyncio.Semaphore(MAX_CHAIN_AGENTS)
         # 全局服务路由字典：service_name -> service_root_dir
         self.service_route_map: dict = {}
-        # 沙盒池管理器
-        self.server_manager = OpenCodeServerManager(max_active_servers=5)
+        # Claude Agent 管理器
+        self.agent_manager = ClaudeAgentManager(max_active=MAX_CONCURRENT_AGENTS)
         # 跨微服务追踪结果缓存：(protocol, target_identifier) -> Future[Dict[service_name, parsed_result|None]]
         # 使用 Future 实现 in-flight coalescing：并发同 key 请求共享同一次计算
         self._cross_service_cache: dict[tuple[str, str], asyncio.Future] = {}
@@ -276,7 +276,7 @@ class AuditEngine:
           1. 读取 envelope，按 sender 决定走主 semaphore 还是 chain_semaphore（避免饥饿）。
           2. 拦截 Orchestrator 的跨微服务追踪请求，转给专用 handler 去重处理。
           3. 否则按 recipient 加载 prompt / output_schema / per-agent timeout，
-             调 OpenCodeAgent 跑一次 LLM，落库结果并交给 StateRouter 决定后续路由。
+             调 Claude Agent 跑一次 LLM，落库结果并交给 StateRouter 决定后续路由。
 
         异常处理：所有错误捕获后通过 bus.mark_failed(filepath) 落到 failed/ 目录，
         不抛出，让 dispatcher 继续处理其他任务。
@@ -325,37 +325,40 @@ class AuditEngine:
                 target_cwd = self._get_service_dir(sink_file) # 局部空投：进入微服务子目录
                 allowed_tools = "lsp,read,codesearch" # 开启重型武器 lsp
 
-                # 通过 Server Pool 获取端口
-                port = await self.server_manager.get_or_start_server(target_cwd)
+                # 获取 Claude Agent（自动管理会话）
+                agent = await self.agent_manager.get_agent(target_cwd, timeout=agent_timeout)
 
                 # 加载当前 Agent 的输出 Schema，启用服务端结构化 JSON 校验
                 output_schema = prompts.get_output_schema(recipient)
 
-                # 使用上下文管理器确保资源释放；超时时重试 MAX_TIMEOUT_RETRIES 次，
-                # 每次重置 session 拿干净环境（避免脏 thread state）。
+                # 使用 Claude Agent 执行任务
                 result = None
                 # 按 recipient 查 PER_AGENT_TIMEOUT 覆盖表，未列出的 Agent 用默认 MAX_AGENT_TIMEOUT。
                 # 例：LogicAuditor 需要更长预算做跨文件追读。
                 agent_timeout = PER_AGENT_TIMEOUT.get(recipient, MAX_AGENT_TIMEOUT)
+
+                # 设置 session tracker
+                agent.set_session_tracker(self.tracker)
+                agent.set_current_task(task_id)
+
                 for attempt in range(MAX_TIMEOUT_RETRIES + 1):
-                    async with OpenCodeAgent(port=port, timeout=agent_timeout) as agent:
-                        agent.set_session_tracker(self.tracker)
-                        agent.set_current_task(task_id)
-                        try:
-                            result = await agent.execute(
-                                prompt,
-                                allowed_tools=allowed_tools,
-                                output_schema=output_schema,
+                    try:
+                        result = await agent.execute(
+                            prompt,
+                            allowed_tools=allowed_tools,
+                            output_schema=output_schema,
+                        )
+                        break
+                    except TimeoutError as te:
+                        if attempt < MAX_TIMEOUT_RETRIES:
+                            logging.warning(
+                                f"Agent {recipient} 任务 {task_id} 超时（第 {attempt + 1}/{MAX_TIMEOUT_RETRIES + 1} 次），"
+                                f"换新 session 重试"
                             )
-                            break
-                        except TimeoutError as te:
-                            if attempt < MAX_TIMEOUT_RETRIES:
-                                logging.warning(
-                                    f"Agent {recipient} 任务 {task_id} 超时（第 {attempt + 1}/{MAX_TIMEOUT_RETRIES + 1} 次），"
-                                    f"换新 session 重试"
-                                )
-                                continue
-                            raise
+                            # 重新获取 agent 以创建新会话
+                            agent = await self.agent_manager.get_agent(target_cwd, timeout=agent_timeout)
+                            continue
+                        raise
 
                 logging.info(f"Agent {recipient} 执行完成。输出: {result}")
 
@@ -533,14 +536,13 @@ class AuditEngine:
         异常向上抛出，由调用方 gather(return_exceptions=True) 汇总。
         """
         logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
-        port = await self.server_manager.get_or_start_server(service_dir)
         output_schema = prompts.get_output_schema("ReverseTracer")
-        async with OpenCodeAgent(port=port, timeout=MAX_AGENT_TIMEOUT) as agent:
-            result = await agent.execute(
-                prompt,
-                allowed_tools="lsp,read,codesearch",
-                output_schema=output_schema,
-            )
+        agent = await self.agent_manager.get_agent(service_dir, timeout=MAX_AGENT_TIMEOUT)
+        result = await agent.execute(
+            prompt,
+            allowed_tools="lsp,read,codesearch",
+            output_schema=output_schema,
+        )
         tokens_used = result.pop('_tokens', 0)
         if tokens_used > 0:
             self.tracker.add_tokens(tokens_used)
@@ -591,15 +593,15 @@ class AuditEngine:
                 # 发现微服务
                 self.service_route_map = self._discover_microservices()
 
-                # 让沙盒池容量至少覆盖所有微服务，避免并发落到不同服务时反复 LRU 淘汰
+                # 让 Agent 池容量至少覆盖所有微服务，避免并发落到不同服务时反复 LRU 淘汰
                 service_count = len(self.service_route_map) or 1
-                desired_pool_size = max(self.server_manager.max_active_servers, service_count)
-                if desired_pool_size != self.server_manager.max_active_servers:
+                desired_pool_size = max(self.agent_manager.max_active, service_count)
+                if desired_pool_size != self.agent_manager.max_active:
                     logging.info(
-                        f"[Pool] 按发现的 {service_count} 个微服务扩容沙盒池: "
-                        f"{self.server_manager.max_active_servers} → {desired_pool_size}"
+                        f"[Pool] 按发现的 {service_count} 个微服务扩容 Agent 池: "
+                        f"{self.agent_manager.max_active} → {desired_pool_size}"
                     )
-                    self.server_manager.max_active_servers = desired_pool_size
+                    self.agent_manager.max_active = desired_pool_size
 
                 # 直接调用 Semgrep 扫描
                 logging.info("开始 Semgrep 扫描...")
@@ -664,8 +666,8 @@ class AuditEngine:
                         t.cancel()
                     await asyncio.gather(*still_alive, return_exceptions=True)
 
-            # 3) 关闭沙盒池
-            await self.server_manager.shutdown_all()
+            # 3) 关闭 Agent 管理器
+            await self.agent_manager.shutdown_all()
 
             # 4) 生成汇总报告（reports/SUMMARY.md）
             try:

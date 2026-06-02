@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codeaudit"
 version = "0.1.0"
-description = "双轨制多智能体代码审计系统：Python 异步引擎 + OpenCode 沙盒池 + Semgrep 静态扫描，发现技术型与业务逻辑型 Java 安全漏洞"
+description = "双轨制多智能体代码审计系统：Python 异步引擎 + Claude Agent SDK + Semgrep 静态扫描，发现技术型与业务逻辑型 Java 安全漏洞"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Wang1921" }]
@@ -29,6 +29,7 @@ dependencies = [
     "PyYAML>=6.0",
     "semgrep>=1.150",
     "jsonschema>=4.0",
+    "claude-agent-sdk>=0.1",
 ]
 
 [project.optional-dependencies]

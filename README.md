@@ -1,6 +1,6 @@
 # CodeAudit - 双轨制多智能体代码审计系统 (Multi-Agent Code Auditing System)
 
-CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审计引擎。系统通过 **Python 异步引擎** 驱动，结合 **OpenCode HTTP 沙盒池** 和 **Semgrep 静态扫描器**，利用多个具有特定安全专业领域的大模型智能体 (Agents) 进行协同作战。
+CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审计引擎。系统通过 **Python 异步引擎** 驱动，结合 **Claude Agent SDK**（调用本地 Claude Code CLI）和 **Semgrep 静态扫描器**，利用多个具有特定安全专业领域的大模型智能体 (Agents) 进行协同作战。
 
 系统采用独特的**双轨制（自底向上与自顶向下并行）**架构，通过 **A2A 文件系统消息总线** 实现 Agent 间通信，能够发现技术型漏洞（如 SQL 注入、路径遍历）和业务逻辑漏洞（如 IDOR 越权、条件竞争）。
 
@@ -13,15 +13,16 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 *   **文件系统即总线 (A2A over File System IPC)**
     *   采用本地文件系统目录（`.a2a_bus/`）作为异步消息总线。
     *   Agent 之间通过读写强类型的 JSON 信封 (TaskRequest / TaskResult) 进行任务流转，具备极强的可观测性和容错性。
-*   **HTTP 沙盒池 (HTTP Sandbox Pool)**
-    *   Python 引擎管理多个 OpenCode 服务器实例。默认最大 5 个并发，**引擎启动时按发现的微服务数自动扩容**至 `max(5, 服务数)`。
+*   **Claude Agent SDK 调用本地 Claude Code CLI**
+    *   Python 引擎管理多个 Claude Code CLI 会话。默认最大 5 个并发，**引擎启动时按发现的微服务数自动扩容**至 `max(5, 服务数)`。
     *   细粒度锁：不同 `cwd` 的冷启动并行，同 `cwd` 的热路径查询无全局串行。
-    *   双回收策略：LRU（容量满时淘汰最旧）+ Session 空闲监控（所有 session 持续 idle 超过 60 秒即可回收）。
-    *   自动健康检查 (`/global/health`)，失败时自动 dispose 并重启。
-*   **结构化输出与 oneOf 强校验 (Structured Output)**
-    *   每个 Agent 的 `output_schema` 由 OpenCode server 做 **JSON Schema 强校验**，校验通过的结果放在 `structured_output` 字段，引擎直接读取，避免脆弱的字符串解析。
-    *   ReverseTracer / RedValidator / BlueValidator / LogicAuditor 都用 **oneOf 多变体 schema**：场景互斥字段配 `not.required` 拒绝矛盾输出（如 `status=NOT_EXPLOITABLE` 不得同时携带 `call_chain`）。
-    *   服务端 `retryCount=4` 给 LLM 多次机会产出合规输出。
+    *   双回收策略：LRU（容量满时淘汰最旧）+ Session 空闲监控。
+    *   通过 `claude-agent-sdk` 包调用本地 Claude Code CLI 进行代码分析。
+*   **结构化输出与强校验 (Structured Output)**
+    *   每个 Agent 的 `output_schema` 通过 **Claude Agent SDK 的 `output_format` 配置**指定 JSON Schema，服务端返回结构化输出并自动校验。
+    *   `ResultMessage.structured_output` 包含服务端校验通过的 JSON，引擎直接读取。
+    *   客户端二次校验：用 jsonschema 验证 structured_output，确保数据合规。
+    *   降级处理：如果 structured_output 为空，从 response 文本提取 JSON。
     *   所有 Agent 仅赋 `lsp, read, codesearch` 工具，不赋 `write / bash`。依据文件路径归属动态推断工作目录（根目录 vs 微服务子目录）。
 *   **红蓝对抗验证 (Adversarial Validation)**
     *   **RedValidator**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。Prompt 内置 13 类 vuln_type 的 PoC 构造提示。
@@ -74,9 +75,9 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 
 ### 依赖要求
 - Python 3.10+
-- `opencode` CLI 工具链
+- `claude` CLI 工具（Claude Code）
 - `semgrep`（用于扫描 API 路由和漏洞点）
-- `aiohttp`, `PyYAML`
+- `aiohttp`, `PyYAML`, `jsonschema`, `claude-agent-sdk`
 
 ### 安装依赖
 ```bash
@@ -84,7 +85,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 pip install -e .
 
 # 或手动装最小依赖
-pip install aiohttp pyyaml semgrep
+pip install aiohttp pyyaml semgrep jsonschema claude-agent-sdk
 ```
 
 ### 启动引擎
@@ -126,8 +127,8 @@ CodeAudit/
 ├── src/                            # 核心引擎代码
 │   ├── main.py                     # CLI 入口
 │   ├── engine.py                   # 异步调度引擎（主循环 + 跨服务接力 + in-flight 追踪 + 收尾汇总）
-│   ├── agent.py                    # OpenCode HTTP 客户端（结构化输出 + retryCount=4）
-│   ├── server_manager.py           # HTTP 沙盒池管理器（细粒度锁 + LRU + 空闲回收）
+│   ├── agent.py                    # Claude Agent SDK 客户端
+│   ├── server_manager.py           # Claude Agent 会话管理器
 │   ├── a2a_bus.py                  # 文件系统消息总线（tmp+fsync+rename 原子写）
 │   ├── state_router.py             # 数据驱动路由（ROUTE_RULES + vuln_type 规范化 + Python 报告映射）
 │   ├── state_tracker.py            # Web 前端状态追踪 + session 轮询
@@ -135,7 +136,7 @@ CodeAudit/
 │   ├── prompts.py                  # Prompt + output_schema 加载器
 │   └── build_summary_report.py     # 漏洞汇总 markdown 生成器（无 LLM）
 ├── prompts/                        # 智能体 Prompt 模板库
-│   └── core/                       # 每份含 system_prompt_template + output_schema (oneOf)
+│   └── core/                       # 每份含 system_prompt_template + output_schema
 │       ├── reverse_tracer.yaml
 │       ├── logic_auditor.yaml
 │       ├── red_validator.yaml
@@ -180,22 +181,11 @@ CodeAudit/
 │       ├── stack-trace-exposure.yaml
 │       ├── sensitive-data-in-log.yaml  # 关键字命中 + 容器对象启发式 (2 rules)
 │       └── sensitive-data-in-url.yaml
-├── skill/                          # OpenCode / Claude Code skill 形态（独立分发，单 session 跑通）
-│   └── security-audit-java/
-│       ├── SKILL.md                # frontmatter + 6 阶段工作流 + 防偷懒强约束
-│       ├── install.sh              # 一键安装到 ~/.config/opencode/skills/ 等 4 种路径
-│       ├── rules/                  # Semgrep 规则副本（与 ../semgrep_rules/custom/ 同步）
-│       ├── rubrics/                # DEFENDED 证据规范 / PoC 构造提示
-│       ├── reference/              # ⭐ 13 份按家族分组的"分析步骤"文档 + INDEX.md（覆盖 39 个 vuln_type）
-│       │   ├── INDEX.md            # vuln_type → family 映射表
-│       │   ├── injection-family.md         # SQL/NoSQL/Command/Code/LDAP/XPath/Template/SpEL/JNDI/JDBC URL
-│       │   ├── deserialization-reflection.md
-│       │   ├── xxe.md / ssrf.md / xss.md / path-traversal-family.md / redirect-family.md
-│       │   ├── crypto-family.md / credentials-backdoor.md / cookie-trust-boundary.md
-│       │   └── info-disclosure.md / authz-family.md / business-logic-family.md
-│       ├── scripts/                # scan.sh / dispatch.py / classify.py / build_report.py
-│       │                           # dispatch.py: 去重 + fast-path 自动产 finding + 过滤非漏洞规则,减 LLM 工作量 63%
-│       └── templates/report.md.tmpl
+├── skill/                          # Claude Code skill 形态（按角色独立分发）
+│   ├── reverse-tracer/
+│   ├── logic-auditor/
+│   ├── red-validator/
+│   └── blue-validator/
 ├── web/                            # Web 前端界面
 │   └── index.html                  # Vue.js 实时看板
 ├── doc/                            # 详细设计文档
@@ -206,16 +196,12 @@ CodeAudit/
 
 ## 🔧 配置说明
 
-### OpenCodeServerManager 配置
+### ClaudeAgentManager 配置
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `max_active_servers` | 最大并发沙盒数；引擎启动时会按微服务数自动上调至 `max(5, 服务数)` | 5 |
-| `hostname` | 监听主机名 | 127.0.0.1 |
-| `cors_origins` | CORS 允许的来源列表 | [] |
-| `health_check_timeout` | 启动健康检查超时(秒) | 30.0 |
-| `health_check_interval` | 健康检查重试间隔(秒) | 0.5 |
-| `_idle_timeout` | 所有 session 持续 idle 超过此时长才回收(秒) | 60.0 |
+| `max_active` | 最大并发 Agent 数；引擎启动时会按微服务数自动上调至 `max(5, 服务数)` | 5 |
+| `default_timeout` | 默认超时时间(秒) | 1800 |
 
 ### 引擎配置
 
@@ -223,31 +209,29 @@ CodeAudit/
 |------|------|--------|
 | `MAX_CONCURRENT_AGENTS` | 初始 Semgrep 派发任务的并发上限（主 semaphore） | 5 |
 | `MAX_CHAIN_AGENTS` | 链路续接（Reverse→Red→Blue 等）的专用并发上限（chain semaphore），避免被初始批量派发挤入 FIFO 队列饿死 | 3 |
-| `MAX_AGENT_TIMEOUT` | 单次 OpenCode HTTP 调用超时(秒，默认值) | 300 |
+| `MAX_AGENT_TIMEOUT` | 单次 Claude Agent 调用超时(秒，默认值) | 300 |
 | `PER_AGENT_TIMEOUT` | 个别 Agent 的超时覆盖表（如 `LogicAuditor: 480`，跨文件追读耗时长） | `{"LogicAuditor": 480}` |
 | `MAX_TIMEOUT_RETRIES` | 单任务超时后的重试次数（救偶发 provider 抖动） | 1 |
-| `format_retry_count` | OpenCode 服务端 JSON Schema 校验失败时的重试次数 | 4 |
+| `format_retry_count` | JSON Schema 校验失败时的重试次数（保留参数，目前客户端处理） | 4 |
 
 ### 环境变量
 
 | 变量 | 说明 |
 |------|------|
-| `OPENCODE_SERVER_PASSWORD` | 启用 HTTP Basic 认证 |
-| `OPENCODE_SERVER_USERNAME` | 认证用户名（默认 opencode） |
+| `CLAUDE_CODE_CLI_PATH` | Claude Code CLI 路径（默认 claude） |
 
 ## 📦 Skill 形态（轻量分发）
 
-`skill/security-audit-java/` 提供同款规则 + 方法论的 **OpenCode / Claude Code skill 封装**，
-不依赖 OpenCode 沙盒池和 Python 多 Agent 引擎，**在用户当前会话内单进程跑通**：
+`skill/security-audit-java/` 提供同款规则 + 方法论的 **Claude Code skill 封装**，
+不依赖 Claude Agent SDK 和 Python 多 Agent 引擎，**在用户当前会话内单进程跑通**：
 
 ```bash
 cd skill/security-audit-java
-./install.sh                    # 装到 ~/.config/opencode/skills/（OpenCode 全局）
-./install.sh --claude           # 装到 ~/.claude/skills/（Claude Code 全局）
-./install.sh --project          # 装到 ./.opencode/skills/（项目级）
+./install.sh                    # 装到 ~/.claude/skills/（Claude Code 全局）
+./install.sh --project          # 装到 ./.claude/skills/（项目级）
 ```
 
-之后在 OpenCode / Claude Code 里以 `skill({ name: "security-audit-java" })` 或自然语言（"审计这个 Java 项目"）触发。
+之后在 Claude Code 里以自然语言（"审计这个 Java 项目"）触发。
 
 差异：skill 把多 Agent 流水线压缩为单 session 的 6 阶段工作流，丢了 Red/Blue 对抗的隔离性，但换来零环境依赖。规则 + DEFENDED 证据规范 + PoC 提示是同一套。
 
@@ -276,14 +260,12 @@ cd skill/security-audit-java
 - [核心智能体提示词工程规范](doc/核心智能体提示词工程规范详细设计文档)
 - [A2A 通信 JSON Schema 详细设计](doc/A2A%20通信%20JSON%20Schema%20详细设计)
 
-## 📡 OpenCode API 交互
+## 📡 Claude Agent SDK 交互
 
-系统通过 HTTP API 与 opencode 服务器交互，主要端点包括：
+系统通过 `claude-agent-sdk` 包调用本地 Claude Code CLI，主要使用：
 
-- `GET /global/health` - 健康检查
-- `POST /session` - 创建会话
-- `POST /session/:id/message` - 发送消息（含 JSON Schema 结构化输出请求）
-- `DELETE /session/:id` - 删除会话
-- `GET /session/:id/diff` - 获取代码差异
+- `query()` - 一次性查询，返回消息流
+- `ClaudeAgentOptions` - 配置工具列表、工作目录、超时等
+- `permission_mode` - 控制工具执行权限（acceptEdits 自动接受文件编辑）
 
-更多 API 详情请参考 opencode 官方文档。
+更多 API 详情请参考 [Claude Agent SDK 文档](https://code.claude.com/docs/zh-CN/agent-sdk/overview)。

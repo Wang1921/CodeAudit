@@ -354,7 +354,7 @@ class StateRouter:
 
     def _extract_parsed(self, agent_output: Any) -> dict[str, Any] | None:
         """提取解析后的 JSON dict。
-        1) agent_output["structured_output"]：OpenCode 服务端 JSON Schema 校验通过的权威值
+        1) agent_output["structured_output"]：服务端 JSON Schema 校验通过的权威值
         2) agent_output["response"] 字符串：轻量 JSON / Markdown 代码块
         3) agent_output 本身含业务字段：直接使用（兼容历史）
         失败返回 None，由上层按死信处理。
