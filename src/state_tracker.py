@@ -291,6 +291,21 @@ class StateTracker:
             }
         logging.info(f"开始追踪会话: task_id={task_id}, session_id={session_id}, port={port}")
 
+    def update_claude_session(self, task_id: str, messages: list, tokens: dict):
+        """更新 Claude Agent SDK 的会话信息（无 HTTP 端口，需主动推送）"""
+        with self._lock:
+            if task_id in self.state["session_registry"]:
+                self.state["session_registry"][task_id]["messages"] = messages
+                self.state["session_registry"][task_id]["tokens"] = tokens
+                self.state["session_registry"][task_id]["last_updated"] = time.time()
+
+    def update_claude_session_status(self, task_id: str, status: str):
+        """更新 Claude Agent SDK 的会话状态"""
+        with self._lock:
+            if task_id in self.state["session_registry"]:
+                self.state["session_registry"][task_id]["status"] = status
+                self.state["session_registry"][task_id]["last_updated"] = time.time()
+
     def untrack_session(self, task_id: str):
         """取消追踪会话"""
         with self._lock:

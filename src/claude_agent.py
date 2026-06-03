@@ -5,6 +5,7 @@ Claude Agent SDK 实现
 """
 import json
 import logging
+import time
 from typing import Any, AsyncIterator
 
 import jsonschema
@@ -92,6 +93,8 @@ class ClaudeAgent:
                 port=0,  # 无端口概念
                 hostname="cli"
             )
+            # 更新状态为运行中
+            self._session_tracker.update_claude_session_status(self._current_task_id, "running")
 
         # 收集所有消息
         messages: list[Message] = []
@@ -103,13 +106,28 @@ class ClaudeAgent:
                 if isinstance(msg, ResultMessage):
                     # 结果消息，包含 usage 信息
                     break
+                elif isinstance(msg, AssistantMessage):
+                    # 更新状态为 running
+                    if self._session_tracker and self._current_task_id:
+                        self._session_tracker.update_claude_session_status(self._current_task_id, "running")
 
         except Exception as e:
             logger.error(f"Claude Agent 执行失败: {e}")
+            # 更新状态为失败
+            if self._session_tracker and self._current_task_id:
+                self._session_tracker.update_claude_session_status(self._current_task_id, "error")
             raise
         finally:
-            # 取消 session 追踪
+            # 更新会话消息和 token 消耗
             if self._session_tracker and self._current_task_id:
+                formatted_messages = self._format_messages_for_frontend(messages)
+                tokens_info = self._extract_tokens_info(messages)
+                self._session_tracker.update_claude_session(
+                    self._current_task_id,
+                    formatted_messages,
+                    tokens_info
+                )
+                # 取消 session 追踪
                 self._session_tracker.untrack_session(self._current_task_id)
 
         # 提取结果
@@ -194,6 +212,48 @@ class ClaudeAgent:
             pass
 
         return None
+
+    def _format_messages_for_frontend(self, messages: list[Message]) -> list:
+        """将消息格式化为前端可读的格式"""
+        formatted = []
+        for msg in messages:
+            msg_entry = {"info": {"role": "unknown", "time": {"created": time.time()}}, "parts": []}
+
+            if isinstance(msg, SystemMessage):
+                msg_entry["info"]["role"] = "system"
+                msg_entry["parts"].append({"type": "text", "text": f"[System: {msg.subtype}]"})
+            elif isinstance(msg, AssistantMessage):
+                msg_entry["info"]["role"] = "assistant"
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        msg_entry["parts"].append({"type": "text", "text": block.text})
+                    elif isinstance(block, ToolUseBlock):
+                        tool_entry = {
+                            "type": "tool",
+                            "name": block.name,
+                            "tool": block.name,
+                            "input": block.input,
+                            "state": {"status": "completed" if block.id else "pending"}
+                        }
+                        msg_entry["parts"].append(tool_entry)
+            elif isinstance(msg, ResultMessage):
+                msg_entry["info"]["role"] = "result"
+                msg_entry["parts"].append({"type": "text", "text": msg.result or "[completed]"})
+
+            formatted.append(msg_entry)
+        return formatted
+
+    def _extract_tokens_info(self, messages: list[Message]) -> dict:
+        """从消息中提取 token 消耗信息"""
+        tokens = {"total": 0, "input": 0, "output": 0, "reasoning": 0}
+        for msg in messages:
+            if isinstance(msg, ResultMessage) and msg.usage:
+                tokens["input"] = msg.usage.get("input_tokens", 0)
+                tokens["output"] = msg.usage.get("output_tokens", 0)
+                tokens["reasoning"] = msg.usage.get("reasoning_tokens", 0)
+                tokens["total"] = tokens["input"] + tokens["output"] + tokens["reasoning"]
+                break
+        return tokens
 
     async def close(self):
         """关闭 agent（当前实现无需清理资源）"""
