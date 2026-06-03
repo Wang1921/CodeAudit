@@ -312,6 +312,10 @@ class AuditEngine:
                 # 获取 Claude Agent（自动管理会话）
                 agent = await self.agent_manager.get_agent(target_cwd)
 
+                # 设置 session tracker 和 task_id
+                agent.set_session_tracker(self.tracker)
+                agent.set_current_task(task_id)
+
                 # 加载当前 Agent 的输出 Schema，启用服务端结构化 JSON 校验
                 output_schema = prompts.get_output_schema(recipient)
 
