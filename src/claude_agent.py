@@ -51,7 +51,9 @@ class ClaudeAgent:
     def _build_options(self, allowed_tools: str, output_schema: dict | None) -> ClaudeAgentOptions:
         """构建 ClaudeAgentOptions"""
         options = ClaudeAgentOptions(
-            tools=['Read', 'Bash', 'Glob', 'Grep'],
+            tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
+            skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer'],
+            setting_sources=["user", "project"],
             cwd=self.cwd,
             max_turns=self.max_turns,
             permission_mode="acceptEdits",
