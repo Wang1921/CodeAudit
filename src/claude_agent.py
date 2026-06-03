@@ -98,10 +98,51 @@ class ClaudeAgent:
 
         # 收集所有消息
         messages: list[Message] = []
+        turn_count = 0
+        turn_history: list[dict] = []
 
         try:
             async for msg in query(prompt=prompt, options=options):
                 messages.append(msg)
+                turn_count += 1
+
+                # 构建轮次条目
+                turn_entry: dict[str, Any] = {
+                    "turn": turn_count,
+                    "timestamp": time.time(),
+                    "type": None,
+                }
+
+                if isinstance(msg, SystemMessage):
+                    turn_entry["type"] = "system"
+                    turn_entry["subtype"] = msg.subtype
+                elif isinstance(msg, AssistantMessage):
+                    turn_entry["type"] = "assistant"
+                    # 提取文本
+                    texts = [b.text for b in msg.content if isinstance(b, TextBlock)]
+                    turn_entry["text"] = texts[0] if texts else ""
+                    # 提取工具调用
+                    tool_calls = [b.name for b in msg.content if isinstance(b, ToolUseBlock)]
+                    turn_entry["tool_calls"] = tool_calls
+                elif isinstance(msg, UserMessage):
+                    turn_entry["type"] = "user"
+                    # 提取工具结果
+                    texts = [b.text for b in msg.content if isinstance(b, TextBlock)]
+                    turn_entry["result"] = texts[0] if texts else ""
+                elif isinstance(msg, ResultMessage):
+                    turn_entry["type"] = "result"
+                    turn_entry["subtype"] = msg.subtype
+                    turn_entry["result"] = msg.result or ""
+                    turn_entry["usage"] = msg.usage
+
+                turn_history.append(turn_entry)
+
+                # 实时写入 session_tracker，让前端能实时看到
+                if self._session_tracker and self._current_task_id:
+                    self._session_tracker.update_turn_history(
+                        self._current_task_id,
+                        turn_history.copy()  # 复制避免引用问题
+                    )
 
                 if isinstance(msg, ResultMessage):
                     # 结果消息，包含 usage 信息

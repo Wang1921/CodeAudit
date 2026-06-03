@@ -306,6 +306,13 @@ class StateTracker:
                 self.state["session_registry"][task_id]["status"] = status
                 self.state["session_registry"][task_id]["last_updated"] = time.time()
 
+    def update_turn_history(self, task_id: str, turn_history: list):
+        """更新 Agent 的轮次历史（实时写入，每轮都更新）"""
+        with self._lock:
+            if task_id in self.state["session_registry"]:
+                self.state["session_registry"][task_id]["turn_history"] = turn_history
+                self.state["session_registry"][task_id]["last_updated"] = time.time()
+
     def untrack_session(self, task_id: str):
         """取消追踪会话"""
         with self._lock:

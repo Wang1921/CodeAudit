@@ -161,7 +161,40 @@
                             <div class="text-gray-400">Reasoning: <span class="text-white">{{ formatTokens(selectedAgent.session_info?.tokens?.reasoning) }}</span></div>
                         </div>
                     </div>
-                     
+
+                    <!-- 轮次历史 -->
+                    <div class="bg-gray-900 rounded p-3">
+                        <h4 class="text-xs text-gray-400 mb-2">Turn History (轮次历史)</h4>
+                        <div class="space-y-2 max-h-64 overflow-y-auto">
+                            <div v-if="!selectedAgent.session_info?.turn_history?.length" class="text-xs text-gray-500">暂无轮次数据</div>
+                            <div v-for="turn in selectedAgent.session_info?.turn_history" :key="turn.turn"
+                                 :class="[
+                                    'rounded p-2 text-xs',
+                                    turn.type === 'system' ? 'bg-gray-800 border border-gray-700' : '',
+                                    turn.type === 'assistant' ? 'bg-green-900/20 border border-green-800' : '',
+                                    turn.type === 'user' ? 'bg-blue-900/20 border border-blue-800' : '',
+                                    turn.type === 'result' ? 'bg-purple-900/20 border border-purple-800' : ''
+                                 ]">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="font-bold" :class="{
+                                        'text-gray-400': turn.type === 'system',
+                                        'text-green-400': turn.type === 'assistant',
+                                        'text-blue-400': turn.type === 'user',
+                                        'text-purple-400': turn.type === 'result'
+                                    }">Turn {{ turn.turn }} - {{ turn.type }}</span>
+                                    <span v-if="turn.subtype" class="text-gray-500">{{ turn.subtype }}</span>
+                                </div>
+                                <div v-if="turn.text" class="text-gray-300 mt-1 whitespace-pre-wrap">{{ turn.text?.slice(0, 300) }}{{ turn.text?.length > 300 ? '...' : '' }}</div>
+                                <div v-if="turn.tool_calls?.length" class="text-yellow-400 mt-1">
+                                    → Tools: {{ turn.tool_calls.join(', ') }}
+                                </div>
+                                <div v-if="turn.result" class="text-green-400 mt-1">
+                                    Result: {{ turn.result?.slice(0, 150) }}{{ turn.result?.length > 150 ? '...' : '' }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                      <!-- 消息历史（融合所有内容） -->
                      <div class="bg-gray-900 rounded p-3">
                          <h4 class="text-xs text-gray-400 mb-2">Message History</h4>
