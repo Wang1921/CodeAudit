@@ -27,15 +27,8 @@ logger = logging.getLogger(__name__)
 class ClaudeAgent:
     """使用 Claude Agent SDK 的 Agent"""
 
-    def __init__(
-        self,
-        cwd: str,
-        timeout: int = 1800,
-        system_prompt: str | None = None,
-    ):
+    def __init__(self, cwd: str):
         self.cwd = cwd
-        self.timeout = timeout
-        self.system_prompt = system_prompt
         self._session_tracker = None
         self._current_task_id = None
 
@@ -56,9 +49,6 @@ class ClaudeAgent:
             cwd=self.cwd,
             permission_mode="acceptEdits",
         )
-
-        if self.system_prompt:
-            options.system_prompt = self.system_prompt
 
         if output_schema:
             options.output_format = {

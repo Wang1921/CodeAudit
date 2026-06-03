@@ -16,35 +16,26 @@ logger = logging.getLogger(__name__)
 class ClaudeAgentManager:
     """管理多个 Claude Code CLI 会话"""
 
-    def __init__(self, max_active: int = 5, default_timeout: int = 1800):
+    def __init__(self, max_active: int = 5):
         """
         初始化管理器
 
         Args:
             max_active: 最大并发 Agent 数量
-            default_timeout: 默认超时时间（秒）
         """
         self.max_active = max_active
-        self.default_timeout = default_timeout
 
         # cwd -> Agent 实例
         self._agents: dict[str, ClaudeAgent] = {}
         # cwd -> 最后活跃时间
         self._last_active: dict[str, float] = {}
 
-    async def get_agent(
-        self,
-        cwd: str,
-        timeout: int | None = None,
-        system_prompt: str | None = None,
-    ) -> ClaudeAgent:
+    async def get_agent(self, cwd: str) -> ClaudeAgent:
         """
         获取或创建 cwd 对应的 Agent
 
         Args:
             cwd: 工作目录
-            timeout: 超时时间（秒），None 使用默认值
-            system_prompt: 系统提示，None 使用 Agent 默认值
 
         Returns:
             ClaudeAgent 实例
@@ -52,25 +43,14 @@ class ClaudeAgentManager:
         # 复用已有 Agent
         if cwd in self._agents:
             self._last_active[cwd] = time.time()
-            agent = self._agents[cwd]
-
-            # 如果传入新的 system_prompt，更新
-            if system_prompt and agent.system_prompt != system_prompt:
-                agent.system_prompt = system_prompt
-
-            return agent
+            return self._agents[cwd]
 
         # 需要创建新 Agent，先清理旧实例
         if len(self._agents) >= self.max_active:
             await self._evict_oldest()
 
         # 创建新 Agent
-        timeout = timeout or self.default_timeout
-        agent = ClaudeAgent(
-            cwd=cwd,
-            timeout=timeout,
-            system_prompt=system_prompt,
-        )
+        agent = ClaudeAgent(cwd=cwd)
 
         self._agents[cwd] = agent
         self._last_active[cwd] = time.time()
@@ -118,8 +98,6 @@ class ClaudeAgentManager:
         prompt: str,
         allowed_tools: str = "read,grep,lsp,codesearch",
         output_schema: dict | None = None,
-        timeout: int | None = None,
-        system_prompt: str | None = None,
     ) -> dict[str, Any]:
         """
         便捷方法：获取 Agent 并执行
@@ -129,34 +107,19 @@ class ClaudeAgentManager:
             prompt: 执行提示
             allowed_tools: 允许的工具
             output_schema: 输出结构
-            timeout: 超时时间
-            system_prompt: 系统提示
 
         Returns:
             执行结果
         """
-        agent = await self.get_agent(
-            cwd=cwd,
-            timeout=timeout,
-            system_prompt=system_prompt,
+        agent = await self.get_agent(cwd=cwd)
+
+        result = await agent.execute(
+            prompt=prompt,
+            allowed_tools=allowed_tools,
+            output_schema=output_schema,
         )
 
-        # 临时覆盖 system_prompt
-        original_prompt = agent.system_prompt
-        if system_prompt:
-            agent.system_prompt = system_prompt
-
-        try:
-            result = await agent.execute(
-                prompt=prompt,
-                allowed_tools=allowed_tools,
-                output_schema=output_schema,
-            )
-        finally:
-            # 恢复原始 system_prompt
-            agent.system_prompt = original_prompt
-            self._last_active[cwd] = time.time()
-
+        self._last_active[cwd] = time.time()
         return result
 
     @property

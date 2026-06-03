@@ -287,7 +287,8 @@ class StateTracker:
                 "last_message_fetch": 0,
                 "messages": [],
                 "tools_used": [],
-                "tokens": {"total": 0, "input": 0, "output": 0, "reasoning": 0}
+                "tokens": {"total": 0, "input": 0, "output": 0, "reasoning": 0},
+                "turn_history": []
             }
         logging.info(f"开始追踪会话: task_id={task_id}, session_id={session_id}, port={port}")
 
