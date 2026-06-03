@@ -21,37 +21,6 @@ from claude_agent_sdk import (
 
 logger = logging.getLogger(__name__)
 
-# 工具名称映射: OpenCode -> Claude Code
-TOOL_NAMES = {
-    "read": "Read",
-    "grep": "Grep",
-    "lsp": "LSP",
-    "codesearch": "Search",
-    "bash": "Bash",
-    "edit": "Edit",
-    "write": "Write",
-    "glob": "Glob",
-}
-
-# 默认工具集
-DEFAULT_TOOLS = ["Read", "Grep", "Bash", "Edit", "Write", "Glob", "Search", "LSP"]
-
-
-def parse_allowed_tools(allowed_tools: str) -> list[str]:
-    """将逗号分隔的工具字符串转换为 SDK 格式"""
-    if not allowed_tools:
-        return DEFAULT_TOOLS
-
-    tools = []
-    for tool in allowed_tools.split(","):
-        tool = tool.strip().lower()
-        if tool in TOOL_NAMES:
-            tools.append(TOOL_NAMES[tool])
-        elif tool == "bash":
-            tools.append("Bash")
-
-    return tools if tools else DEFAULT_TOOLS
-
 
 class ClaudeAgent:
     """使用 Claude Agent SDK 的 Agent"""
@@ -81,21 +50,16 @@ class ClaudeAgent:
 
     def _build_options(self, allowed_tools: str, output_schema: dict | None) -> ClaudeAgentOptions:
         """构建 ClaudeAgentOptions"""
-        tool_list = parse_allowed_tools(allowed_tools)
-
         options = ClaudeAgentOptions(
-            tools=tool_list,
+            tools=['Read', 'Bash', 'Glob', 'Grep'],
             cwd=self.cwd,
             max_turns=self.max_turns,
-            # permission_mode 控制工具执行权限
             permission_mode="acceptEdits",
         )
 
-        # 添加系统提示
         if self.system_prompt:
             options.system_prompt = self.system_prompt
 
-        # 结构化输出配置（与 OpenCode 的 format 参数等价）
         if output_schema:
             options.output_format = {
                 "type": "json_schema",
