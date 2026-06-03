@@ -17,6 +17,7 @@ from claude_agent_sdk import (
     ToolUseBlock,
     AssistantMessage,
     SystemMessage,
+    UserMessage,
     ResultMessage,
 )
 
