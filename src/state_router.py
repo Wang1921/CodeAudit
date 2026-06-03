@@ -123,7 +123,6 @@ _VULN_TYPE_TO_CWE: dict[str, str] = {
     "Privilege Escalation": "CWE-269",
     "Authentication Bypass": "CWE-287",
     "Hardcoded Backdoor": "CWE-798",
-    "Mass Assignment": "CWE-915",
     "Workflow Bypass": "CWE-840",
     "Race Condition": "CWE-362",
     "Insufficient Anti-Automation": "CWE-307",
@@ -161,7 +160,6 @@ _VULN_TYPE_TO_DEFAULT_SEVERITY: dict[str, str] = {
     "Authentication Bypass": "High",
     "Privilege Escalation": "High",
     "IDOR": "High",
-    "Mass Assignment": "High",
     "Missing Authorization": "High",
     # Medium —— 影响有条件 / 需社工或配合其它缺陷才成型
     "Weak Random": "Medium",

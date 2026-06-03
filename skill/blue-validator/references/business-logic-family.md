@@ -1,10 +1,10 @@
-# Business Logic Family（Mass Assignment / Workflow Bypass / Race Condition / Insufficient Anti-Automation）
+# Business Logic Family（/ Workflow Bypass / Race Condition / Insufficient Anti-Automation）
 
 ## 四类区别
 
 | 类型 | 核心问题 | 典型代码模式 |
 |---|---|---|
-| **Mass Assignment** | 字段绑定无白名单 | `@ModelAttribute User` / `ObjectMapper.readValue(json, User.class)` 含 isAdmin 字段 |
+| (已删除) | 字段绑定无白名单 | `@ModelAttribute User` / `ObjectMapper.readValue(json, User.class)` 含 isAdmin 字段 |
 | **Workflow Bypass** | 业务状态机可跳步 | 未付款直接走"已发货"分支 |
 | **Race Condition** | TOCTOU / 并发未加锁 | `existsByUsername` + `save` 之间被并发抢插 |
 | **Insufficient Anti-Automation** | 爆破/撞库无限速 | 登录失败次数无统计、无验证码 |

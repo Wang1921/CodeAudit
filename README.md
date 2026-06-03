@@ -7,8 +7,8 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 ## 🌟 核心特性 (Core Features)
 
 *   **双轨并行审查 (Dual-Track Auditing)**
-    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（35 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、Mass Assignment、Hardcoded Backdoor 等。
-    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Mass Assignment、Workflow Bypass、Race Condition 等状态机逻辑漏洞。
+    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、Hardcoded Backdoor 等。
+    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Workflow Bypass、Race Condition 等状态机逻辑漏洞。
     *   **互不抢任务**：LogicAuditor 遇到技术类形态（SQL Injection / Path Traversal / XSS / SSRF / XXE / Unsafe Deserialization / Command Injection 等）强制返回 DEFENDED，让 Sink 路径处理。技术类、业务类各司其职。
 *   **文件系统即总线 (A2A over File System IPC)**
     *   采用本地文件系统目录（`.a2a_bus/`）作为异步消息总线。
@@ -65,7 +65,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 | :--- | :--- | :--- | :--- |
 | **SemgrepScanner** | 静态扫描器 | 使用内置 + 用户规则扫描，一次性产出 API 路由（`routes`）和危险点（`sinks`）；全局 14 条 `--exclude` 排除测试/教学反例 | 无（外部进程）|
 | **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪 | `lsp, read, codesearch` |
-| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争、Mass Assignment 等），输出限定 **9 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` |
+| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争、Workflow Bypass 等），输出限定 **9 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` |
 | **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量；**逐参数判定 exploitability**，NOT_EXPLOITABLE 时强制带 defense_analysis（minLength: 20）证明 | `lsp, read, codesearch` |
 | **BlueValidator** | 防御验证节点 | 双职责: ①扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞；②对 `taint_required:false` 的 sink 走 fast path 直接做静态定性，跳过 ReverseTracer+RedValidator。**禁止以教学项目作为 DEFENDED 理由** | `lsp, read, codesearch` |
 | **report 落盘** | Python 函数 | `state_router._build_report_fields()` + `_save_vulnerability_report()`：把 BlueValidator 输出映射为最终报告 JSON。无 LLM。 | — |
@@ -127,8 +127,8 @@ CodeAudit/
 ├── src/                            # 核心引擎代码
 │   ├── main.py                     # CLI 入口
 │   ├── engine.py                   # 异步调度引擎（主循环 + 跨服务接力 + in-flight 追踪 + 收尾汇总）
-│   ├── agent.py                    # Claude Agent SDK 客户端
-│   ├── server_manager.py           # Claude Agent 会话管理器
+│   ├── claude_agent.py             # Claude Agent SDK 客户端
+│   ├── claude_manager.py           # Claude Agent 会话管理器
 │   ├── a2a_bus.py                  # 文件系统消息总线（tmp+fsync+rename 原子写）
 │   ├── state_router.py             # 数据驱动路由（ROUTE_RULES + vuln_type 规范化 + Python 报告映射）
 │   ├── state_tracker.py            # Web 前端状态追踪 + session 轮询
@@ -166,7 +166,6 @@ CodeAudit/
 │       ├── xss.yaml                # PrintWriter/ServletOutputStream/Model.addAttribute/ResponseEntity.body
 │       ├── open-redirect.yaml
 │       ├── unvalidated-forward.yaml  # RequestDispatcher.forward/include
-│       ├── mass-assignment.yaml    # ⭐ BeanUtils.copyProperties / @InitBinder / ObjectMapper.readValue (3 rules)
 │       # 无须污点链 (taint_required: false) — 走 fast path
 │       ├── weak-cryptography.yaml  # 弱算法/Mac/Signature/EC 短曲线/BC 弱密码/XOR 自定义
 │       ├── weak-random.yaml

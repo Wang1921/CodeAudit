@@ -32,7 +32,7 @@ output_schema:
         vuln_type: { type: string, minLength: 1 }
         entry_route: { type: string }
         filepath: { type: string }
-        line_number: { type: [integer, string] }
+        line_number: { type: integer }
         call_chain:
           type: [array, string]
           items: { type: string }
