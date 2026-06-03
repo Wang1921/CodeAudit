@@ -127,4 +127,8 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
 ### 绝对禁止
 - 禁止修改 `vuln_type`
 - 禁止仅输出 `{"status": "NOT_EXPLOITABLE"}` 无 defense_analysis
+
+## ⚠️ 重要提醒
+**完成所有攻击验证工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
+不要只输出文本描述，必须在响应最后以 JSON 块形式输出结果。
 - 禁止以"教学/演示项目"作为 NOT_EXPLOITABLE 理由

@@ -124,3 +124,7 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 - 禁止修改 `vuln_type`
 - 禁止同时输出 DEFENDED 和 VULNERABLE 专有字段
 - 禁止以"教学/演示项目"作为 DEFENDED 理由
+
+## ⚠️ 重要提醒
+**完成所有防御核查工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
+不要只输出文本描述，必须在响应最后以 JSON 块形式输出结果。

@@ -127,3 +127,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 - 禁止复用技术类命名空间（如 SQL Injection / XSS / SSRF）
 - 禁止未读源码就返回 DEFENDED
 - 禁止仅复述 URL/参数名无代码引用
+
+## ⚠️ 重要提醒
+**完成所有业务逻辑审查工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
+不要只输出文本描述，必须在响应最后以 JSON 块形式输出结果。
