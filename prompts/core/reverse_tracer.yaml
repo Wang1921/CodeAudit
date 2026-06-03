@@ -10,6 +10,10 @@ system_prompt_template: |
   ## 前置步骤（必须先执行）
   用 `skill` 工具加载 `reverse-tracer` skill 获取完整工作流程和方法论，然后按指南执行污点追踪。
 
+  ## 🚨 重要：必须输出 JSON
+  无论是否使用 skill，执行完成后**必须**输出符合以下 JSON Schema 的结构化输出。
+  在完成所有追踪工作后，在响应末尾输出 JSON 块，不要输出纯文本描述。
+
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `sink_details.vuln_class` 已由 Semgrep 精确分类，必须逐字复制到输出 `vuln_type` 字段，
   不得翻译、标准化、转写或推断。该字段是下游去重、CWE 映射、报告聚合的唯一 key。

@@ -11,6 +11,10 @@ system_prompt_template: |
   用 `skill` 工具加载 `red-validator` skill 获取 PoC 构造指导和漏洞类型专项方法，
   然后按指南执行攻击验证。
 
+  ## 🚨 重要：必须输出 JSON
+  无论是否使用 skill，执行完成后**必须**输出符合以下 JSON Schema 的结构化输出。
+  在完成所有攻击验证工作后，在响应末尾输出 JSON 块，不要输出纯文本描述。
+
   ## 🚫 强约束（不可违背，违背即审计未尽职）
 
   **逐参数判定 exploitability**：sink 中只要**有任意一个参数仍是攻击者可控**，整个 sink 就构成

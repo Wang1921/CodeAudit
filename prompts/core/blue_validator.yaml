@@ -13,6 +13,10 @@ system_prompt_template: |
   用 `skill` 工具加载 `blue-validator` skill 获取 DEFENDED 证据规范和防御判定方法，
   然后按指南执行防御核查。
 
+  ## 🚨 重要：必须输出 JSON
+  无论是否使用 skill，执行完成后**必须**输出符合以下 JSON Schema 的结构化输出。
+  在完成所有审查工作后，在响应末尾输出 JSON 块，不要输出纯文本描述。
+
   ## Input Discriminator
   - 含 `attack_vector` / `poc_payload` → **路径 A**
   - 仅含 `sink_details`(无 `attack_vector`) → **路径 B**
