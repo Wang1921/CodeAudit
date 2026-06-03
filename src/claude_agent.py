@@ -6,7 +6,7 @@ Claude Agent SDK 实现
 import json
 import logging
 import time
-from typing import Any, AsyncIterator
+from typing import Any
 
 import jsonschema
 from claude_agent_sdk import (
@@ -39,9 +39,6 @@ class ClaudeAgent:
         self._session_tracker = None
         self._current_task_id = None
 
-        # 估算 max_turns: 每轮约 30-60 秒
-        self.max_turns = max(10, timeout // 60)
-
     def set_session_tracker(self, tracker):
         """设置 session 追踪器回调"""
         self._session_tracker = tracker
@@ -57,7 +54,6 @@ class ClaudeAgent:
             skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer'],
             setting_sources=["user", "project"],
             cwd=self.cwd,
-            max_turns=self.max_turns,
             permission_mode="acceptEdits",
         )
 
@@ -300,20 +296,3 @@ class ClaudeAgent:
     async def close(self):
         """关闭 agent（当前实现无需清理资源）"""
         pass
-
-
-class ClaudeAgentAsync(ClaudeAgent):
-    """支持流式交互的 Claude Agent"""
-
-    async def execute_stream(
-        self,
-        prompt: str,
-        allowed_tools: str = "read,grep,lsp,codesearch",
-    ) -> AsyncIterator[Message]:
-        """流式执行，返回消息迭代器"""
-        options = self._build_options(allowed_tools, None)
-
-        async for msg in query(prompt=prompt, options=options):
-            yield msg
-            if isinstance(msg, ResultMessage):
-                break
