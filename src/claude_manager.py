@@ -55,7 +55,7 @@ class ClaudeAgentManager:
         self._agents[cwd] = agent
         self._last_active[cwd] = time.time()
 
-        logger.info(f"创建新 Claude Agent，cwd={cwd}，timeout={timeout}s")
+        logger.info(f"创建新 Claude Agent，cwd={cwd}")
         return agent
 
     async def _evict_oldest(self):
