@@ -551,6 +551,21 @@ class AuditEngine:
         inflight: set[asyncio.Task] = set()
         try:
             logging.info("正在启动代码审计引擎...")
+
+            # 初始化 CodeGraph 索引
+            logging.info("正在初始化 CodeGraph 索引...")
+            codegraph_proc = await asyncio.create_subprocess_exec(
+                "codegraph", "init", "-i",
+                cwd=self.target_source_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await codegraph_proc.communicate()
+            if codegraph_proc.returncode == 0:
+                logging.info("CodeGraph 索引初始化完成")
+            else:
+                logging.warning(f"CodeGraph 索引初始化失败: {stderr.decode() if stderr else ''}")
+
             is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
                 self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
             ])
