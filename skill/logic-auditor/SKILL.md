@@ -72,7 +72,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 2. **IDOR** — 路径/查询参数 id 直查 DB 无 ownership 校验，优先于 Auth Bypass
 3. **Authentication Bypass** — 鉴权分支本身可绕（非"没做 ownership 校验"）
 4. **Privilege Escalation** — 已登录低权限用户触达高权限接口
-5. **Mass Assignment** / **Workflow Bypass** — 字段污染 / 状态跳步
+5. **Workflow Bypass** — 状态跳步
 6. **Race Condition** / **Insufficient Anti-Automation** — TOCTOU / 无限速
 7. **Missing Authorization** — 兜底：完全无鉴权且不属于上面任何一类
 8. **Open Redirect** — 仅当 sink 路径未抓到时兜底
@@ -97,7 +97,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档：
 - IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass → `authz-family.md`
-- Mass Assignment / Workflow Bypass / Race Condition → `business-logic-family.md`
+- Workflow Bypass / Race Condition → `business-logic-family.md`
 - Hardcoded Backdoor → `credentials-backdoor.md`
 - Open Redirect → `redirect-family.md`
 - Insufficient Anti-Automation → `business-logic-family.md`

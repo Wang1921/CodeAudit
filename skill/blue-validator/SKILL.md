@@ -139,7 +139,7 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 - XSS → `xss.md`
 - Unsafe Deserialization / Unsafe Reflection → `deserialization-reflection.md`
 - IDOR / Authentication Bypass / Privilege Escalation / Missing Authorization → `authz-family.md`
-- Mass Assignment / Workflow Bypass / Race Condition / Insufficient Anti-Automation → `business-logic-family.md`
+- Workflow Bypass / Race Condition / Insufficient Anti-Automation → `business-logic-family.md`
 - Open Redirect → `redirect-family.md`
 - Hardcoded Credentials / Backdoor → `credentials-backdoor.md`
 - Weak Cryptography → `crypto-family.md`

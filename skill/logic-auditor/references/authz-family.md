@@ -30,7 +30,6 @@
 
 ### Privilege Escalation
 - `if (request.getHeader("X-Admin") != null)` —— 客户端可伪造头
-- `if (params.contains("isAdmin=true"))` —— Mass Assignment 配合
 - 角色判定逻辑漏判某分支
 
 ### IDOR

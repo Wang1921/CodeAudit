@@ -12,7 +12,6 @@
 | **Privilege Escalation** | [authz-family.md](authz-family.md) |
 | **Authentication Bypass** | [authz-family.md](authz-family.md) |
 | **Hardcoded Backdoor** | [credentials-backdoor.md](credentials-backdoor.md) |
-| (已删除 Mass Assignment) | [business-logic-family.md](business-logic-family.md) |
 | **Workflow Bypass** | [business-logic-family.md](business-logic-family.md) |
 | **Race Condition** | [business-logic-family.md](business-logic-family.md) |
 | **Open Redirect** | [redirect-family.md](redirect-family.md) |
