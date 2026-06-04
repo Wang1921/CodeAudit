@@ -189,6 +189,8 @@ class ClaudeAgent:
                 )
                 # 取消 session 追踪
                 self._session_tracker.untrack_session(self._current_task_id)
+                # 清理 task_id，避免下一个任务复用时使用旧值
+                self._current_task_id = None
 
         # 提取结果
         return self._extract_result(messages, output_schema)

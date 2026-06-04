@@ -315,11 +315,13 @@ class StateTracker:
                 self.state["session_registry"][task_id]["last_updated"] = time.time()
 
     def untrack_session(self, task_id: str):
-        """取消追踪会话"""
+        """取消追踪会话（标记为已完成，不删除数据以供前端显示）"""
         with self._lock:
             if task_id in self.state["session_registry"]:
-                del self.state["session_registry"][task_id]
-        logging.info(f"停止追踪会话: task_id={task_id}")
+                # 标记为已完成，不删除数据（前端可能还在轮询）
+                self.state["session_registry"][task_id]["status"] = "completed"
+                self.state["session_registry"][task_id]["last_updated"] = time.time()
+        logging.info(f"会话已完成: task_id={task_id}")
 
     async def update_sessions_from_opencode(self):
         """后台任务：从 OpenCode Server 拉取会话状态和消息"""
