@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import platform
 import time
 from pathlib import Path
 
@@ -561,12 +562,20 @@ class AuditEngine:
 
             # 初始化 CodeGraph 索引
             logging.info("正在初始化 CodeGraph 索引...")
-            codegraph_proc = await asyncio.create_subprocess_exec(
-                "codegraph", "init", "-i",
-                cwd=self.target_source_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
+            if platform.system() == "Windows":
+                codegraph_proc = await asyncio.create_subprocess_exec(
+                    "cmd", "/c", "codegraph", "init", "-i",
+                    cwd=self.target_source_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            else:
+                codegraph_proc = await asyncio.create_subprocess_exec(
+                    "codegraph", "init", "-i",
+                    cwd=self.target_source_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
             stdout, stderr = await codegraph_proc.communicate()
             if codegraph_proc.returncode == 0:
                 logging.info("CodeGraph 索引初始化完成")

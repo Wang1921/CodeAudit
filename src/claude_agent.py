@@ -5,6 +5,7 @@ Claude Agent SDK 实现
 """
 import json
 import logging
+import platform
 import time
 from typing import Any
 
@@ -57,6 +58,14 @@ class ClaudeAgent:
         # 基础工具列表
         base_tools = ["read", "bash", "glob", "grep", "skill"]
 
+        # CodeGraph MCP 配置 - 根据操作系统选择命令
+        if platform.system() == "Windows":
+            mcp_command = "cmd"
+            mcp_args = ["/c", "codegraph", "serve", "--mcp"]
+        else:
+            mcp_command = "codegraph"
+            mcp_args = ["serve", "--mcp"]
+
         options = ClaudeAgentOptions(
             tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
             skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer'],
@@ -66,8 +75,8 @@ class ClaudeAgent:
             # CodeGraph MCP 配置
             mcp_servers={
                 "codegraph": {
-                    "command": "codegraph",
-                    "args": ["serve", "--mcp"],
+                    "command": mcp_command,
+                    "args": mcp_args,
                 }
             },
             allowed_tools=base_tools + codegraph_tools,
