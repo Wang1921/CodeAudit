@@ -38,7 +38,7 @@ system_prompt_template: |
 
 output_schema:
   type: object
-  oneOf:
+  anyOf:
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, attack_vector, poc_payload, max_impact, defense_analysis, mitigation_advice]
       properties:
