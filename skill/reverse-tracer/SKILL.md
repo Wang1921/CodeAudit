@@ -6,7 +6,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 # ReverseTracer 运行时指导
 
 ## 角色职责
-从危险 sink 出发，自底向上逆向追踪污点变量，重建完整的调用链至外部可控入口。
+用codegraph从危险 sink 出发，自底向上逆向追踪污点变量，重建完整的调用链至外部可控入口。
 
 ## 输入格式
 接收 Semgrep 扫描结果中的 sink 信息（JSON）：
@@ -23,13 +23,13 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 ## 工作步骤
 
 ### 1. 确认触点
-- 读取 `filepath` 和 `line_number`，用 `read` 工具打开源文件定位 sink 行
+- 读取 `filepath` 和 `line_number`
 - 确认 `taint_variable` 确实参与了危险操作（如 SQL 拼接、命令执行、文件路径构造等）
 
 ### 2. 向上追踪污点变量
 - **逐层追踪**：从 sink 行开始，找到 `taint_variable` 的赋值来源
 - **跨方法追踪**：如果变量来自方法参数，追踪调用方传入的实参
-- **跨类追踪**：如果调用了其他类的方法，用 `read` / `codesearch` 打开目标类源码继续追踪
+- **跨类追踪**：如果调用了其他类的方法，用codegraph打开目标类源码继续追踪
 - **保持污点标记**：追踪过程中关注变量是否被重新赋值、过滤或转换
 
 ### 3. 追踪终止条件
