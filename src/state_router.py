@@ -478,11 +478,48 @@ class StateRouter:
             f"parsed_keys={list(parsed.keys()) if parsed else None}"
         )
 
-        # 解析失败：兜底记录，避免任务静默消失
+        # 解析失败：重试机制 + 持久化
         if not parsed:
-            logging.warning(f"[路由] {sender} 任务 {task_id} 输出无法解析为 JSON，丢弃路由")
-            if self.tracker:
-                self.tracker.update_kanban("resolved", task_id, sender, "无效输出", status="DEFENDED")
+            retry_count = orig_env.get("retry_count", 0)
+            MAX_RETRIES = 3
+
+            if retry_count < MAX_RETRIES:
+                # 重试：增加计数，重新写入 processing 队列
+                orig_env["retry_count"] = retry_count + 1
+                orig_env["last_error"] = "JSON parse failed"
+                self.bus.write_message(orig_env, "processing")
+                logging.warning(
+                    f"[路由] {sender} 任务 {task_id} 输出无法解析为 JSON，"
+                    f"重试 ({retry_count + 1}/{MAX_RETRIES})"
+                )
+            else:
+                # 超过重试次数：持久化原始输出到 failed/ 目录，然后丢弃
+                failed_dir = os.path.join(self.bus.base_dir, "failed")
+                os.makedirs(failed_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                failed_file = os.path.join(failed_dir, f"{task_id}_{sender}_{timestamp}.json")
+                with open(failed_file, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "task_id": task_id,
+                            "sender": sender,
+                            "timestamp": datetime.now().isoformat(),
+                            "original_output": agent_output,
+                            "error": "JSON parse failed after max retries",
+                        },
+                        f,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+
+                logging.warning(
+                    f"[路由] {sender} 任务 {task_id} 超过最大重试次数，"
+                    f"原始输出已保存到 {failed_file}"
+                )
+                if self.tracker:
+                    self.tracker.update_kanban(
+                        "resolved", task_id, sender, "解析失败", status="DEFENDED"
+                    )
             return
 
         # 特判 1：终态。status 显式裁决优先级最高，链路立即终止。
