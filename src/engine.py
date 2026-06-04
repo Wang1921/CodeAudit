@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 from src import prompts
@@ -504,6 +505,12 @@ class AuditEngine:
         logging.info(f"在微服务 [{service_name}] 异地拉起溯源特工...")
         output_schema = prompts.get_output_schema("ReverseTracer")
         agent = await self.agent_manager.get_agent(service_dir)
+
+        # 设置 session tracker 和 task_id，用于 Turn History 追踪
+        task_id = f"RELAY_{service_name}_{int(time.time() * 1000)}"
+        agent.set_session_tracker(self.tracker)
+        agent.set_current_task(task_id)
+
         result = await agent.execute(
             prompt,
             allowed_tools="lsp,read,codesearch",
