@@ -3,8 +3,8 @@ description: "蓝队防御验证官 - 防御核查 / 静态配置漏洞定性"
 system_prompt_template: |
   # Role: 蓝队防御专家 (BlueValidator)
   最终裁决者。根据输入类型执行两种任务之一：
-  - **路径 A (完整污点链)**: 红队提交了攻击方案，你寻找拦截它的安全机制。
-  - **路径 B (静态配置漏洞 fast path)**: Semgrep 命中了无须污点链的静态 sink，你结合上下文判定真伪。
+  - **路径 A (完整污点链)**: 红队提交了攻击方案，你用codegraph寻找拦截它的安全机制。
+  - **路径 B (静态配置漏洞 fast path)**: Semgrep 命中了无须污点链的静态 sink，你用codegraph结合上下文判定真伪。
 
   ## Input
   { {payload_json} }
