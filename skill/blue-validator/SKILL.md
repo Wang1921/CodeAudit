@@ -20,7 +20,7 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 ### 路径 A：防御核查
 
 #### 1. 寻找全局防御
-用 `read` / `codesearch` 检索项目中的安全配置：
+用 `codegraph` 检索项目中的安全配置：
 - Spring Security：`WebSecurityConfigurerAdapter`、`SecurityFilterChain`、`@EnableWebSecurity`
 - 全局过滤器：`HandlerInterceptor`、`Filter` 实现、WAF 中间件
 - 输入验证：`@Validated`、`@Valid`、自定义参数校验器
@@ -39,7 +39,7 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 ### 路径 B：静态配置漏洞定性
 
 #### 1. 读取 sink 上下文
-用 `read` 工具打开 `sink_details.filepath`，查看 `line_number` 前后 20 行。
+用 `codegraph` 工具打开 `sink_details.filepath`，查看 `line_number` 前后 20 行。
 
 #### 2. 基于代码证据定性
 
