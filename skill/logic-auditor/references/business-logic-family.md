@@ -11,14 +11,6 @@
 
 ## sink 模式速查
 
-### Mass Assignment
-- `@ModelAttribute SomeEntity entity` —— Spring 自动绑定 request params 到 Entity
-- `@RequestBody SomeEntity entity` —— JSON 反序列化到 Entity
-- `BeanUtils.copyProperties($SRC, $DST)` —— Apache commons-beanutils 全字段拷贝
-- `BeanUtils.populate($DST, $MAP)` —— 同上
-- `ObjectMapper.readValue($JSON, EntityClass.class)` —— Jackson 反序列化到 Entity
-- `WebDataBinder $B` 无 `setAllowedFields/setDisallowedFields`
-
 ### Workflow Bypass
 - 业务状态机方法（如 `order.markPaid()` / `workflow.advance()` / `state.transitionTo(...)`）
 - 状态转换没有"前置状态"校验
@@ -37,15 +29,6 @@
 
 ## 数据流追溯重点
 
-### Mass Assignment
-1. 找 `@ModelAttribute/@RequestBody` 注解 + 绑定的类；
-2. 看绑定的类**是否含敏感字段**：`isAdmin / role / balance / permissions / ownerId`；
-3. 看 controller / Entity 是否有：
-   - `@JsonIgnore` / `@JsonProperty(access=READ_ONLY)` 标记敏感字段
-   - `@InitBinder + setAllowedFields/setDisallowedFields`
-   - DTO 隔离层
-4. 任一条件不满足 → VULNERABLE。
-
 ### Workflow Bypass
 跨文件追读业务状态机的所有方法，看：
 - 每个状态转换方法**前置**条件是否校验
@@ -63,31 +46,6 @@
 - 是否有 IP 计数 / 用户失败次数计数
 
 ## 防御机制速查
-
-### Mass Assignment
-```java
-@RestController
-public class UserController {
-  @InitBinder
-  public void initBinder(WebDataBinder binder) {
-    binder.setAllowedFields("username", "email", "password");
-    // 或 binder.setDisallowedFields("id", "isAdmin", "role");
-  }
-
-  @PostMapping("/user")
-  public User create(@ModelAttribute User user) { ... }
-}
-```
-或用 DTO 隔离：
-```java
-@PostMapping("/user")
-public User create(@RequestBody CreateUserDTO dto) {
-  User user = new User();
-  user.setUsername(dto.getUsername());
-  // 手动映射,排除 isAdmin
-  return userRepo.save(user);
-}
-```
 
 ### Workflow
 状态机方法前置校验：
@@ -132,15 +90,6 @@ if (loginAttempts.get(username) > 5) throw new LockedException();
 
 ## 证据引用范例
 
-**Mass Assignment VULNERABLE 时**：
-```
-suspicion_reason: "Line 25 ObjectMapper mapper = new ObjectMapper();
-                  Line 26 return mapper.readValue(comment, Comment.class);
-                  — Comment 类(Comment.java) 定义包含 user/dateTime/text 等字段,
-                  ObjectMapper 默认绑定全部字段无白名单,
-                  攻击者构造 JSON 含未公开字段(如 isOwner=true)即可注入."
-```
-
 **Race Condition VULNERABLE 时**：
 ```
 suspicion_reason: "Line 42 if (userRepository.existsByUsername(username))
@@ -155,7 +104,6 @@ suspicion_reason: "Line 42 if (userRepository.existsByUsername(username))
 
 | 类型 | 攻击思路 |
 |---|---|
-| Mass Assignment | POST `/user?username=hacker&isAdmin=true` 或 JSON 含 `{"isAdmin": true}` |
 | Workflow Bypass | 跳过 `/payment` 直接 POST `/order/markPaid` |
 | Race Condition (注册) | 用脚本并发 50 次 POST `/register?username=admin` |
 | Race Condition (扣减) | 用脚本并发 100 次 POST `/transfer?amount=10` 余额 10 元的账户 |

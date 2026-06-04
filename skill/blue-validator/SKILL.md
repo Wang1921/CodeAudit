@@ -128,3 +128,20 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 ## ⚠️ 重要提醒
 **完成所有防御核查工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
 不要只输出文本描述，必须在响应最后以 JSON 块形式输出结果。
+
+## 漏洞类型专项指导
+
+按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档：
+- SQL Injection / Command Injection / Code Injection / LDAP / XPath / Template Injection → `injection-family.md`
+- Path Traversal / Zip Slip → `path-traversal-family.md`
+- SSRF → `ssrf.md`
+- XXE → `xxe.md`
+- XSS → `xss.md`
+- Unsafe Deserialization / Unsafe Reflection → `deserialization-reflection.md`
+- IDOR / Authentication Bypass / Privilege Escalation / Missing Authorization → `authz-family.md`
+- Mass Assignment / Workflow Bypass / Race Condition / Insufficient Anti-Automation → `business-logic-family.md`
+- Open Redirect → `redirect-family.md`
+- Hardcoded Credentials / Backdoor → `credentials-backdoor.md`
+- Weak Cryptography → `crypto-family.md`
+- Cookie / Trust Boundary → `cookie-trust-boundary.md`
+- Sensitive Data in Log / URL → `info-disclosure.md`

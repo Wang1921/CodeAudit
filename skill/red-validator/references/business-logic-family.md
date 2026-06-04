@@ -13,7 +13,6 @@
 
 | 类型 | 攻击思路 |
 |---|---|
-| Mass Assignment | POST `/user?username=hacker&isAdmin=true` 或 JSON 含 `{"isAdmin": true}` |
 | Workflow Bypass | 跳过 `/payment` 直接 POST `/order/markPaid` |
 | Race Condition (注册) | 用脚本并发 50 次 POST `/register?username=admin` |
 | Race Condition (扣减) | 用脚本并发 100 次 POST `/transfer?amount=10` 余额 10 元的账户 |

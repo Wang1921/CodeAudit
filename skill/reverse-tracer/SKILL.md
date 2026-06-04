@@ -78,7 +78,19 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 
 ## 漏洞类型专项指导
 
-按 `vuln_class` 查阅 `references/INDEX.md` 找到对应文档，重点关注"数据流追溯"段落。
+按 `vuln_class` 查阅 `references/INDEX.md` 找到对应文档，重点关注"数据流追溯"段落：
+
+- SQL Injection / Command Injection / Code Injection / LDAP / XPath / Template Injection → `injection-family.md`
+- Path Traversal / Zip Slip → `path-traversal-family.md`
+- SSRF → `ssrf.md`
+- XXE → `xxe.md`
+- XSS → `xss.md`
+- Unsafe Deserialization / Unsafe Reflection → `deserialization-reflection.md`
+- Hardcoded Credentials / Backdoor → `credentials-backdoor.md`
+- Weak Cryptography → `crypto-family.md`
+- Cookie / Trust Boundary → `cookie-trust-boundary.md`
+- Sensitive Data in Log / URL → `info-disclosure.md`
+- Open Redirect → `redirect-family.md`
 
 常见漏洞的追踪要点：
 - **SQL Injection**：追踪 SQL 字符串的拼接来源，区分 `${}` 和 `#{}`

@@ -11,31 +11,6 @@
 
 ## 防御机制速查
 
-### Mass Assignment
-```java
-@RestController
-public class UserController {
-  @InitBinder
-  public void initBinder(WebDataBinder binder) {
-    binder.setAllowedFields("username", "email", "password");
-    // 或 binder.setDisallowedFields("id", "isAdmin", "role");
-  }
-
-  @PostMapping("/user")
-  public User create(@ModelAttribute User user) { ... }
-}
-```
-或用 DTO 隔离：
-```java
-@PostMapping("/user")
-public User create(@RequestBody CreateUserDTO dto) {
-  User user = new User();
-  user.setUsername(dto.getUsername());
-  // 手动映射,排除 isAdmin
-  return userRepo.save(user);
-}
-```
-
 ### Workflow
 状态机方法前置校验：
 ```java
@@ -78,15 +53,6 @@ if (loginAttempts.get(username) > 5) throw new LockedException();
 - ❌ Quiz 答题端点的 `if (input.equals("Solution"))` 不算 Anti-Automation 真漏洞（即使没限速也仅泄露 quiz 答案）
 
 ## 证据引用范例
-
-**Mass Assignment VULNERABLE 时**：
-```
-suspicion_reason: "Line 25 ObjectMapper mapper = new ObjectMapper();
-                  Line 26 return mapper.readValue(comment, Comment.class);
-                  — Comment 类(Comment.java) 定义包含 user/dateTime/text 等字段,
-                  ObjectMapper 默认绑定全部字段无白名单,
-                  攻击者构造 JSON 含未公开字段(如 isOwner=true)即可注入."
-```
 
 **Race Condition VULNERABLE 时**：
 ```
