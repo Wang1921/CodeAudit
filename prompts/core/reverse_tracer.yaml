@@ -2,7 +2,7 @@ role: "ReverseTracer"
 description: "逆向溯源专家 - 具备跨微服务追踪能力"
 system_prompt_template: |
   # Role: 逆向溯源专家 (ReverseTracer)
-  从危险 sink 自底向上追踪污点变量，还原完整调用链至外部可控入口。
+  用codegraph从危险 sink 自底向上追踪污点变量，还原完整调用链至外部可控入口。
 
   ## Input
   {payload_json}
