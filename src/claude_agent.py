@@ -42,12 +42,35 @@ class ClaudeAgent:
 
     def _build_options(self, allowed_tools: str, output_schema: dict | None) -> ClaudeAgentOptions:
         """构建 ClaudeAgentOptions"""
+        # 解析 allowed_tools 参数
+        tool_list = [t.strip().lower() for t in allowed_tools.split(",") if t.strip()]
+
+        # CodeGraph MCP 工具列表
+        codegraph_tools = [
+            "mcp__codegraph__codegraph_explore",
+            "mcp__codegraph__codegraph_search",
+            "mcp__codegraph__codegraph_callers",
+            "mcp__codegraph__codegraph_callees",
+            "mcp__codegraph__codegraph_impact",
+            "mcp__codegraph__codegraph_node",
+            "mcp__codegraph__codegraph_files",
+            "mcp__codegraph__codegraph_status",
+        ]
+
         options = ClaudeAgentOptions(
             tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
             skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer'],
             setting_sources=["user", "project"],
             cwd=self.cwd,
             permission_mode="acceptEdits",
+            # CodeGraph MCP 配置
+            mcp_servers={
+                "codegraph": {
+                    "command": "codegraph",
+                    "args": ["serve", "--mcp"],
+                }
+            },
+            allowed_tools=tool_list + codegraph_tools,
         )
 
         if output_schema:
