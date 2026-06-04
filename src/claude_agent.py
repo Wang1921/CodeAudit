@@ -55,7 +55,7 @@ class ClaudeAgent:
         ]
 
         # 基础工具列表
-        base_tools = ["read", "grep", "lsp", "codesearch"]
+        base_tools = ["read", "bash", "glob", "grep", "skill"]
 
         options = ClaudeAgentOptions(
             tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
