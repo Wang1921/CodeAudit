@@ -174,12 +174,56 @@ rules:
                     - EntityManager
                     - javax.persistence.EntityManager
                     - jakarta.persistence.EntityManager
+          # Hibernate Query 对象执行方法（HQL 已污染时）
+          - patterns:
+              - pattern-either:
+                  - pattern: $Q.getResultList()
+                  - pattern: $Q.executeUpdate()
+                  - pattern: $Q.uniqueResult()
+                  - pattern: $Q.list()
+                  - pattern: $Q.singleResult()
+                  - pattern: $Q.stream()
+              - metavariable-type:
+                  metavariable: $Q
+                  types:
+                    - Query
+                    - org.hibernate.Query
+                    - jakarta.persistence.Query
+                    - javax.persistence.Query
+                    - TypedQuery
+                    - org.hibernate.query.Query
+          # HibernateBaseDao 包装方法（find/findOne/findAndPage/count/update 等）
+          # 接收 HQL 字符串 + varargs params，若 HQL 由用户输入拼接则构成注入
+          # 使用 super. 前缀匹配，因为这些方法通过继承调用（无显式类型声明）
+          # ReverseTracer Agent 会过滤掉参数化查询的 safe HQL，只保留真正有注入风险的
+          - pattern: super.find($HQL, ...)
+          - pattern: super.findOne($HQL, ...)
+          - pattern: super.findAndPage($HQL, ...)
+          - pattern: super.count($HQL, ...)
+          - pattern: super.update($HQL, ...)
+          - pattern: super.execute($HQL, ...)
+          - pattern: super.createQuery($HQL, ...)
+          - pattern: super.createSQLQuery($HQL, ...)
       # 字面量排除
       - pattern-not: $S.createQuery("...", ...)
       - pattern-not: $S.createSQLQuery("...", ...)
       - pattern-not: $S.createNativeQuery("...", ...)
       - pattern-not: $EM.createQuery("...", ...)
       - pattern-not: $EM.createNativeQuery("...", ...)
+      - pattern-not: $Q.getResultList()
+      - pattern-not: $Q.executeUpdate()
+      - pattern-not: $Q.uniqueResult()
+      - pattern-not: $Q.list()
+      - pattern-not: $Q.singleResult()
+      - pattern-not: $Q.stream()
+      - pattern-not: super.find("...", ...)
+      - pattern-not: super.findOne("...", ...)
+      - pattern-not: super.findAndPage("...", ...)
+      - pattern-not: super.count("...", ...)
+      - pattern-not: super.update("...", ...)
+      - pattern-not: super.execute("...", ...)
+      - pattern-not: super.createQuery("...", ...)
+      - pattern-not: super.createSQLQuery("...", ...)
 
   # ---------------- MyBatis 注解层 SQL 注入 ----------------
   # 在 @Select / @Update / @Insert / @Delete / @SelectProvider 等注解字符串里出现
