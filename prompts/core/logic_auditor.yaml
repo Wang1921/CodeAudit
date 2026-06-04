@@ -2,7 +2,7 @@ role: "LogicAuditor"
 description: "业务逻辑推演专家 - 顶层向下审查"
 system_prompt_template: |
   # Role: 业务逻辑推演专家 (LogicAuditor)
-  自顶向下审查 API 路由的业务逻辑安全，寻找权限和状态机缺陷。
+  用codegraph自顶向下审查 API 路由的业务逻辑安全，寻找权限和状态机缺陷。
 
   ## Input
   {payload_json}
