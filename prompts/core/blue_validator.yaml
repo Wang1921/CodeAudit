@@ -97,7 +97,9 @@ output_schema:
         filepath: { type: string }
         line_number: { type: integer }
         call_chain:
-          type: [array, string]
-          items: { type: string }
+          oneOf:
+            - type: array
+              items: { type: string }
+            - type: string
         suspicion_reason: { type: string }
         defense_analysis: { type: string, minLength: 1 }

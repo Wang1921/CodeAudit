@@ -360,21 +360,26 @@ class StateRouter:
         if isinstance(agent_output, str):
             return self._parse_json_string(agent_output)
         if not isinstance(agent_output, dict):
+            logging.debug(f"[路由解析] agent_output 不是 dict，类型: {type(agent_output)}")
             return None
 
         structured = agent_output.get("structured_output")
         if isinstance(structured, dict):
             return structured
+        elif structured is not None:
+            logging.debug(f"[路由解析] structured_output 不是 dict，类型: {type(structured)}, 值: {str(structured)[:200]}")
 
         response = agent_output.get("response")
         if isinstance(response, str) and response.strip():
             parsed = self._parse_json_string(response)
             if parsed is not None:
                 return parsed
+            logging.debug(f"[路由解析] response 解析失败，前200字符: {response[:200]}")
 
         if any(k in agent_output for k in (*_BUSINESS_FIELDS, "status")):
             return agent_output
 
+        logging.debug(f"[路由解析] 所有解析方式均失败，agent_output keys: {list(agent_output.keys())}")
         return None
 
     @staticmethod
@@ -402,14 +407,48 @@ class StateRouter:
             except json.JSONDecodeError:
                 pass
 
-        # ❸ 兜底：Markdown 代码块
-        m = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, re.DOTALL)
+        # ❸ 兜底：Markdown 代码块（更宽松的模式）
+        # 匹配 ```json 或 ``` 包裹的内容
+        m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if m:
             try:
                 parsed = json.loads(m.group(1))
                 return parsed if isinstance(parsed, dict) else None
             except json.JSONDecodeError:
-                return None
+                pass
+
+        # ❹ 更宽松：尝试匹配任何 {...} 模式的代码块
+        m = re.search(r"```[^`]*(\{[^}]+\})[^`]*```", text, re.DOTALL)
+        if m:
+            try:
+                parsed = json.loads(m.group(1))
+                return parsed if isinstance(parsed, dict) else None
+            except json.JSONDecodeError:
+                pass
+
+        # ❺ 兜底：查找纯 JSON 对象（可能没有代码块标记）
+        # 匹配以 { 开头到最后一个 } 结尾的内容
+        if '{' in text:
+            start = text.find('{')
+            # 尝试向后扩展，找到最外层的 }
+            bracket_count = 0
+            end = start
+            for i, c in enumerate(text[start:], start):
+                if c == '{':
+                    bracket_count += 1
+                elif c == '}':
+                    bracket_count -= 1
+                    if bracket_count == 0:
+                        end = i + 1
+                        break
+            if end > start:
+                try:
+                    parsed = json.loads(text[start:end])
+                    if isinstance(parsed, dict):
+                        return parsed
+                except json.JSONDecodeError:
+                    pass
+
         return None
 
     @staticmethod
