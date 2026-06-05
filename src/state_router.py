@@ -487,7 +487,13 @@ class StateRouter:
                 # 重试：增加计数，重新写入 processing 队列
                 orig_env["retry_count"] = retry_count + 1
                 orig_env["last_error"] = "JSON parse failed"
-                self.bus.write_message(orig_env, "processing")
+                self.bus.write_message(
+                    message_type="processing",
+                    task_id=task_id,
+                    sender=sender,
+                    recipient=orig_env.get("recipient", "system"),
+                    payload=orig_env,
+                )
                 logging.warning(
                     f"[路由] {sender} 任务 {task_id} 输出无法解析为 JSON，"
                     f"重试 ({retry_count + 1}/{MAX_RETRIES})"
