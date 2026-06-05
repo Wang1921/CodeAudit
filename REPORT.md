@@ -175,7 +175,7 @@ LLM 验证层有机会过滤。整体上是一个"工程层 + 模型层"的混�
 LogicAuditor 的 9 类业务漏洞白名单（必须从中选一个 vuln_type，禁止自创）：
 
 ```
-IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass /
+IDOR / Privilege Escalation / Authentication Bypass /
 Hardcoded Backdoor / Mass Assignment / Workflow Bypass / Race Condition /
 Insufficient Anti-Automation / Open Redirect（兜底）
 ```
@@ -254,7 +254,7 @@ LLM 对话之外的可复用知识用 file-based memory 持久化，目录
 为什么不让一个 LLM 包打天下，而要拆 Path A / Path B？
 
 **实测教训**（v10 数据）：当 LogicAuditor 没有"技术类排除"强约束时，遇到 SQL Injection
-代码会强行从 9 类业务白名单里挑最像的（IDOR / Missing Authorization / Anti-Automation），
+代码会强行从 8 类业务白名单里挑最像的（IDOR / Anti-Automation），
 导致大量真漏洞被错挂分类。修复后（commit `8c6e933`），LogicAuditor 看到技术类形态直接
 返回 DEFENDED 让 Sink 路径处理，错挂数从 11 降到 3。
 
@@ -337,7 +337,7 @@ v10 改动比较杂，包括：
 
 但 v10 暴露了一个隐藏更深的问题：**严格 Precision 86.7%，比 v9 还低 5pp**。深查发现
 11 条"类型错挂 FP" —— 漏洞真实存在但 vuln_type 标错，多数是 LogicAuditor 把 SQL Injection
-错挂为 IDOR/Missing Authorization。这成了 v11 的核心修复目标。
+错挂为 IDOR。这成了 v11 的核心修复目标。
 
 ### 3.4 v11：Schema 救漏报 + LogicAuditor 技术类排除
 

@@ -8,7 +8,6 @@
 | `vuln_type` | reference 文档 |
 |---|---|
 | **IDOR** | [authz-family.md](authz-family.md) |
-| **Missing Authorization** | [authz-family.md](authz-family.md) |
 | **Privilege Escalation** | [authz-family.md](authz-family.md) |
 | **Authentication Bypass** | [authz-family.md](authz-family.md) |
 | **Hardcoded Backdoor** | [credentials-backdoor.md](credentials-backdoor.md) |

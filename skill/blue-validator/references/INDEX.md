@@ -42,7 +42,6 @@
 | **Sensitive Data in Log** | [info-disclosure.md](info-disclosure.md) |
 | **Sensitive Data in URL** | [info-disclosure.md](info-disclosure.md) |
 | **IDOR** | [authz-family.md](authz-family.md) |
-| **Missing Authorization** | [authz-family.md](authz-family.md) |
 | **Privilege Escalation** | [authz-family.md](authz-family.md) |
 | **Authentication Bypass** | [authz-family.md](authz-family.md) |
 | **Workflow Bypass** | [business-logic-family.md](business-logic-family.md) |

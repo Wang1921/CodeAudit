@@ -94,6 +94,8 @@ class AuditEngine:
             return prompts.format_red_validator_prompt(payload_json)
         elif agent_name == "BlueValidator":
             return prompts.format_blue_validator_prompt(payload_json)
+        elif agent_name == "CrossServicePrefilter":
+            return prompts.format_cross_service_prefilter_prompt(payload_json)
         else:
             # ReportGenerator 已改为纯 Python 字段映射（state_router._build_report_fields），不再是 LLM agent
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
@@ -451,6 +453,12 @@ class AuditEngine:
             logging.warning("未发现其他微服务目录，跨界追踪终止。")
             return {}
 
+        # 预筛选：用轻量 Agent 判断哪些微服务引用了 target_identifier，跳过无关服务
+        service_dirs = await self._prefilter_services_with_agent(service_dirs, protocol, target_id)
+        if not service_dirs:
+            logging.info(f"预筛选后无微服务引用 '{target_id}'，跨界追踪终止。")
+            return {}
+
         original_sink_details = env.get("payload", {}).get("sink_details", {})
         historical_chain = payload.get("historical_chain", [])
 
@@ -494,6 +502,85 @@ class AuditEngine:
             else:
                 output[sd.name] = res  # parsed_result 或 None
         return output
+
+    async def _prefilter_services_with_agent(
+        self, service_dirs: list[Path], protocol: str, target_identifier: str
+    ) -> list[Path]:
+        """用轻量 Agent 全局预筛选引用了 target_identifier 的微服务。
+
+        Agent 可以理解间接引用（配置变量、常量定义、注册中心服务名等），
+        比纯文本 grep 更准确。解析失败时降级为全量扫描。
+        """
+        if not target_identifier or target_identifier == "unknown":
+            return service_dirs
+
+        if len(service_dirs) <= 1:
+            return service_dirs
+
+        try:
+            payload = {
+                "protocol": protocol,
+                "target_identifier": target_identifier,
+                "services": [sd.name for sd in service_dirs],
+                "project_root": str(self.target_source_dir),
+            }
+            prompt = prompts.format_cross_service_prefilter_prompt(
+                json.dumps(payload, ensure_ascii=False)
+            )
+            output_schema = prompts.get_output_schema("CrossServicePrefilter")
+
+            agent = await self.agent_manager.get_agent(self.target_source_dir)
+            result = await agent.execute(
+                prompt,
+                allowed_tools="read,codesearch",
+                output_schema=output_schema,
+            )
+            tokens_used = result.pop('_tokens', 0)
+            if tokens_used > 0:
+                self.tracker.add_tokens(tokens_used)
+
+            relevant = self._extract_prefilter_result(result)
+            if relevant is None:
+                logging.warning("预筛选 Agent 输出解析失败，降级为全量扫描")
+                return service_dirs
+
+            name_to_dir = {sd.name: sd for sd in service_dirs}
+            filtered = [name_to_dir[name] for name in relevant if name in name_to_dir]
+
+            if not filtered:
+                logging.warning("预筛选 Agent 返回空列表，降级为全量扫描")
+                return service_dirs
+
+            logging.info(
+                f"预筛选: {len(filtered)}/{len(service_dirs)} 个微服务可能引用了 '{target_identifier}'"
+            )
+            return filtered
+        except Exception as e:
+            logging.warning(f"预筛选 Agent 执行异常 ({e})，降级为全量扫描")
+            return service_dirs
+
+    @staticmethod
+    def _extract_prefilter_result(result: dict | None) -> list[str] | None:
+        """从 Agent 输出中提取 relevant_services 列表。"""
+        if not result:
+            return None
+
+        # 优先取 structured_output
+        structured = result.get("structured_output") if isinstance(result, dict) else None
+        if isinstance(structured, dict) and "relevant_services" in structured:
+            return structured["relevant_services"]
+
+        # 降级：从 response 文本解析 JSON
+        response = result.get("response") if isinstance(result, dict) else None
+        if isinstance(response, str) and response.strip():
+            try:
+                parsed = json.loads(response)
+                if isinstance(parsed, dict) and "relevant_services" in parsed:
+                    return parsed["relevant_services"]
+            except json.JSONDecodeError:
+                pass
+
+        return None
 
     async def _run_relay_agent(
         self, service_dir: str, prompt: str, service_name: str

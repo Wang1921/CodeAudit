@@ -33,6 +33,23 @@ Jwts.parserBuilder()
 - ❌ "JWT 验签了" —— 看是否用 `parseClaimsJws`（强制验签）而非 `parse`（可绕过）
 - ❌ "教学项目"借口
 
+## ⚠️ 密码学场景判定（Weak Cryptography / Weak Random 专属）
+
+不安全加密算法和弱随机数**只有在密码学安全场景中使用才是漏洞**。以下场景**不是漏洞**，应判 DEFENDED：
+
+### 非漏洞场景
+- `java.util.Random` / `Math.random()` 用于生成**业务 ID**（如 siteId、orderId、requestId）—— 这些 ID 的用途是唯一性标识，不是安全令牌，可预测性不构成风险
+- `java.util.Random` 用于生成**UI/非安全参数**（如动画延迟、分片键、负载均衡权重）
+- `MD5` 用于**非安全哈希**（如缓存键、文件去重指纹、ETag 计算）
+
+### 漏洞场景
+- `java.util.Random` 用于生成**安全令牌**（如 session token、CSRF token、密码重置链接、验证码）
+- `MD5` / `SHA-1` 用于**密码哈希**、**签名验证**、**数据完整性校验**
+- `DES` / `RC4` / `AES/ECB` 用于**加密敏感数据**
+
+### 判定原则
+**看用途，不看算法**：同一个 `java.util.Random`，生成 siteId → DEFENDED，生成 session token → VULNERABLE。
+
 ## 证据引用范例
 
 **DEFENDED 时**：

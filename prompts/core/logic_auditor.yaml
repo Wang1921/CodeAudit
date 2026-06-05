@@ -22,7 +22,6 @@ system_prompt_template: |
 
   ## 🚨 漏洞类型命名要求（必须从下面白名单挑一个，禁止自创）
   - `IDOR` — 路径/查询参数 id 直查 DB 无归属校验
-  - `Missing Authorization` — 接口完全无鉴权
   - `Privilege Escalation` — 低权限用户触达高权限接口
   - `Authentication Bypass` — 鉴权逻辑可绕过
   - `Hardcoded Backdoor` — 硬编码明文通行证

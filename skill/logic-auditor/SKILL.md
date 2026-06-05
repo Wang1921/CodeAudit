@@ -74,8 +74,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 4. **Privilege Escalation** — 已登录低权限用户触达高权限接口
 5. **Workflow Bypass** — 状态跳步
 6. **Race Condition** / **Insufficient Anti-Automation** — TOCTOU / 无限速
-7. **Missing Authorization** — 兜底：完全无鉴权且不属于上面任何一类
-8. **Open Redirect** — 仅当 sink 路径未抓到时兜底
+7. **Open Redirect** — 仅当 sink 路径未抓到时兜底
 
 **关键决策原则**：
 - 缺陷形态是"对象归属未校验" → 一律判 IDOR
@@ -89,14 +88,14 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 排除的技术类漏洞：SQL Injection / Path Traversal / Command Injection / SSRF / XSS / XXE / Unsafe Deserialization / Code Injection / SpEL / JNDI / LDAP / Template Injection
 
 **典型踩坑**：
-- `executeQuery(query)` 来自 `@RequestParam` → 是 SQL Injection，不是 Missing Authorization
+- `executeQuery(query)` 来自 `@RequestParam` → 是 SQL Injection，不是 IDOR
 - `ZipEntry.getName()` 未校验 `..` → 是 Zip Slip，不是 Race Condition
 - `XStream.fromXML(xml)` 无白名单 → 是 Unsafe Deserialization，不是 Authentication Bypass
 
 ## 漏洞类型专项指导
 
 按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档：
-- IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass → `authz-family.md`
+- IDOR / Privilege Escalation / Authentication Bypass → `authz-family.md`
 - Workflow Bypass / Race Condition → `business-logic-family.md`
 - Hardcoded Backdoor → `credentials-backdoor.md`
 - Open Redirect → `redirect-family.md`

@@ -1,16 +1,14 @@
-# Authorization Family（IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass）
+# Authorization Family（IDOR / Privilege Escalation / Authentication Bypass）
 
 ## 四类区别（务必精确区分）
 
 | 类型 | 核心问题 | 典型代码模式 |
 |---|---|---|
-| **Missing Authorization** | 接口完全无鉴权 | 无 `@PreAuthorize` / 无 filter / 无 token 校验 |
 | **Authentication Bypass** | 鉴权逻辑本身可绕 | JWT alg=none / token 解析错 / 密钥硬编码 |
 | **Privilege Escalation** | 已登录但越权访问高权资源 | 普通用户调到 admin-only 接口 |
 | **IDOR** | 路径/参数 id 直查 DB 无 ownership 校验 | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
 
 ⚠️ **混淆点**（v11/v12 实测反面教材）：
-- "已认证用户可删除所有邮件" → **Missing Authorization**（接口没分细分权限）而非 Privilege Escalation
 - "只对 tom 用户校验密码其他用户直接失败" → **Authentication Bypass / Logic Flaw** 而非 Privilege Escalation
 - "split 验证缺陷绕过路径校验" → **IDOR** 或 **Authentication Bypass**（看具体是访问他人资源还是绕过鉴权）
 

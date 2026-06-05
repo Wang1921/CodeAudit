@@ -1,25 +1,18 @@
-# Authorization Family（IDOR / Missing Authorization / Privilege Escalation / Authentication Bypass）
+# Authorization Family（IDOR / Privilege Escalation / Authentication Bypass）
 
 ## 四类区别（务必精确区分）
 
 | 类型 | 核心问题 | 典型代码模式 |
 |---|---|---|
-| **Missing Authorization** | 接口完全无鉴权 | 无 `@PreAuthorize` / 无 filter / 无 token 校验 |
 | **Authentication Bypass** | 鉴权逻辑本身可绕 | JWT alg=none / token 解析错 / 密钥硬编码 |
 | **Privilege Escalation** | 已登录但越权访问高权资源 | 普通用户调到 admin-only 接口 |
 | **IDOR** | 路径/参数 id 直查 DB 无 ownership 校验 | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
 
 ⚠️ **混淆点**（v11/v12 实测反面教材）：
-- "已认证用户可删除所有邮件" → **Missing Authorization**（接口没分细分权限）而非 Privilege Escalation
 - "只对 tom 用户校验密码其他用户直接失败" → **Authentication Bypass / Logic Flaw** 而非 Privilege Escalation
 - "split 验证缺陷绕过路径校验" → **IDOR** 或 **Authentication Bypass**（看具体是访问他人资源还是绕过鉴权）
 
 ## sink 模式速查
-
-### Missing Authorization
-- `@PostMapping/@GetMapping/...` 注解 + **无** `@PreAuthorize/@Secured/@RolesAllowed`
-- 全局 SecurityFilterChain 未配置该路径
-- `permitAll()` 对敏感路径
 
 ### Authentication Bypass
 - `Jwts.parser().parse(token)` —— 没 `setSigningKey()`（可接受 alg=none）
@@ -38,9 +31,6 @@
 - URL `/user/{id}/profile` 不验 `{id}` 是否本人
 
 ## 数据流追溯重点
-
-### Missing Authorization
-fast-path：看接口方法上**有/无**鉴权注解，看 SecurityConfig 是否配置该路径。
 
 ### Authentication Bypass
 1. 找 JWT 解析逻辑；
@@ -83,10 +73,8 @@ fast-path：看接口方法上**有/无**鉴权注解，看 SecurityConfig 是�
 
 ## 常见误判
 
-- ❌ "用户必须登录" 当成 Missing Authorization 的 DEFENDED 理由 —— 已登录用户仍可触发 IDOR / Privilege Escalation
 - ❌ 看到 `@PreAuthorize("isAuthenticated()")` 就判 DEFENDED —— 这只是"登录"不是"授权"
 - ❌ "拦截器有 token 校验" —— 看具体逻辑是否能绕过 alg=none / jku
-- ❌ 把 Auth Bypass 错挂为 Missing Authorization（v11/v12 实测）：JWT 密钥硬编码导致 token 伪造 → 是 Auth Bypass 不是 Missing
 - ❌ "教学项目"借口
 
 ## 证据引用范例

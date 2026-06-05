@@ -45,7 +45,6 @@
 | **Open Redirect** | CWE-601 | 6 | B 动态 |
 | **Sensitive Data in Log** | CWE-532 | 6 | A 静态 |
 | **Insufficient Anti-Automation** | CWE-307 | 4 | C 业务逻辑 |
-| **Missing Authorization** | CWE-862 | 4 | C 业务逻辑 |
 | **Mass Assignment** | CWE-915 | 4 | B 动态 |
 | **Insecure Cookie** | CWE-614 | 3 | A 静态 |
 | **Unsafe Deserialization** | CWE-502 | 2 | B 动态 |
@@ -563,19 +562,7 @@ password=test123&email=tom@webgoat-cloud.org&username=attacker
 
 </details>
 
-### Missing Authorization (CWE-862, 4 条)
-
-| # | 严重度 | 文件:行 | 入口路由 | 简短描述 |
-|---:|---|---|---|---|
-| 1 | High | `Salaries.java:55` | `clientSideFiltering/salaries` | [发现] 该接口完全没有任何鉴权机制（无 @PreAuthorize 注解、无过滤器、无 token 校验），匿名用户即可访问包含用户 SSN 和薪资的敏感信息接口，属于 Missing Authorization 漏洞  [攻击面] 直接 |
-| 2 | High | `JWTQuiz.java:50` | `/JWT/quiz` | [发现] getResults() 方法（第 50 行）缺少鉴权注解或过滤器，任何匿名用户均可直接访问获取 quiz 答题结果；同时 fields guesses 是类级变量（第 22 行），存在线程安全问题  [攻击面] 直接向 /JWT |
-| 3 | High | `MailboxController.java:46` | `/mail` | [发现] 第 46 行的 deleteAllMail() 方法（DELETE /mail 路由）无任何鉴权注解或身份验证机制，任意用户均可直接调用该接口删除所有用户的邮件，造成严重的安全风险  [攻击面] 发送 DELETE 请求到 /ma |
-| 4 | High | `MailboxController.java:48` | `/mail` | [发现] 第 48 行 deleteAllMail() 方法缺少鉴权注解和权限校验，任意用户（包括匿名用户）均可调用此接口删除所有邮件，导致数据破坏。  [攻击面] 该接口使用 @DeleteMapping("/mail") 注解，无需任何 |
-
-<details>
-<summary>展开样例 (MailboxController.java): PoC + 修复建议</summary>
-
-**攻击向量**: 直接访问 /clientSideFiltering/salaries 接口，无需任何鉴权或身份验证即可获取敏感信息
+### Hardcoded Credentials (CWE-798, 3 条)
 
 **PoC payload**:
 ```

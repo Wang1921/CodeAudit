@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: order-service
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: order-group
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+
+# Kafka topic 名称通过变量引用
+kafka:
+  topics:
+    orders: ${ORDER_TOPIC:default-order}
+    notifications: notification-events

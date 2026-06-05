@@ -235,8 +235,7 @@ RetryAgent: 任一 LLM 输出非法 JSON 时,在同会话内触发的修复 prom
 4. `Privilege Escalation`  —— 已登录但越权调高权限接口
 5. `Mass Assignment` / `Workflow Bypass`  —— 字段污染 / 状态跳步
 6. `Race Condition` / `Insufficient Anti-Automation`  —— TOCTOU / 无限速
-7. `Missing Authorization` —— **兜底**：完全没有任何鉴权
-8. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底
+7. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底
 
 ## 🚫 技术类漏洞排除（强约束，不可违背）
 
@@ -256,9 +255,9 @@ ReverseTracer + RedValidator + BlueValidator 走专门的 Sink 路径处理。
 
 ⚠️ **典型踩坑案例（vs v10 baseline 实测）**：
   - `executeQuery(query)` 其中 `query` 来自 `@RequestParam` —— **是 SQL Injection,
-    不是** "Missing Authorization"
+    不是 IDOR**
   - `createStatement().executeQuery("SELECT ... WHERE id = '" + kid + "'")` ——
-    **是 SQL Injection,不是** "IDOR"
+    **是 SQL Injection,不是 IDOR**
   - `ZipEntry.getName()` 未校验 `..` —— **是 Zip Slip / Path Traversal,
     不是** "Race Condition"
   - `XStream.fromXML(xml)` 无白名单 —— **是 Unsafe Deserialization,
@@ -272,7 +271,6 @@ ReverseTracer + RedValidator + BlueValidator 走专门的 Sink 路径处理。
 
 **允许的业务逻辑漏洞类型（严格使用）**：
 - `IDOR`                     → 路径/查询参数里的对象 id 未经归属校验
-- `Missing Authorization`    → 接口完全无鉴权注解或 filter
 - `Privilege Escalation`     → 登录态下低权限用户能触达高权限接口
 - `Authentication Bypass`    → 有鉴权但逻辑可绕
 - `Hardcoded Backdoor`       → 形如 `if (token.equals("debug_admin"))`
@@ -670,7 +668,7 @@ TodoList 驱动 + 逐项标记,违背即审计未尽职。**禁止**：
 | `credentials-backdoor.md` | Hardcoded Credentials, Hardcoded Backdoor |
 | `cookie-trust-boundary.md` | Insecure Cookie, Trust Boundary Violation |
 | `info-disclosure.md` | Stack Trace Exposure, Sensitive Data in Log/URL |
-| `authz-family.md` | IDOR, Missing Authorization, Privilege Escalation, Authentication Bypass |
+| `authz-family.md` | IDOR, Privilege Escalation, Authentication Bypass |
 | `business-logic-family.md` | Mass Assignment, Workflow Bypass, Race Condition, Anti-Automation |
 
 每份文档的 **6 段标准结构**：
