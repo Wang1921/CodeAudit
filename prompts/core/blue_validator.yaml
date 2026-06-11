@@ -57,7 +57,7 @@ output_schema:
         attack_vector:    { type: string, minLength: 5 }
         poc_payload:      { type: string, minLength: 1 }
         max_impact:       { type: string, minLength: 5 }
-        defense_analysis: { type: string, minLength: 5 }
+        defense_analysis: { type: string, minLength: 50 }
         mitigation_advice: { type: string, minLength: 5 }
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis, mitigation_advice]
@@ -78,7 +78,7 @@ output_schema:
           type: string
           const: "N/A（静态配置漏洞）"
         suspicion_reason: { type: string }
-        defense_analysis: { type: string, minLength: 5 }
+        defense_analysis: { type: string, minLength: 50 }
         mitigation_advice: { type: string, minLength: 5 }
     - type: object
       required: [status, vuln_type, entry_route, filepath, line_number, call_chain, suspicion_reason, defense_analysis]
@@ -101,5 +101,5 @@ output_schema:
               items: { type: string }
             - type: string
         suspicion_reason: { type: string }
-        defense_analysis: { type: string, minLength: 1 }
+        defense_analysis: { type: string, minLength: 50 }
         mitigation_advice: { type: string }  # 允许填写，用于说明规则误报原因

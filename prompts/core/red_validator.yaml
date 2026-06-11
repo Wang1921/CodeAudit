@@ -32,7 +32,7 @@ output_schema:
       properties:
         status:
           type: string
-          enum: [VULNERABLE]
+          enum: [EXPLOITABLE]
         vuln_type: { type: string, minLength: 1 }
         entry_route: { type: string }
         filepath: { type: string }
@@ -57,6 +57,6 @@ output_schema:
       properties:
         status:
           type: string
-          enum: [DEFENDED]
-        defense_analysis: { type: string, minLength: 20 }
+          enum: [NOT_EXPLOITABLE]
+        defense_analysis: { type: string, minLength: 50 }
         false_positive_reason: { type: string }  # 可选：规则误报说明

@@ -105,7 +105,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - `vuln_type` 必须逐字复制 `sink_details.vuln_class`，禁止修改
 - 场景 A 必须包含完整 `call_chain` 和 `suspicion_reason`
 - 场景 B 必须包含 `protocol` 和 `target_identifier`
-- 场景 C 仅输出 `{"status": "NOT_EXPLOITABLE"}`
+- 场景 C 必须输出 `status: NOT_EXPLOITABLE` + `defense_analysis`（≥50 字符，说明断裂原因如硬编码/枚举/配置固定值）
 
 ## ⚠️ 重要提醒
 **完成所有追踪工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
