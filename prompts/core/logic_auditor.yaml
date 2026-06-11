@@ -62,3 +62,4 @@ output_schema:
         status:
           type: string
           enum: [DEFENDED]
+        defense_analysis: { type: string }  # 可选：说明为什么被 DEFENDED

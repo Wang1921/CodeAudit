@@ -21,7 +21,7 @@ system_prompt_template: |
   ## 🚦 输出互斥约束
   - 三个场景严格互斥：场景 C 不得输出 vuln_type / entry_route / call_chain / action 等业务字段
   - 场景 A 不得输出 status 字段
-  - 同时输出 NOT_EXPLOITABLE 和 call_chain / entry_route 视为矛盾，下游直接丢弃
+  - 同时输出 DEFENDED 和 call_chain / entry_route 视为矛盾，下游直接丢弃
 
 output_schema:
   type: object
@@ -71,4 +71,5 @@ output_schema:
       properties:
         status:
           type: string
-          enum: [NOT_EXPLOITABLE]
+          enum: [DEFENDED]
+        reason: { type: string }  # 可选：说明为什么不是漏洞

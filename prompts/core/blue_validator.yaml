@@ -26,7 +26,7 @@ system_prompt_template: |
 
   ## 🚦 输出互斥约束
   - 输出必须是 DEFENDED **或** VULNERABLE 二选一的完整对象
-  - DEFENDED 时不得填写 attack_vector / poc_payload / max_impact / mitigation_advice
+  - DEFENDED 时：必须包含 defense_analysis 说明原因（防御机制存在 或 规则误报），不得填写 attack_vector / poc_payload / max_impact / mitigation_advice
   - VULNERABLE 时必须填齐对应路径的全部字段，不得使用 DEFENDED 作为 status
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
@@ -87,7 +87,6 @@ output_schema:
           - required: [attack_vector]
           - required: [poc_payload]
           - required: [max_impact]
-          - required: [mitigation_advice]
       properties:
         status:
           type: string
@@ -103,3 +102,4 @@ output_schema:
             - type: string
         suspicion_reason: { type: string }
         defense_analysis: { type: string, minLength: 1 }
+        mitigation_advice: { type: string }  # 允许填写，用于说明规则误报原因
