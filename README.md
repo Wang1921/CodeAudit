@@ -7,7 +7,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 ## 🌟 核心特性 (Core Features)
 
 *   **双轨并行审查 (Dual-Track Auditing)**
-    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、Hardcoded Backdoor 等。
+    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、硬编码凭据等。
     *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Workflow Bypass、Race Condition 等状态机逻辑漏洞。
     *   **互不抢任务**：LogicAuditor 遇到技术类形态（SQL Injection / Path Traversal / XSS / SSRF / XXE / Unsafe Deserialization / Command Injection 等）强制返回 DEFENDED，让 Sink 路径处理。技术类、业务类各司其职。
 *   **CodeGraph 代码智能增强 (CodeGraph Integration)**
@@ -183,7 +183,6 @@ CodeAudit/
 │       ├── weak-random.yaml
 │       ├── insecure-crypto-config.yaml  # Static IV / Constant Salt / Insufficient Key Size (3 rules)
 │       ├── hardcoded-credentials.yaml
-│       ├── hardcoded-backdoor.yaml # ⭐ if (input.equals("literal")) + return success / getter fallback (2 rules)
 │       ├── insecure-trust-manager.yaml  # 空 TrustManager / 恒真 HostnameVerifier / Allow-All / TrustAllStrategy
 │       ├── jwt-none.yaml           # auth0 Algorithm.none / jjwt parseClaimsJwt / Nimbus PlainJWT
 │       ├── insecure-cookie.yaml    # 显式 false / 缺失 setSecure (2 rules)

@@ -122,7 +122,6 @@ _VULN_TYPE_TO_CWE: dict[str, str] = {
     "Missing Authorization": "CWE-862",
     "Privilege Escalation": "CWE-269",
     "Authentication Bypass": "CWE-287",
-    "Hardcoded Backdoor": "CWE-798",
     "Workflow Bypass": "CWE-840",
     "Race Condition": "CWE-362",
     "Insufficient Anti-Automation": "CWE-307",
@@ -143,7 +142,6 @@ _VULN_TYPE_TO_DEFAULT_SEVERITY: dict[str, str] = {
     "Unsafe Deserialization": "Critical",
     "Unsafe Reflection": "Critical",
     "Hardcoded Credentials": "Critical",
-    "Hardcoded Backdoor": "Critical",
     # High —— 数据泄露 / 关键认证相关 / MITM / 权限越界
     "XXE": "High",
     "SSRF": "High",

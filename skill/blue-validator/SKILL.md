@@ -64,7 +64,15 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 
 #### 3. Sensitive Data in Log 专项裁决
 这条规则是变量名/关键字启发式告警，必须**先回溯实参的真实值/类型**再下结论：
-**敏感信息定义：密钥/密码/认证凭据/邮箱地址/手机号/会话标识（如 password, passwd, ak, sk, secret, token）。除此之外都是非敏感信息（如用户标识、userid之类）。**
+**敏感信息定义（仅以下 6 类）：**
+- **密码**：password, passwd, pwd, credential
+- **密钥**：secret, api_key, apikey, sk, ak, access_key, private_key
+- **认证凭据**：token, auth, jwt, session_id, sessionid
+- **手机号**：phone, mobile, tel, cellphone
+- **邮箱**：email, mail
+- **会话标识**：session_id, JSESSIONID, SID（特指 HTTP 会话的 session ID）
+
+**除上述 6 类外，其他都是非敏感信息**（如 userId、username、name、status、IP 等）。
 ##### 模式 A：显式访问 (Explicit Access)
        **场景**：日志中直接调用了方法或字段，例如 `log.info("pwd: " + user.getPassword())` 或 `log.info(config.secretKey)`.
        1.  **检查返回类型 (Type Check)**：
@@ -169,7 +177,7 @@ description: 蓝队防御验证专家运行时指导。当 BlueValidator Agent �
 - IDOR / Authentication Bypass / Privilege Escalation → `authz-family.md`
 - Workflow Bypass / Race Condition / Insufficient Anti-Automation → `business-logic-family.md`
 - Open Redirect → `redirect-family.md`
-- Hardcoded Credentials / Backdoor → `credentials-backdoor.md`
+- Hardcoded Credentials → `credentials-backdoor.md`
 - Weak Cryptography → `crypto-family.md`
 - Cookie / Trust Boundary → `cookie-trust-boundary.md`
 - Sensitive Data in Log / URL → `info-disclosure.md`

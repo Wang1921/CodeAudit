@@ -68,22 +68,20 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 发现代码缺陷同时匹配多类时，按优先级选择 `vuln_type`：
 
-1. **Hardcoded Backdoor** — 硬编码明文通行证，永远优先
-2. **IDOR** — 路径/查询参数 id 直查 DB 无 ownership 校验，优先于 Auth Bypass
-3. **Authentication Bypass** — 鉴权分支本身可绕（非"没做 ownership 校验"）
-4. **Privilege Escalation** — 已登录低权限用户触达高权限接口
-5. **Workflow Bypass** — 状态跳步
-6. **Race Condition** / **Insufficient Anti-Automation** — TOCTOU / 无限速
-7. **Open Redirect** — 仅当 sink 路径未抓到时兜底
+1. **IDOR** — 路径/查询参数 id 直查 DB 无 ownership 校验，优先于 Auth Bypass
+2. **Authentication Bypass** — 鉴权分支本身可绕（非"没做 ownership 校验"）
+3. **Privilege Escalation** — 已登录低权限用户触达高权限接口
+4. **Workflow Bypass** — 状态跳步
+5. **Race Condition** / **Insufficient Anti-Automation** — TOCTOU / 无限速
+6. **Open Redirect** — 仅当 sink 路径未抓到时兜底
 
 **关键决策原则**：
 - 缺陷形态是"对象归属未校验" → 一律判 IDOR
 - 缺陷形态是"鉴权分支可绕" → 判 Authentication Bypass
-- 缺陷形态是"明文字符串通行证" → 判 Hardcoded Backdoor
 
 ### 5. 技术类漏洞排除
 
-**只负责 9 类业务逻辑漏洞**。如果发现技术类漏洞形态，直接返回 DEFENDED，交由 Sink 路径处理：
+**只负责 8 类业务逻辑漏洞**。如果发现技术类漏洞形态，直接返回 DEFENDED，交由 Sink 路径处理：
 
 排除的技术类漏洞：SQL Injection / Path Traversal / Command Injection / SSRF / XSS / XXE / Unsafe Deserialization / Code Injection / SpEL / JNDI / LDAP / Template Injection
 
@@ -97,7 +95,6 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 按 `vuln_type` 查阅 `references/INDEX.md` 找到对应文档：
 - IDOR / Privilege Escalation / Authentication Bypass → `authz-family.md`
 - Workflow Bypass / Race Condition → `business-logic-family.md`
-- Hardcoded Backdoor → `credentials-backdoor.md`
 - Open Redirect → `redirect-family.md`
 - Insufficient Anti-Automation → `business-logic-family.md`
 
@@ -106,7 +103,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 ### 发现缺陷
 ```json
 {
-  "vuln_type": "必须是 9 类标准类型之一",
+  "vuln_type": "必须是 8 类标准类型之一",
   "entry_route": "API URL 路径",
   "filepath": "关键漏洞点所在文件绝对路径",
   "line_number": "关键漏洞点行号",

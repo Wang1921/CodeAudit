@@ -35,7 +35,6 @@
 | **Insecure TLS** | [crypto-family.md](crypto-family.md) |
 | **JWT None Algorithm** | [crypto-family.md](crypto-family.md) |
 | **Hardcoded Credentials** | [credentials-backdoor.md](credentials-backdoor.md) |
-| **Hardcoded Backdoor** | [credentials-backdoor.md](credentials-backdoor.md) |
 | **Insecure Cookie** | [cookie-trust-boundary.md](cookie-trust-boundary.md) |
 | **Trust Boundary Violation** | [cookie-trust-boundary.md](cookie-trust-boundary.md) |
 | **Stack Trace Exposure** | [info-disclosure.md](info-disclosure.md) |

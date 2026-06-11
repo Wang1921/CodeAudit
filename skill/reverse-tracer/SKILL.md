@@ -86,7 +86,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - XXE → `xxe.md`
 - XSS → `xss.md`
 - Unsafe Deserialization / Unsafe Reflection → `deserialization-reflection.md`
-- Hardcoded Credentials / Backdoor → `credentials-backdoor.md`
+- Hardcoded Credentials → `credentials-backdoor.md`
 - Weak Cryptography → `crypto-family.md`
 - Cookie / Trust Boundary → `cookie-trust-boundary.md`
 - Sensitive Data in Log / URL → `info-disclosure.md`
