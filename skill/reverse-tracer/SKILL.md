@@ -23,13 +23,14 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 ## 工作步骤
 
 ### 1. 确认触点
-- 读取 `filepath` 和 `line_number`
+- 用 codegraph 打开 `filepath`，定位 `line_number`
 - 确认 `taint_variable` 确实参与了危险操作（如 SQL 拼接、命令执行、文件路径构造等）
 
 ### 2. 向上追踪污点变量
+- **必须用 codegraph 读取代码**：打开上游方法的源码分析变量赋值来源，禁止仅凭方法名推断
 - **逐层追踪**：从 sink 行开始，找到 `taint_variable` 的赋值来源
-- **跨方法追踪**：如果变量来自方法参数，追踪调用方传入的实参
-- **跨类追踪**：如果调用了其他类的方法，用codegraph打开目标类源码继续追踪
+- **跨方法追踪**：如果变量来自方法参数，用 codegraph 追踪调用方传入的实参
+- **跨类追踪**：如果调用了其他类的方法，用 codegraph 打开目标类源码继续追踪
 - **保持污点标记**：追踪过程中关注变量是否被重新赋值、过滤或转换
 
 ### 3. 追踪终止条件
@@ -53,6 +54,8 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - → 输出场景 C（NOT_EXPLOITABLE）
 
 ### 4. 污点净化识别
+**必须用 codegraph 读取代码确认**，不能仅凭方法名推断净化逻辑的存在。
+
 以下操作**不构成净化**（污点仍然存在）：
 - 字符串拼接（`"SELECT " + userInput`）
 - 集合包装（`Arrays.asList(userInput)`）
@@ -60,6 +63,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - 简单的 null 检查后继续使用
 
 以下操作**构成净化**（污点断裂）：
+- **必须用 codegraph 验证代码确实存在**：确认过滤/绑定逻辑实际出现在代码中
 - 白名单校验后丢弃不匹配值（`if (!ALLOWED.contains(input)) throw ...`）
 - `PreparedStatement.setXxx()` 参数化绑定（对 SQL 注入场景）
 - `Path.normalize().startsWith(baseDir)` 路径校验（对路径遍历场景）
@@ -105,7 +109,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - `vuln_type` 必须逐字复制 `sink_details.vuln_class`，禁止修改
 - 场景 A 必须包含完整 `call_chain` 和 `suspicion_reason`
 - 场景 B 必须包含 `protocol` 和 `target_identifier`
-- 场景 C 必须输出 `status: NOT_EXPLOITABLE` + `defense_analysis`（≥50 字符，说明断裂原因如硬编码/枚举/配置固定值）
+- 场景 C 必须输出 `status: NOT_EXPLOITABLE` + `break_reason`（≥20 字符，说明断裂原因如硬编码/枚举/配置固定值）
 
 ## ⚠️ 重要提醒
 **完成所有追踪工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**

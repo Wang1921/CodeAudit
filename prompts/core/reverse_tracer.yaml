@@ -60,7 +60,7 @@ output_schema:
           type: array
           items: { type: string }
     - type: object
-      required: [status, defense_analysis]
+      required: [status, break_reason]
       not:
         anyOf:
           - required: [vuln_type]
@@ -72,5 +72,5 @@ output_schema:
         status:
           type: string
           enum: [NOT_EXPLOITABLE]
-        defense_analysis: { type: string, minLength: 50 }
-        reason: { type: string }  # 可选：说明为什么不是漏洞
+        break_reason: { type: string, minLength: 20 }
+        reason: { type: string }  # 可选：补充说明为什么不是漏洞

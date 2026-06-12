@@ -1,39 +1,31 @@
 package com.demo;
 
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.stereotype.Component;
+import org.xml.sax.InputSource;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import java.io.StringReader;
 
-@RestController
-public class OrderController {
+@Component
+public class OrderEventProcessor {
 
-    @KafkaListener(topics = "order-events", groupId = "order-group")
-    public void handleOrderEvent(String message) {
-        System.out.println("Received order event: " + message);
+    // 唯一入口：Kafka topic - 没有 HTTP 接口
+    @KafkaListener(topics = "order-events", groupId = "processor-group")
+    public void processOrderEvent(String message) {
+        try {
+            // 不安全的 XML 解析 - Sink
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            org.w3c.dom.Document doc = builder.parse(new InputSource(new StringReader(message)));
+            String orderId = doc.getElementsByTagName("orderId").item(0).getTextContent();
+            handleOrder(orderId);
+        } catch (Exception e) {
+            System.err.println("Failed to process order event: " + e.getMessage());
+        }
     }
 
-    @PostMapping("/orders")
-    public String createOrder(@RequestBody Order order) {
-        KafkaTemplate<String, String> kafkaTemplate = new KafkaTemplate<>();
-        kafkaTemplate.send("order-events", order.toString());
-        return "Order created: " + order.getId();
-    }
-}
-
-class Order {
-    private String id;
-    private String productName;
-    private int quantity;
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-    public String getProductName() { return productName; }
-    public void setProductName(String productName) { this.productName = productName; }
-    public int getQuantity() { return quantity; }
-    public void setQuantity(int quantity) { this.quantity = quantity; }
-
-    @Override
-    public String toString() {
-        return "Order{id=" + id + ", product=" + productName + ", qty=" + quantity + "}";
+    private void handleOrder(String orderId) {
+        System.out.println("Processing order: " + orderId);
     }
 }
