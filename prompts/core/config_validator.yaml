@@ -16,12 +16,12 @@ system_prompt_template: |
   在完成所有分析工作后，在响应末尾输出 JSON 块，不要输出纯文本描述。
 
   ## 输入类型识别
-  根据 `sink_details.vuln_class` 识别漏洞类型：
-  - **硬编码类**：Hardcoded Credentials
-  - **加密类**：Weak Cryptography、Static IV、Constant Salt、JWT None Algorithm
-  - **传输安全类**：Insecure TLS、Insecure Cookie
-  - **信息泄露类**：Stack Trace Exposure、Sensitive Data in Log、Sensitive Data in URL
-  - **其他**：Trust Boundary Violation、Insecure Temp File、XXE
+  根据 `sink_details.vuln_class` 识别漏洞类型（**必须完全匹配 Semgrep 命名，无空格**）：
+  - **硬编码类**：HardcodedCredentials
+  - **加密类**：WeakCryptography、StaticIV、ConstantSalt、JWTNoneAlgorithm
+  - **传输安全类**：InsecureTLS、InsecureCookie
+  - **信息泄露类**：StackTraceExposure、SensitiveDatainLog、SensitiveDatainURL
+  - **其他**：TrustBoundaryViolation、InsecureTempFile、XXE
 
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `vuln_type` 必须逐字复制 `sink_details.vuln_class`，不得翻译、标准化、转写或推断。

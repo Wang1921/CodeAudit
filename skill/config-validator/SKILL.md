@@ -13,7 +13,7 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 ```json
 {
   "sink_details": {
-    "vuln_class": "Hardcoded Credentials",
+    "vuln_class": "HardcodedCredentials",
     "filepath": "漏洞文件路径",
     "line_number": "行号",
     "message": "Semgrep 原始告警信息"
@@ -104,7 +104,7 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 {
   "status": "DEFENDED",
   "vuln_type": "【逐字复制 sink_details.vuln_class】",
-  "entry_route": "N/A（静态配置漏洞）",
+  "entry_route": "sink_details.filepath",
   "filepath": "sink_details.filepath",
   "line_number": "sink_details.line_number",
   "call_chain": "N/A（静态配置漏洞）",
