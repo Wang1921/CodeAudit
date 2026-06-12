@@ -74,21 +74,31 @@ rules:
                     - org.skife.jdbi.v2.Handle
           # Spring JdbcTemplate 动态 SQL（无参数占位）
           # 方法名独占（queryForXxx 系列）保留无类型约束，FP 风险天然低
-          - pattern: $JDBC.queryForList($SQL, ...)
-          - pattern: $JDBC.queryForObject($SQL, ...)
-          - pattern: $JDBC.queryForMap($SQL, ...)
-          - pattern: $JDBC.query($SQL, ...)
-          - pattern: $JDBC.batchUpdate($SQL, ...)
-          - pattern: $JDBC.queryForRowSet($SQL, ...)
-          - pattern: $JDBC.queryForStream($SQL, ...)
-          - pattern: $JDBC.queryForInt($SQL, ...)
-          - pattern: $JDBC.queryForLong($SQL, ...)
-          # 方法名通用（update/execute）—— 必须用 metavariable-type 限定，否则会吃
+          # 但通用方法名（query/update/execute）必须用 metavariable-type 限定
+          - patterns:
+              - pattern-either:
+                  - pattern: $JDBC.queryForList($SQL, ...)
+                  - pattern: $JDBC.queryForObject($SQL, ...)
+                  - pattern: $JDBC.queryForMap($SQL, ...)
+                  - pattern: $JDBC.queryForRowSet($SQL, ...)
+                  - pattern: $JDBC.queryForStream($SQL, ...)
+                  - pattern: $JDBC.queryForInt($SQL, ...)
+                  - pattern: $JDBC.queryForLong($SQL, ...)
+              - metavariable-type:
+                  metavariable: $JDBC
+                  types:
+                    - JdbcTemplate
+                    - NamedParameterJdbcTemplate
+                    - org.springframework.jdbc.core.JdbcTemplate
+                    - org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
+          # 方法名通用（query/update/execute）—— 必须用 metavariable-type 限定，否则会吃
           # 掉 MessageDigest.update / 各类 DAO.execute(...) 等。
           - patterns:
               - pattern-either:
+                  - pattern: $JDBC.query($SQL, ...)
                   - pattern: $JDBC.update($SQL, ...)
                   - pattern: $JDBC.execute($SQL, ...)
+                  - pattern: $JDBC.batchUpdate($SQL, ...)
               - metavariable-type:
                   metavariable: $JDBC
                   types:
