@@ -8,12 +8,12 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 
 *   **双轨并行审查 (Dual-Track Auditing)**
     *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、硬编码凭据等。
-    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Workflow Bypass、Race Condition 等状态机逻辑漏洞。
+    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Workflow Bypass、Race Condition 等状态��逻辑漏洞。
     *   **互不抢任务**：LogicAuditor 遇到技术类形态（SQL Injection / Path Traversal / XSS / SSRF / XXE / Unsafe Deserialization / Command Injection 等）强制返回 DEFENDED，让 Sink 路径处理。技术类、业务类各司其职。
 *   **CodeGraph 代码智能增强 (CodeGraph Integration)**
     *   集成 **CodeGraph** 本地代码智能库，通过 MCP 协议为 Agent 提供代码结构查询能力。
     *   引擎启动时自动在目标项目目录执行 `codegraph init -i` 构建索引。
-    *   Agent 可直接调用 `codegraph_explore`、`codegraph_callers`、`codegraph_callees` 等 MCP 工具探索调用链，减少 `Read`/`Grep` 工具调用。
+    *   Agent 统一使用 `codegraph` 工具（codegraph_explore / codegraph_callers / codegraph_callees 等）进行调用链追踪，**禁止仅凭方法名推断变量赋值来源**。
     *   预期收益：工具调用减少 58%，Token 消耗降低 40~60%，审计耗时减少 20~30%。
 *   **文件系统即总线 (A2A over File System IPC)**
     *   采用本地文件系统目录（`.a2a_bus/`）作为异步消息总线。
@@ -23,17 +23,20 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   细粒度锁：不同 `cwd` 的冷启动并行，同 `cwd` 的热路径查询无全局串行。
     *   双回收策略：LRU（容量满时淘汰最旧）+ Session 空闲监控。
     *   通过 `claude-agent-sdk` 包调用本地 Claude Code CLI 进行代码分析。
+    *   **超时控制**：默认 `max_turns=None`（无限制）、`max_budget_usd=None`（无限制），通过 `PER_AGENT_TIMEOUT` 实现 per-agent 超时配置（如 LogicAuditor: 480s，其他: 300s）。
 *   **结构化输出与强校验 (Structured Output)**
     *   每个 Agent 的 `output_schema` 通过 **Claude Agent SDK 的 `output_format` 配置**指定 JSON Schema，服务端返回结构化输出并自动校验。
     *   `ResultMessage.structured_output` 包含服务端校验通过的 JSON，引擎直接读取。
     *   客户端二次校验：用 jsonschema 验证 structured_output，确保数据合规。
     *   降级处理：如果 structured_output 为空，从 response 文本提取 JSON。
+    *   **SDK 无内置重试**：schema 验证失败时 SDK 直接返回 `structured_output=None`，由业务层（CodeAudit 引擎）处理重试或降级提取。
     *   所有 Agent 仅赋 `lsp, read, codesearch` 工具，不赋 `write / bash`。依据文件路径归属动态推断工作目录（根目录 vs 微服务子目录）。
 *   **红蓝对抗验证 (Adversarial Validation)**
     *   **RedValidator**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。Prompt 内置 13 类 vuln_type 的 PoC 构造提示。
         **逐参数判定强约束**：sink 多参数时只要任一参数仍可控就构成 EXPLOITABLE，单参数白名单不构成整体防御（防 LLM 浅推理误判 NOT_EXPLOITABLE）。NOT_EXPLOITABLE 时**强制带 `defense_analysis` 字段**（minLength: 20）证明每个参数都被过滤。
     *   **BlueValidator**: 负责审查代码库中的过滤器、拦截器或业务后置熔断机制。Prompt 路径 B 用于 fast-path 静态定性，含 7 类允许的 DEFENDED 证据 + 5 类禁用理由。
         **教学项目强约束**：禁止以"代码来自教学/演示/CTF/靶场（WebGoat / DVWA / Juice Shop / SecurityShepherd / Vulhub / OWASP Benchmark）"作为 DEFENDED 理由，教学项目代码就是真漏洞代码，按生产代码同等严格判定。
+    *   **ConfigValidator**: 从 BlueValidator 拆分出的独立 Agent，专门处理 **14 种 taint_required=false 的静态配置漏洞**（弱加密、弱随机、硬编码凭据、不安全 TLS、JWT None、不安全 Cookie、信任边界违反等），走 fast-path 直接静态定性，跳过 ReverseTracer+RedValidator。
     *   通过左右互搏，系统能最大程度消除传统 SAST 工具的**高误报率**。
 *   **vuln_type 全链路强制规范化**
     *   `vuln_type` 是漏洞聚合 / CWE 映射 / 报告分类的唯一 key。
@@ -65,15 +68,18 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 > 自 v6.1 起，原 Coordinator 节点已下线 —— 其"项目测绘 / 路由提取"职责由 Semgrep 规则直接承担，引擎通过 `_discover_microservices()` 直接扫描子目录识别微服务。
 >
 > 自 v7.x 起，**ReportGenerator 节点已下线** —— 改为 `state_router._build_report_fields()` 纯 Python 字段映射 + CWE / severity 查表，省一次 LLM 调用。
+>
+> 自 v8.x 起，**ConfigValidator 从 BlueValidator 拆分** —— 专门处理 taint_required=false 的 14 种静态配置漏洞。
 
 | 角色名称 | 类型 | 职责说明 | 工具权限 |
 | :--- | :--- | :--- | :--- |
 | **SemgrepScanner** | 静态扫描器 | 使用内置 + 用户规则扫描，一次性产出 API 路由（`routes`）和危险点（`sinks`）；全局 14 条 `--exclude` 排除测试/教学反例 | 无（外部进程）|
-| **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪 | `lsp, read, codesearch` + CodeGraph MCP |
+| **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪。场景 C（追踪断裂）输出 `status: NOT_EXPLOITABLE` + `break_reason`（≥20 字符） | `lsp, read, codesearch` + CodeGraph MCP（强制用 codegraph 读取代码） |
 | **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争、Workflow Bypass 等），输出限定 **9 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` + CodeGraph MCP |
 | **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量；**逐参数判定 exploitability**，NOT_EXPLOITABLE 时强制带 defense_analysis（minLength: 20）证明 | `lsp, read, codesearch` + CodeGraph MCP |
-| **BlueValidator** | 防御验证节点 | 双职责: ①扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞；②对 `taint_required:false` 的 sink 走 fast path 直接做静态定性，跳过 ReverseTracer+RedValidator。**禁止以教学项目作为 DEFENDED 理由** | `lsp, read, codesearch` + CodeGraph MCP |
-| **report 落盘** | Python 函数 | `state_router._build_report_fields()` + `_save_vulnerability_report()`：把 BlueValidator 输出映射为最终报告 JSON。无 LLM。 | — |
+| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞。**禁止以教学项目作为 DEFENDED 理由** | `lsp, read, codesearch` + CodeGraph MCP |
+| **ConfigValidator** | 配置静态分析专家 | 从 BlueValidator 拆分，专门处理 **taint_required=false 的 14 种静态配置漏洞**（弱加密、弱随机、硬编码凭据、不安全 TLS、JWT None、不安全 Cookie、信任边界违反、敏感信息泄露等），走 fast-path 直接静态定性 | `lsp, read, codesearch` + CodeGraph MCP |
+| **report 落盘** | Python 函数 | `state_router._build_report_fields()` + `_save_vulnerability_report()`：把 BlueValidator/ConfigValidator 输出映射为最终报告 JSON。无 LLM。 | — |
 | **summary 汇总** | Python 函数 | `build_summary_report.build_summary()`：聚合 reports/ 下全部 JSON 写 `reports/SUMMARY.md`。引擎收尾自动调用。 | — |
 
 ## 🚀 快速开始 (Quick Start)
@@ -129,7 +135,7 @@ python3 -m src.build_summary_report --target-dir /path/to/proj
      - 每条 route → LogicAuditor → RedValidator → BlueValidator → Python 落盘
      - 每个 sink 按 `taint_required` 分流：
        - `true`（默认，注入类/反序列化/SSRF/XXE/JNDI/Code Injection 等）→ ReverseTracer → RedValidator → BlueValidator → Python 落盘（4 跳）
-       - `false`（弱加密/弱随机/硬编码/Insecure TLS/JWT None/Insecure Cookie 等"sink 即漏洞"）→ BlueValidator fast path → Python 落盘（2 跳）
+       - `false`（弱加密/弱随机/硬编码/Insecure TLS/JWT None/Insecure Cookie 等"sink 即漏洞"）→ **ConfigValidator** fast path → Python 落盘（2 跳）
 5. **全部任务处理完毕后自然退出**（主循环追踪 in-flight 协程，连续 2 轮空闲即收尾），无需 Ctrl+C
 6. 退出时自动产出 `reports/SUMMARY.md` 汇总报告
 
@@ -149,15 +155,17 @@ CodeAudit/
 │   └── build_summary_report.py     # 漏洞汇总 markdown 生成器（无 LLM）
 ├── prompts/                        # 智能体 Prompt 模板库
 │   └── core/                       # 每份含 system_prompt_template + output_schema
-│       ├── reverse_tracer.yaml
-│       ├── logic_auditor.yaml
-│       ├── red_validator.yaml
-│       ├── blue_validator.yaml
+│       ├── reverse_tracer.yaml     # 污点追踪专家（场景 C 输出 break_reason）
+│       ├── logic_auditor.yaml      # 业务逻辑审计
+│       ├── red_validator.yaml      # 红队攻击验证
+│       ├── blue_validator.yaml     # 蓝队防御验证
+│       ├── config_validator.yaml   # 配置静态分析（taint_required=false 专用）
+│       ├── cross_service_prefilter.yaml
 │       └── retry.yaml
 ├── semgrep_rules/                  # Semgrep 规则集合（~60 条 rule_id / 35 yaml）
 │   └── custom/
 │       ├── spring-api.yaml         # Spring API 路由提取（非漏洞，12 条 rule）
-│       # 走完整污点链 (taint_required: true)
+│       #  走完整污点链 (taint_required: true)
 │       ├── sql-injection.yaml      # JDBC/JdbcTemplate/Hibernate/JPA/MyBatis 注解 + R2DBC + 链式 (5 rules)
 │       ├── mybatis-xml-sql-injection.yaml
 │       ├── command-injection.yaml  # Runtime/ProcessBuilder/Desktop/Commons Exec/JSch
@@ -178,7 +186,7 @@ CodeAudit/
 │       ├── xss.yaml                # PrintWriter/ServletOutputStream/Model.addAttribute/ResponseEntity.body
 │       ├── open-redirect.yaml
 │       ├── unvalidated-forward.yaml  # RequestDispatcher.forward/include
-│       # 无须污点链 (taint_required: false) — 走 fast path
+│       # 无须污点链 (taint_required: false) — 走 fast path 到 ConfigValidator
 │       ├── weak-cryptography.yaml  # 弱算法/Mac/Signature/EC 短曲线/BC 弱密码/XOR 自定义
 │       ├── weak-random.yaml
 │       ├── insecure-crypto-config.yaml  # Static IV / Constant Salt / Insufficient Key Size (3 rules)
@@ -192,10 +200,11 @@ CodeAudit/
 │       ├── sensitive-data-in-log.yaml  # 关键字命中 + 容器对象启发式 (2 rules)
 │       └── sensitive-data-in-url.yaml
 ├── skill/                          # Claude Code skill 形态（按角色独立分发）
-│   ├── reverse-tracer/
+│   ├── reverse-tracer/             # 强制用 codegraph 读取代码
 │   ├── logic-auditor/
 │   ├── red-validator/
-│   └── blue-validator/
+│   ├── blue-validator/
+│   └── config-validator/           # taint_required=false 专用
 ├── web/                            # Web 前端界面
 │   └── index.html                  # Vue.js 实时看板
 ├── doc/                            # 详细设计文档
@@ -222,7 +231,6 @@ CodeAudit/
 | `MAX_AGENT_TIMEOUT` | 单次 Claude Agent 调用超时(秒，默认值) | 300 |
 | `PER_AGENT_TIMEOUT` | 个别 Agent 的超时覆盖表（如 `LogicAuditor: 480`，跨文件追读耗时长） | `{"LogicAuditor": 480}` |
 | `MAX_TIMEOUT_RETRIES` | 单任务超时后的重试次数（救偶发 provider 抖动） | 1 |
-| `format_retry_count` | JSON Schema 校验失败时的重试次数（保留参数，目前客户端处理） | 4 |
 
 ### 环境变量
 
@@ -247,7 +255,7 @@ cd skill/security-audit-java
 
 **三层防偷懒机制**（解决"LLM 拿到 30+ 条 Semgrep result 不逐条裁决"问题）：
 
-1. **`scripts/dispatch.py` 脚本去噪**：去重 + 路由发现规则过滤（vuln_class 为空丢弃）+ `taint_required: false` fast-path 自动产 finding（无须 LLM）。WebGoat 实测让 LLM 实际处理任务 237 → 88，减 63%。
+1. **`scripts/dispatch.py` 脚本去噪**：去重 + 路由发现规则过滤（vuln_class 为空丢弃）+ `taint_required: false` fast-path 自动�� finding（无须 LLM）。WebGoat 实测让 LLM 实际处理任务 237 → 88，减 63%。
 2. **TodoList 强制驱动**：阶段 2 强制对每条 pending finding 调 `TaskCreate`，阶段 3 严格按 `in_progress → 裁决 → completed` 单条循环，阶段 4 `TaskList` 自检 `pending == 0` 才能进收尾。
 3. **`reference/` 文档强制深度分析**：13 份按家族分组的 .md 覆盖 39 个 vuln_type，每份含 6 段标准结构（sink 模式 / 数据流追溯 / 防御机制速查 / 常见误判 / 证据引用范例 / PoC 模板），内嵌 v11/v12/v13 baseline 实测的反面教材作为反例。
 
@@ -277,5 +285,17 @@ cd skill/security-audit-java
 - `query()` - 一次性查询，返回消息流
 - `ClaudeAgentOptions` - 配置工具列表、工作目录、超时等
 - `permission_mode` - 控制工具执行权限（acceptEdits 自动接受文件编辑）
+
+**超时与重试机制**：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `max_turns` | 最大对话轮次（None=无限制） | None |
+| `max_budget_usd` | 最大预算美元（None=无限制） | None |
+| `timeout` (hook) | 单个 hook 超时，默认 60 秒 | 60s |
+| `load_timeout_ms` | session_store.load() 超时 | 60000ms |
+| `initialize_timeout` | 初始化请求超时 | 60s |
+
+**注意**：SDK 本身没有 schema 验证失败重试机制。如果模型输出不符合 schema，SDK 返回 `structured_output=None`，由业务层（CodeAudit 引擎）处理降级提取。
 
 更多 API 详情请参考 [Claude Agent SDK 文档](https://code.claude.com/docs/zh-CN/agent-sdk/overview)。
