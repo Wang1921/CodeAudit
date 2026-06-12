@@ -332,6 +332,21 @@ ROUTE_RULES: dict[str, RouteRule] = {
         miss_kanban_reason="防御有效",
         on_success_hook=_save_report_hook,
     ),
+    "ConfigValidator": RouteRule(
+        # ConfigValidator 处理 taint_required=false 的静态配置漏洞
+        # 输出 VULNERABLE 或 DEFENDED 后直接终止（落盘报告）
+        sender="ConfigValidator",
+        success_check=lambda p: p.get("status") == "VULNERABLE",
+        next_message_type=None,
+        next_recipient=None,
+        success_kanban_category="resolved",
+        success_kanban_status="CONFIRMED",
+        success_details_fields=_RESOLVED_DETAILS,
+        success_add_task=False,
+        miss_kanban_label="CONFIG-DEFENDED",
+        miss_kanban_reason="静态分析通过",
+        on_success_hook=_save_report_hook,
+    ),
     "SemgrepScanner": RouteRule(
         # 语义完整性：SemgrepScanner 的任务由 engine 初始化时直接派发，不会走到 route()
         # 保留占位让未知 sender 检查更严格

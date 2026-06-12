@@ -94,6 +94,8 @@ class AuditEngine:
             return prompts.format_red_validator_prompt(payload_json)
         elif agent_name == "BlueValidator":
             return prompts.format_blue_validator_prompt(payload_json)
+        elif agent_name == "ConfigValidator":
+            return prompts.format_config_validator_prompt(payload_json)
         elif agent_name == "CrossServicePrefilter":
             return prompts.format_cross_service_prefilter_prompt(payload_json)
         else:
@@ -246,7 +248,7 @@ class AuditEngine:
                 recipient = "ReverseTracer"
                 task_suffix = "TRACE"
             else:
-                recipient = "BlueValidator"
+                recipient = "ConfigValidator"
                 task_suffix = "STATIC"
 
             self.bus.write_message(
@@ -676,16 +678,6 @@ class AuditEngine:
             if is_fresh_start:
                 # 发现微服务
                 self.service_route_map = self._discover_microservices()
-
-                # 让 Agent 池容量至少覆盖所有微服务，避免并发落到不同服务时反复 LRU 淘汰
-                service_count = len(self.service_route_map) or 1
-                desired_pool_size = max(self.agent_manager.max_active, service_count)
-                if desired_pool_size != self.agent_manager.max_active:
-                    logging.info(
-                        f"[Pool] 按发现的 {service_count} 个微服务扩容 Agent 池: "
-                        f"{self.agent_manager.max_active} → {desired_pool_size}"
-                    )
-                    self.agent_manager.max_active = desired_pool_size
 
                 # 直接调用 Semgrep 扫描
                 logging.info("开始 Semgrep 扫描...")
