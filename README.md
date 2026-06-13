@@ -59,9 +59,11 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   内置 HTTP 服务器（默认端口 8080），提供 Vue.js 驱动的实时监控看板。
     *   显示审计进度、Token 消耗、漏洞统计、Agent 状态、红蓝对抗看板。
     *   支持查看每个 Agent 的会话详情、消息历史、工具调用记录。
+    *   漏洞数据从**被审计项目目录**的 `reports/` 读取（修复了之前从 CodeAudit 项目读取的 bug）。
 *   **报告生成 (Report Generation)**
-    *   每个 VULNERABLE 漏洞落盘为 `reports/vulnerability_<task_id>_<timestamp>.json`（**纯 Python 字段映射，无 LLM**）。
-    *   引擎收尾自动生成 `reports/SUMMARY.md`：按严重度排序的全量汇总（含按类型 / 按文件 Top10 / 失败任务统计）。
+    *   每个 VULNERABLE 漏洞落盘为 `<target_dir>/reports/vulnerability_<task_id>_<timestamp>.json`（**纯 Python 字段映射，无 LLM**）。
+    *   引擎收尾自动生成 `<target_dir>/reports/SUMMARY.md`：按严重度排序的全量汇总（含按类型 / 按文件 Top10 / 失败任务统计）。
+    *   **报告层去重**：按 `(vuln_type, entry_route, location.file)` 聚合，同一漏洞类型+同一入口+同一 sink 文件路径只保留一条，保留严重度最高的。
 
 ## 🏗️ 智能体架构 (Agent Roster)
 
@@ -125,7 +127,7 @@ python3 -m src.build_summary_report --target-dir /path/to/proj
 ```
 
 引擎启动后，会自动：
-1. 清理目标目录下的旧 `.a2a_bus/`、`.a2a_logs/`，以及项目根目录下的旧 `reports/`
+1. 清理目标目录下的旧 `.a2a_bus/`、`.a2a_logs/`、`reports/`
 2. 在目标目录下重建 `.a2a_bus/` 消息总线目录
 3. 启动 Web 看板（默认端口 8080）
 4. 开始审计流程：
@@ -170,7 +172,7 @@ CodeAudit/
 │       ├── mybatis-xml-sql-injection.yaml
 │       ├── command-injection.yaml  # Runtime/ProcessBuilder/Desktop/Commons Exec/JSch
 │       ├── code-injection.yaml     # OGNL/MVEL/Groovy/JEXL/ScriptEngine
-│       ├── path-traversal.yaml     # File/FileChannel/Paths/Path.of/Hadoop HDFS/Spring Resource/JSch SFTP/Apache VFS/Commons IO/Guava
+│       ├── path-traversal.yaml     # File/FileChannel/Paths/Path.of/Hadoop HDFS/Spring Resource/JSch SFTP/Apache VFS/Commons IO/Guava + SafeText 过滤排除
 │       ├── zip-slip.yaml           # ZipEntry/TarArchiveEntry
 │       ├── nosql-injection.yaml    # MongoDB/Cassandra/Neo4j/ElasticSearch
 │       ├── ldap-injection.yaml
