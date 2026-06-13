@@ -6,7 +6,7 @@
 |---|---|---|
 | **Authentication Bypass** | 鉴权逻辑本身可绕 | JWT alg=none / token 解析错 / 密钥硬编码 |
 | **Privilege Escalation** | 已登录但越权访问高权资源 | 普通用户调到 admin-only 接口 |
-| **IDOR** | 路径/参数 id 直查 DB 无 ownership 校验 | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
+| **IDOR** | 路径/参数 id 直查 DB 无资源归属校验（即未校验当前登录用户拥有该资源） | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
 
 ⚠️ **混淆点**（v11/v12 实测反面教材）：
 - "只对 tom 用户校验密码其他用户直接失败" → **Authentication Bypass / Logic Flaw** 而非 Privilege Escalation
@@ -26,7 +26,7 @@
 
 ### IDOR
 - Repository 方法签名带 ownerId: `findByIdAndOwnerId(id, currentUser)`
-- 业务层强制 ownership: `if (!entity.getOwnerId().equals(currentUser)) throw ForbiddenException`
+- 业务层强制资源归属校验: `if (!entity.getOwnerId().equals(currentUser)) throw ForbiddenException`
 - 使用 UUID 而非自增 id（不防漏洞但提高猜测门槛）
 
 ## 常见误判
@@ -43,7 +43,7 @@ suspicion_reason: "Line 45 String authUserId = path.split(\"/\")[3];
                   Line 46 UserProfile profile = profileRepo.findById(authUserId);
                   Line 47 return profile;
                   — authUserId 来自 URL path 用户可控,findById 直接返回,
-                  既无 ownership 校验也无 @PreAuthorize,任意已登录用户可
+                  既无资源归属校验也无 @PreAuthorize,任意已登录用户可
                   通过传他人 id 读取他人 profile."
 ```
 

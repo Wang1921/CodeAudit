@@ -32,7 +32,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 | 职责 | 典型调用 | 可能隐藏的漏洞 |
 |---|---|---|
 | 鉴权/token 校验 | `AuthService.verify()` / `jwt.verify()` / `securityContext.check()` | 绕过分支 / 硬编码 token |
-| 数据归属 | `repo.findById(externalId)` / `dao.load(userId)` / `em.find()` | IDOR（无 ownership 校验） |
+| 数据归属 | `repo.findById(externalId)` / `dao.load(userId)` / `em.find()` | IDOR（无资源归属校验，即未校验当前登录用户是否拥有该资源） |
 
 **典型踩坑**：handler 表面是简单 dispatch，真漏洞藏在 service/repository 内。
 
@@ -57,8 +57,8 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 发现代码缺陷同时匹配多类时，按优先级选择 `vuln_type`：
 
-1. **IDOR** — 路径/查询参数 id 直查 DB 无 ownership 校验，优先于 Auth Bypass
-2. **Authentication Bypass** — 鉴权分支本身可绕（非"没做 ownership 校验"）
+1. **IDOR** — 路径/查询参数 id 直查 DB 无资源归属校验（未校验当前登录用户是否拥有该资源），优先于 Authentication Bypass
+2. **Authentication Bypass** — 鉴权分支本身可绕（非"没做资源归属校验"）
 3. **Privilege Escalation** — 已登录低权限用户触达高权限接口
 4. **Open Redirect** — 仅当 sink 路径未抓到时兜底
 

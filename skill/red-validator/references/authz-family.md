@@ -6,7 +6,7 @@
 |---|---|---|
 | **Authentication Bypass** | 鉴权逻辑本身可绕 | JWT alg=none / token 解析错 / 密钥硬编码 |
 | **Privilege Escalation** | 已登录但越权访问高权资源 | 普通用户调到 admin-only 接口 |
-| **IDOR** | 路径/参数 id 直查 DB 无 ownership 校验 | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
+| **IDOR** | 路径/参数 id 直查 DB 无资源归属校验（即未校验当前登录用户拥有该资源） | `findById(externalId)` 不跟 `if (ownerId == currentUser)` |
 
 ⚠️ **混淆点**（v11/v12 实测反面教材）：
 - "只对 tom 用户校验密码其他用户直接失败" → **Authentication Bypass / Logic Flaw** 而非 Privilege Escalation
