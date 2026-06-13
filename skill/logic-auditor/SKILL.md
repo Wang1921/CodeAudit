@@ -25,6 +25,42 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 - 用 `codegraph` 工具打开 `handler_file`
 - 定位 `method_name` 指向的入口函数（参考 `handler_line`）
 - 确定函数体范围（按大括号配对 / 缩进块判断）
+- 顺带阅读类名、函数名、注释、URL 路径，建立对接口职能的初步理解
+
+### 1.5 业务语义建模（必填，作为后续 IDOR 判定的对照基线）
+
+读完入口函数 + 类名 + 注释 + 函数名后，**必须先结构化回答以下 4 个问题**，
+再进入步骤 2 的代码追读。
+
+不要把这 4 个问题当作口头描述 —— 必须明确写出每一项答案，
+后续 IDOR 判定将直接对照"应有语义"vs"实际代码"。
+
+**Q1. 这个接口返回 / 操作的资源在业务上应当属于谁？**
+- 当前登录用户独占（个人会话历史 / 个人订单 / 个人收藏 / 个人草稿 …）
+- 当前登录用户所在的组织 / 团队 / 租户（同租户共享）
+- 任意已登录用户均可访问（公共资源 / 公开内容）
+- 完全公开（无需登录）
+
+**Q2. 入参中哪些是用户身份标识，哪些是资源标识？**
+- 用户身份标识：通常来自 session / token / SecurityContext，**不应**来自 path/query 自报
+- 资源标识：通常是 path / query / body 中的 id —— **不限字段名**，
+  可能是 `userId / orderId / sessionId / conversationId / chatId / fileUuid / docId / 任何业务 id`
+
+**Q3. 资源标识的来源？**
+- `@PathVariable` / `@RequestParam` / `@RequestBody` 等 → **用户可控**
+- session / SecurityContext / 服务端推导 → 用户不可控
+- 只有"用户可控"才进入 IDOR 评估
+
+**Q4. 按 Q1 的应有归属，代码里"应当"存在什么校验？**
+- 个人独占类：必须能找到 `资源.ownerId == currentUser` 或
+  `findByIdAndOwnerId(...)` 或 SQL `WHERE id=? AND ownerId=?` 任一
+- 组织 / 租户类：必须能找到 `资源.tenantId == currentUser.tenantId`
+- 任意已登录类：仅需登录态校验
+- 完全公开类：无需任何归属校验
+
+回答完 4 问，再进入步骤 2 跨文件追读。
+**判定 IDOR 时以 Q4 的"应有校验" vs 步骤 2 实际找到的校验作为唯一依据**，
+不再依赖字段名匹配。
 
 ### 2. 跨文件依赖追读（不可跳过）
 入口函数体内**每一次**对外部协作者的调用，若涉及以下职责，必须用 `codegraph` 打开被调用类源码（最多 2 跳）：
@@ -39,6 +75,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 ### 3. 审查 4 类业务逻辑漏洞
 
 #### 3.1 身份获取点
+**对照 1.5 中 Q4 的"应有校验"逐项核对**：
 - 是否信任外部传入的 userId？
 - 是否有归属权校验（`if (entity.ownerId == currentUser)`）？
 - 外部 id 是否直接查库无二次验证？
@@ -57,7 +94,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 发现代码缺陷同时匹配多类时，按优先级选择 `vuln_type`：
 
-1. **IDOR** — 路径/查询参数 id 直查 DB 无资源归属校验（未校验当前登录用户是否拥有该资源），优先于 Authentication Bypass
+1. **IDOR** — 1.5 中 Q4 应有归属校验在代码中缺失（不限字段名），优先于 Authentication Bypass
 2. **Authentication Bypass** — 鉴权分支本身可绕（非"没做资源归属校验"）
 3. **Privilege Escalation** — 已登录低权限用户触达高权限接口
 4. **Open Redirect** — 仅当 sink 路径未抓到时兜底
