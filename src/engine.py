@@ -748,7 +748,7 @@ class AuditEngine:
             # 4) 生成汇总报告（reports/SUMMARY.md）
             try:
                 from src.build_summary_report import build_summary
-                reports_dir = "reports"
+                reports_dir = os.path.join(self.target_source_dir, "reports")
                 if os.path.isdir(reports_dir):
                     project = os.path.basename(self.target_source_dir.rstrip("/")) or "未命名项目"
                     md = build_summary(reports_dir, self.target_source_dir, project)

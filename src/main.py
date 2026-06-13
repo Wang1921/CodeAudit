@@ -54,7 +54,7 @@ async def main():
             logging.warning(f"清理 .a2a_logs 目录失败: {e}")
 
     # 清理旧的 reports 目录
-    reports_dir = "reports"
+    reports_dir = os.path.join(target_dir, "reports")
     if os.path.exists(reports_dir):
         try:
             shutil.rmtree(reports_dir)
