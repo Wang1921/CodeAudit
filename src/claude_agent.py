@@ -68,7 +68,7 @@ class ClaudeAgent:
 
         options = ClaudeAgentOptions(
             tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
-            skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer'],
+            skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer', 'config-validator'],
             setting_sources=["user", "project"],
             cwd=self.cwd,
             permission_mode="acceptEdits",
