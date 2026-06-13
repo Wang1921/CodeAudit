@@ -40,6 +40,22 @@ def _load_reports(reports_dir: str) -> list[dict[str, Any]]:
     return findings
 
 
+def _deduplicate_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """按 (vuln_type, entry_route, location.file) 去重，保留严重度最高的。"""
+    seen: dict[tuple, dict[str, Any]] = {}
+    for f in findings:
+        key = (
+            f.get("vuln_type", ""),
+            f.get("entry_route", ""),
+            f.get("location", {}).get("file", ""),
+        )
+        cur_sev = _SEVERITY_ORDER.get(f.get("severity", "Medium"), 2)
+        old = seen.get(key)
+        if old is None or cur_sev < _SEVERITY_ORDER.get(old.get("severity", "Medium"), 2):
+            seen[key] = f
+    return list(seen.values())
+
+
 def _severity_key(f: dict[str, Any]):
     return (
         _SEVERITY_ORDER.get(f.get("severity", "Medium"), 2),
@@ -220,6 +236,7 @@ def _format_finding(idx: int, f: dict[str, Any]) -> str:
 
 def build_summary(reports_dir: str, target_dir: str | None, project_name: str) -> str:
     findings = _load_reports(reports_dir)
+    findings = _deduplicate_findings(findings)
     findings.sort(key=_severity_key)
 
     title = f"# 安全审计汇总报告 — {project_name}"
