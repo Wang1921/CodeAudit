@@ -58,15 +58,22 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 - 允许的 DEFENDED：下游覆盖、场景不敏感
 
 #### Sensitive Data in Log
-**敏感信息定义（仅以下 6 类）：**
-- **密码**：password, passwd, pwd, credential
-- **密钥**：secret, api_key, apikey, sk, ak, access_key, private_key
-- **认证凭据**：token, auth, jwt, session_id, sessionid
-- **手机号**：phone, mobile, tel, cellphone
-- **邮箱**：email, mail
-- **会话标识**：session_id, JSESSIONID, SID（特指 HTTP 会话的 session ID）
+**敏感信息强制性裁决标准（不得偏离）：**
 
-**除上述 6 类外，其他都是非敏感信息**（如 userId、username、name、status、IP 等）。
+仅以下 6 类字段为敏感信息，命中即判 VULNERABLE（除非有脱敏/排除）：
+1. **密码**：password, passwd, pwd, credential等
+2. **密钥**：secret, api_key, apikey, sk, ak, access_key, private_key等
+3. **认证凭据**：token, auth, jwt, session_id, sessionid等
+4. **手机号**：phone, mobile, tel, cellphone等
+5. **邮箱**：email, mail等
+6. **会话标识**：session_id, JSESSIONID, SID（特指 HTTP 会话的 session ID）等
+
+**除上述 6 类外，全部为非敏感信息，直接判 DEFENDED。** 包括但不限于：
+- userId, tenantId, username, name, nickname, accountId, orgId
+- IP, deviceId, mac, host, port
+- status, code, type, message, result, count, id, uuid
+
+**禁止以 GDPR/隐私合规/数据保护等宽泛理由将非 6 类字段判定为敏感。**
 
 **模式 A：显式访问**
 - 检查返回类型：boolean 返回值方法（如 `isPasswordSet()`）是误报
