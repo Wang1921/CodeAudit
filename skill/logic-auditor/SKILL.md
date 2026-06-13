@@ -1,6 +1,6 @@
 ---
 name: logic-auditor
-description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent 审查 API 路由的业务逻辑安全时加载，提供跨文件追读方法论、9 类漏洞判优先级、技术类排除规则和漏洞类型专项参考索引。
+description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent 审查 API 路由的业务逻辑安全时加载，提供跨文件追读方法论、7 类漏洞判优先级、技术类排除规则和漏洞类型专项参考索引。
 ---
 
 # LogicAuditor 运行时指导
@@ -39,7 +39,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 **典型踩坑**：handler 表面是简单 dispatch，真漏洞藏在 service/repository/state-machine 内。
 
-### 3. 审查 9 类业务逻辑漏洞
+### 3. 审查 7 类业务逻辑漏洞
 
 #### 3.1 身份获取点
 - 是否信任外部传入的 userId？
@@ -60,10 +60,6 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 - 转账/扣减逻辑是否被 `@Transactional` 或分布式锁正确包裹？
 - 是否存在 read-modify-write 无锁序列？
 
-#### 3.5 字段绑定
-- `@ModelAttribute` / `@RequestBody` 是否自动绑定了敏感字段？
-- 是否有 `@InitBinder` 白名单过滤？
-
 ### 4. 漏洞类型判优先级
 
 发现代码缺陷同时匹配多类时，按优先级选择 `vuln_type`：
@@ -81,7 +77,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 
 ### 5. 技术类漏洞排除
 
-**只负责 8 类业务逻辑漏洞**。如果发现技术类漏洞形态，直接返回 DEFENDED，交由 Sink 路径处理：
+**只负责 7 类业务逻辑漏洞**。如果发现技术类漏洞形态，直接返回 DEFENDED，交由 Sink 路径处理：
 
 排除的技术类漏洞：SQL Injection / Path Traversal / Command Injection / SSRF / XSS / XXE / Unsafe Deserialization / Code Injection / SpEL / JNDI / LDAP / Template Injection
 
@@ -103,7 +99,7 @@ description: 业务逻辑推演专家运行时指导。当 LogicAuditor Agent �
 ### 发现缺陷
 ```json
 {
-  "vuln_type": "必须是 8 类标准类型之一",
+  "vuln_type": "必须是 7 类标准类型之一",
   "entry_route": "API URL 路径",
   "filepath": "关键漏洞点所在文件绝对路径",
   "line_number": "关键漏洞点行号",
