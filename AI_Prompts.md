@@ -233,13 +233,11 @@ RetryAgent: 任一 LLM 输出非法 JSON 时,在同会话内触发的修复 prom
 2. `IDOR`  —— 路径/查询参数 id 直查 DB **且** 无 ownership 二次校验
 3. `Authentication Bypass`  —— **鉴权分支本身**写错可绕
 4. `Privilege Escalation`  —— 已登录但越权调高权限接口
-5. `Workflow Bypass`  —— 状态跳步
-6. `Race Condition` / `Insufficient Anti-Automation`  —— TOCTOU / 无限速
-7. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底
+5. `Open Redirect`  —— 仅当 sink 路径未抓到时由 LogicAuditor 兜底
 
 ## 🚫 技术类漏洞排除（强约束，不可违背）
 
-你**只**负责"权限 + 状态"白名单的 7 类业务逻辑漏洞。读源码时如果发现以下任一**技术类**漏洞形态，
+你**只**负责"权限"白名单的 4 类业务逻辑漏洞。读源码时如果发现以下任一**技术类**漏洞形态，
 无论该路由看起来多严重，**直接返回 `{"status": "DEFENDED"}`** —— 让 SemgrepScanner +
 ReverseTracer + RedValidator + BlueValidator 走专门的 Sink 路径处理。
 
@@ -259,13 +257,13 @@ ReverseTracer + RedValidator + BlueValidator 走专门的 Sink 路径处理。
   - `createStatement().executeQuery("SELECT ... WHERE id = '" + kid + "'")` ——
     **是 SQL Injection,不是 IDOR**
   - `ZipEntry.getName()` 未校验 `..` —— **是 Zip Slip / Path Traversal,
-    不是** "Race Condition"
+    不是** "IDOR"
   - `XStream.fromXML(xml)` 无白名单 —— **是 Unsafe Deserialization,
     不是** "Authentication Bypass"
   - `ObjectInputStream.readObject()` 执行 taskAction 命令 —— **是 Unsafe Deserialization
-    / Command Injection**,**不是** "Race Condition"
+    / Command Injection**,**不是** "Privilege Escalation"
 
-规则：**先识别"缺陷的技术形态"，再问"是不是 7 类业务漏洞"。是技术类 → DEFENDED 让位**。
+规则：**先识别"缺陷的技术形态"，再问"是不是 4 类业务漏洞"。是技术类 → DEFENDED 让位**。
 
 ## 🚨 漏洞类型命名要求（必须从下面白名单挑一个，禁止自创）
 
@@ -274,10 +272,7 @@ ReverseTracer + RedValidator + BlueValidator 走专门的 Sink 路径处理。
 - `Privilege Escalation`     → 登录态下低权限用户能触达高权限接口
 - `Authentication Bypass`    → 有鉴权但逻辑可绕
 - `Hardcoded Backdoor`       → 形如 `if (token.equals("debug_admin"))`
-- `Workflow Bypass`          → 业务状态机可被跳步
-- `Race Condition`           → TOCTOU / 并发扣减未加锁
 - `Open Redirect`            → `response.sendRedirect(userInput)` 类跳转被控
-- `Insufficient Anti-Automation` → 爆破/撞库无限速、敏感操作缺少验证码
 
 ## Output Contract (绝对契约)
 如果发现缺陷，输出纯 JSON：
@@ -668,7 +663,6 @@ TodoList 驱动 + 逐项标记,违背即审计未尽职。**禁止**：
 | `cookie-trust-boundary.md` | Insecure Cookie, Trust Boundary Violation |
 | `info-disclosure.md` | Stack Trace Exposure, Sensitive Data in Log/URL |
 | `authz-family.md` | IDOR, Privilege Escalation, Authentication Bypass |
-| `business-logic-family.md` | Workflow Bypass, Race Condition, Anti-Automation |
 
 每份文档的 **6 段标准结构**：
 

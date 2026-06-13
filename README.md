@@ -8,7 +8,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 
 *   **双轨并行审查 (Dual-Track Auditing)**
     *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、硬编码凭据等。
-    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Workflow Bypass、Race Condition 等状态��逻辑漏洞。
+    *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Privilege Escalation、Authentication Bypass、Open Redirect 等业务逻辑漏洞。
     *   **互不抢任务**：LogicAuditor 遇到技术类形态（SQL Injection / Path Traversal / XSS / SSRF / XXE / Unsafe Deserialization / Command Injection 等）强制返回 DEFENDED，让 Sink 路径处理。技术类、业务类各司其职。
 *   **CodeGraph 代码智能增强 (CodeGraph Integration)**
     *   集成 **CodeGraph** 本地代码智能库，通过 MCP 协议为 Agent 提供代码结构查询能力。
@@ -77,7 +77,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 | :--- | :--- | :--- | :--- |
 | **SemgrepScanner** | 静态扫描器 | 使用内置 + 用户规则扫描，一次性产出 API 路由（`routes`）和危险点（`sinks`）；全局 14 条 `--exclude` 排除测试/教学反例 | 无（外部进程）|
 | **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪。场景 C（追踪断裂）输出 `status: NOT_EXPLOITABLE` + `break_reason`（≥20 字符） | `lsp, read, codesearch` + CodeGraph MCP（强制用 codegraph 读取代码） |
-| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、条件竞争、Workflow Bypass 等），输出限定 **9 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` + CodeGraph MCP |
+| **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、Privilege Escalation、Authentication Bypass、Open Redirect），输出限定 **4 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` + CodeGraph MCP |
 | **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量；**逐参数判定 exploitability**，NOT_EXPLOITABLE 时强制带 defense_analysis（minLength: 20）证明 | `lsp, read, codesearch` + CodeGraph MCP |
 | **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞。**禁止以教学项目作为 DEFENDED 理由** | `lsp, read, codesearch` + CodeGraph MCP |
 | **ConfigValidator** | 配置静态分析专家 | 从 BlueValidator 拆分，专门处理 **taint_required=false 的 14 种静态配置漏洞**（弱加密、弱随机、硬编码凭据、不安全 TLS、JWT None、不安全 Cookie、信任边界违反、敏感信息泄露等），走 fast-path 直接静态定性 | `lsp, read, codesearch` + CodeGraph MCP |

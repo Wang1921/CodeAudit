@@ -151,7 +151,7 @@ LLM 验证层有机会过滤。整体上是一个"工程层 + 模型层"的混�
 - **Path A（Sink-driven）**：Semgrep 抓到代码层 sink → ReverseTracer 追到 HTTP 入口 →
   RedValidator 验证可利用 → BlueValidator 复核防御 → 落地报告。
 - **Path B（URL/Route-driven）**：spring-api 规则发现 controller 路由 →
-  LogicAuditor 跨文件审查业务逻辑（IDOR / Race Condition /  等 7 类）→
+  LogicAuditor 跨文件审查业务逻辑（IDOR / Authentication Bypass / 等 4 类）→
   RedValidator / BlueValidator 复核。
 - **A2A bus**：基于文件系统目录的异步消息总线。每条任务是一个 `.json` envelope，
   状态通过 `os.rename` 在 5 个子目录间原子迁移（pending → processing → completed/failed）。
@@ -176,8 +176,7 @@ LogicAuditor 的 9 类业务漏洞白名单（必须从中选一个 vuln_type，
 
 ```
 IDOR / Privilege Escalation / Authentication Bypass /
-Hardcoded Backdoor /  Workflow Bypass / Race Condition /
-Insufficient Anti-Automation / Open Redirect（兜底）
+Hardcoded Backdoor / Open Redirect（兜底）
 ```
 
 LogicAuditor **不负责**技术类漏洞（SQL Injection / Path Traversal / XSS / SSRF / XXE /
@@ -377,7 +376,7 @@ Command Injection / SSRF / XSS / XXE / Unsafe Deserialization），强制 DEFEND
     不是 "Missing Authorization"
   - createStatement().executeQuery("SELECT ... WHERE id = '" + kid + "'") ——
     是 SQL Injection,不是 "IDOR"
-  - ZipEntry.getName() 未校验 .. —— 是 Zip Slip / Path Traversal,不是 "Race Condition"
+  - ZipEntry.getName() 未校验 .. —— 是 Zip Slip / Path Traversal,不是 "IDOR"
   - XStream.fromXML(xml) 无白名单 —— 是 Unsafe Deserialization,
     不是 "Authentication Bypass"
 ```
@@ -1036,7 +1035,6 @@ reference 目录共 13 份家族文档（共 1495 行）+ INDEX.md 覆盖 39 个
 | cookie-trust-boundary.md | Insecure Cookie / Trust Boundary Violation |
 | info-disclosure.md | Stack Trace / Sensitive Data in Log/URL |
 | authz-family.md | IDOR / Missing Authorization / Privilege Escalation / Auth Bypass |
-| business-logic-family.md |  Workflow Bypass / Race Condition / Anti-Automation |
 
 每份文档结构统一（sink 速查 / 追溯重点 / 防御速查 / 常见误判 / 证据引用范例 / PoC 模板），
 LLM 拿到 finding 后查 INDEX 找到对应 family，严格按 6 段流程裁决。

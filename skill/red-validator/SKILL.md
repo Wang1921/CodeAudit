@@ -41,7 +41,7 @@ description: 红队攻击验证专家运行时指导。当 RedValidator Agent �
 
 **技术类漏洞**（SQL Injection / Command Injection / XSS / Path Traversal / SSRF / XXE / 不安全反序列化 等）：使用步骤1 的"逐参数可控性分析 + 校验审查"
 
-**业务逻辑漏洞**（IDOR / Privilege Escalation / Authentication Bypass / Workflow Bypass / Race Condition / Insufficient Anti-Automation）：使用"权限/状态机审查"
+**业务逻辑漏洞**（IDOR / Privilege Escalation / Authentication Bypass）：使用"权限审查"
 - 检查目标资源是否有 ownership 校验
 - 检查状态转换是否有前置条件校验
 - 检查并发操作是否有锁/事务保护

@@ -122,9 +122,6 @@ _VULN_TYPE_TO_CWE: dict[str, str] = {
     "Missing Authorization": "CWE-862",
     "Privilege Escalation": "CWE-269",
     "Authentication Bypass": "CWE-287",
-    "Workflow Bypass": "CWE-840",
-    "Race Condition": "CWE-362",
-    "Insufficient Anti-Automation": "CWE-307",
 }
 
 
@@ -167,9 +164,6 @@ _VULN_TYPE_TO_DEFAULT_SEVERITY: dict[str, str] = {
     "Insecure Cookie": "Medium",
     "Sensitive Data in Log": "Medium",
     "Sensitive Data in URL": "Medium",
-    "Workflow Bypass": "Medium",
-    "Race Condition": "Medium",
-    "Insufficient Anti-Automation": "Medium",
     # Low —— 仅本地信息泄露 / 辅助性质
     "Stack Trace Exposure": "Low",
     "Insecure Temp File": "Low",
