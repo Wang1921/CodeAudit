@@ -28,7 +28,7 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 
 ### 2. 基于代码证据定性
 
-**允许的 DEFENDED 证据（必须引用具体代码��号/片段）：**
+**允许的 DEFENDED 证据（必须��用具体代码行号/片段）：**
 
 | 证据类型 | 说明 | 示例 |
 |---|---|---|
@@ -44,7 +44,7 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 - "这是测试/benchmark/demo/sample 项目" — CWE 按行为判定，不看项目类别
 - "包名/路径含 test/demo" — 路径名不是安全边界
 - "非生产凭据/仅本地开发" — 硬编码凭证发现即漏洞
-- "静态扫描器经常误报" — 你的职责就是二次裁决，不能甩给上游
+- "静态扫描器经常误报" — 你的职责就是二次裁决，不��甩给上游
 - "值是硬编码所以不可控" — 对静态配置漏洞，危险结构本身就是问题
 
 ### 3. 按漏洞类型分析
@@ -91,22 +91,8 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 
 ## 输出规范
 
-### VULNERABLE
-```json
-{
-  "status": "VULNERABLE",
-  "vuln_type": "【逐字复制 sink_details.vuln_class】",
-  "entry_route": "sink_details.filepath",
-  "filepath": "sink_details.filepath",
-  "line_number": "sink_details.line_number",
-  "call_chain": "N/A（静态配置漏洞）",
-  "suspicion_reason": "sink_details.message",
-  "defense_analysis": "为何构成漏洞（代码行证据）",
-  "mitigation_advice": "具体修复建议"
-}
-```
-
 ### DEFENDED
+当判定漏洞已被防御或为误报时，输出以下 JSON：
 ```json
 {
   "status": "DEFENDED",
@@ -120,7 +106,60 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 }
 ```
 
+### VULNERABLE - 必须写入 Markdown 报告
+当判定漏洞存在时，**必须**将漏洞报告写入文件。
+
+#### 文件输出路径
+`{target_dir}/reports/vuln/{漏洞类型}_{task_id}.md`
+
+**注意**：
+- `{target_dir}` 为被审计项目的根目录
+- 漏洞类型使用英文小写，多个单词用连字符（如 hardcoded-credentials、weak-cryptography）
+- task_id 中的 `/` 替换为 `_`
+- 例如：`/home/project/reports/vuln/hardcoded-credentials_TASK-INIT-001_SINK_0.md`
+
+**必须先创建目录**：
+```bash
+mkdir -p {target_dir}/reports/vuln
+```
+
+#### Markdown 报告内容模板
+
+```markdown
+# {漏洞类型} — {文件名}:{行号}
+
+| 字段 | 值 |
+|---|---|
+| **CWE** | {CWE 编号} |
+| **严重度** | {Critical/High/Medium/Low} |
+| **文件路径** | {完整文件路径} |
+
+## 漏洞描述
+{发现过程、漏洞原理、为什么可利用}
+
+## 攻击向量
+{如何利用这个漏洞}
+
+## PoC
+```
+{poc 代码}
+```
+
+## 最大影响
+{漏洞被利用后的最大影响}
+```
+
+**重要**：
+- **不需要包含修复建议**
+- 报告文件写入后，在响应末尾输出以下 JSON 标记：
+```json
+{
+  "status": "VULNERABLE",
+  "report_written": "reports/vuln/{漏洞类型}_{task_id}.md"
+}
+```
+
 ## ⚠️ 重要提醒
-- **完成所有分析工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出**
+- **完成所有分析工作后，必须在响应末尾输出符合上述格式的 JSON**
 - 禁止同时输出 DEFENDED 和 VULNERABLE 专有字段
 - 禁止以"教学/演示项目"作为 DEFENDED 理由

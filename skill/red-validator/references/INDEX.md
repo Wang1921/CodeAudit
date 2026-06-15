@@ -1,8 +1,8 @@
 # Reference Index — 漏洞类型 → 分析步骤文档映射
 
 按 finding 的 `vuln_type` 查下表找到对应的 reference 文档。
-本 skill 版本文档仅包含 **PoC 模板** 段落（攻击构造所需），
-不含 sink 模式、数据流追溯、防御机制等（由上下游 skill 提供）。
+本 skill 版本文档包含 **误判案例**（看似漏洞实际有防御）和 **绕过案例**（看似有防御实际可绕），
+帮助模型精确判断目标代码是否存在可利用的漏洞。
 
 未在表内的 `vuln_type` 按"injection-family.md"的通用模板处理。
 
