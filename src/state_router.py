@@ -390,9 +390,17 @@ class StateRouter:
         logging.debug(f"[路由解析] 所有解析方式均失败，agent_output keys: {list(agent_output.keys())}")
         return None
 
+    # 已知业务字段：用于从文本中识别真正的 Agent 输出（排除 PoC 示例等嵌套 JSON）
+    _RECOGNIZED_KEYS = frozenset({
+        "status", "vuln_type", "vuln_class", "action", "entry_route",
+        "call_chain", "attack_vector", "poc_payload", "max_impact",
+        "defense_analysis", "break_reason", "protocol", "target_identifier",
+        "taint_variable", "suspicion_reason",
+    })
+
     @staticmethod
     def _parse_json_string(text: str) -> dict[str, Any] | None:
-        """轻量 JSON 提取：严格 parse → raw_decode 容错 → Markdown 代码块。失败返回 None。"""
+        """轻量 JSON 提取：Markdown 代码块 → raw_decode 遍历 → 兜底。失败返回 None。"""
         text = text.strip()
         if not text:
             return None
@@ -404,28 +412,32 @@ class StateRouter:
         except json.JSONDecodeError:
             pass
 
-        # ❷ 容错：从首个 '{' 开始 greedy 解析一个合法 JSON 对象，
-        # 忽略尾部多余字符（如 LLM 偶发输出的 `{...}}` 或 `{...}\n说明...`）
-        first_brace = text.find('{')
-        if first_brace >= 0:
-            try:
-                obj, _ = json.JSONDecoder().raw_decode(text[first_brace:])
-                if isinstance(obj, dict):
-                    return obj
-            except json.JSONDecodeError:
-                pass
-
-        # ❸ 兜底：Markdown 代码块（更宽松的模式）
-        # 匹配 ```json 或 ``` 包裹的内容
+        # ❷ Markdown json 代码块（最可靠的 LLM 输出模式，优先于 raw_decode）
         m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
         if m:
             try:
                 parsed = json.loads(m.group(1))
-                return parsed if isinstance(parsed, dict) else None
+                if isinstance(parsed, dict):
+                    return parsed
             except json.JSONDecodeError:
                 pass
 
-        # ❹ 更宽松：尝试匹配任何 {...} 模式的代码块
+        # ❸ raw_decode 容错：遍历所有 '{' 位置，只接受含至少一个已知业务字段的 dict
+        # 防止 PoC 示例等嵌套 JSON 被误取
+        pos = 0
+        while True:
+            idx = text.find('{', pos)
+            if idx < 0:
+                break
+            try:
+                obj, end = json.JSONDecoder().raw_decode(text[idx:])
+                if isinstance(obj, dict) and StateRouter._RECOGNIZED_KEYS & set(obj.keys()):
+                    return obj
+            except json.JSONDecodeError:
+                pass
+            pos = idx + 1
+
+        # ❹ 宽松代码块
         m = re.search(r"```[^`]*(\{[^}]+\})[^`]*```", text, re.DOTALL)
         if m:
             try:
@@ -435,13 +447,15 @@ class StateRouter:
                 pass
 
         # ❺ 兜底：查找纯 JSON 对象（可能没有代码块标记）
-        # 匹配以 { 开头到最后一个 } 结尾的内容
-        if '{' in text:
-            start = text.find('{')
-            # 尝试向后扩展，找到最外层的 }
+        # 遍历所有 '{' 位置，只接受含业务字段的 dict
+        pos = 0
+        while True:
+            idx = text.find('{', pos)
+            if idx < 0:
+                break
             bracket_count = 0
-            end = start
-            for i, c in enumerate(text[start:], start):
+            end = idx
+            for i, c in enumerate(text[idx:], idx):
                 if c == '{':
                     bracket_count += 1
                 elif c == '}':
@@ -449,13 +463,14 @@ class StateRouter:
                     if bracket_count == 0:
                         end = i + 1
                         break
-            if end > start:
+            if end > idx:
                 try:
-                    parsed = json.loads(text[start:end])
-                    if isinstance(parsed, dict):
+                    parsed = json.loads(text[idx:end])
+                    if isinstance(parsed, dict) and StateRouter._RECOGNIZED_KEYS & set(parsed.keys()):
                         return parsed
                 except json.JSONDecodeError:
                     pass
+            pos = idx + 1
 
         return None
 
