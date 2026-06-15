@@ -1,6 +1,6 @@
 ---
 name: reverse-tracer
-description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行污点追踪任务时加载，提供从 sink 到外部入口的完整工作流程、污点净化识别、调用链构建规范和漏洞类型专项追踪要点。
+description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行污点追踪任务时加载，提供从 sink 到外部入口的完整工作流程、污点净化识别、调用链构建规范和输出场景规范。
 ---
 
 # ReverseTracer 运行时指导
@@ -80,36 +80,68 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
   3. Connection.prepareStatement() — SQL 拼接 sink
   ```
 
-## 漏洞类型专项指导
-
-按 `vuln_class` 查阅 `references/INDEX.md` 找到对应文档，重点关注"数据流追溯"段落：
-
-- SQL Injection / Command Injection / Code Injection / LDAP / XPath / Template Injection → `injection-family.md`
-- Path Traversal / Zip Slip → `path-traversal-family.md`
-- SSRF → `ssrf.md`
-- XXE → `xxe.md`
-- XSS → `xss.md`
-- Unsafe Deserialization / Unsafe Reflection → `deserialization-reflection.md`
-- Hardcoded Credentials → `credentials-backdoor.md`
-- Weak Cryptography → `crypto-family.md`
-- Cookie / Trust Boundary → `cookie-trust-boundary.md`
-- Sensitive Data in Log / URL → `info-disclosure.md`
-- Open Redirect → `redirect-family.md`
-
-常见漏洞的追踪要点：
-- **SQL Injection**：追踪 SQL 字符串的拼接来源，区分 `${}` 和 `#{}`
-- **Command Injection**：追踪 `exec()` / `ProcessBuilder` 参数来源，注意 `-c` 参数的二次解析
-- **Path Traversal**：追踪 `new File()` / `Paths.get()` 参数，注意 `Path.resolve()` 和 `../`
-- **SSRF**：追踪 URL 构造来源，注意内部服务地址拼接
-- **XXE**：追踪 XML 输入来源，确认是否启用外部实体
-- **Deserialization**：追踪 `readObject()` / `fromXML()` 的数据流来源
-
 ## 输出规范
-- 严格三选一：场景 A（成功追踪）/ 场景 B（跨界）/ 场景 C（断裂）
-- `vuln_type` 必须逐字复制 `sink_details.vuln_class`，禁止修改
-- 场景 A 必须包含完整 `call_chain` 和 `suspicion_reason`
-- 场景 B 必须包含 `protocol` 和 `target_identifier`
-- 场景 C 必须输出 `status: NOT_EXPLOITABLE` + `break_reason`（≥20 字符，说明断裂原因如硬编码/枚举/配置固定值）
+
+严格三选一：场景 A（成功追踪到外部入口）/ 场景 B（追踪到微服务边界）/ 场景 C（链路断裂）。
+
+### 场景 A：成功追踪
+
+追踪到外部可控入口（如 `@RequestParam` / `@PathVariable` / `HttpServletRequest.getParameter()` 等）。
+
+```json
+{
+  "vuln_type": "逐字复制 sink_details.vuln_class，禁止修改",
+  "entry_route": "外部入口的 API 路径（如 POST /api/login）",
+  "filepath": "sink 所在文件绝对路径",
+  "line_number": "sink 行号",
+  "call_chain": [
+    "1. Controller.method() — 简述",
+    "2. Service.method() — 简述",
+    "3. SinkClass.method() — sink 简述"
+  ],
+  "suspicion_reason": "引用具体代码行说明污点如何从外部入口流到 sink"
+}
+```
+
+- `call_chain` 必须完整，从入口到 sink 不可省略中间环节
+- `suspicion_reason` 必须引用具体代码行或片段作为证据
+- 不得输出 `status` 字段
+
+### 场景 B：跨界追踪
+
+追踪到微服务边界（如 `@FeignClient` / `RestTemplate` / `@KafkaListener` 等），无法在当前服务内确认外部入口。
+
+```json
+{
+  "action": "cross_service_trace",
+  "vuln_type": "逐字复制 sink_details.vuln_class，禁止修改",
+  "protocol": "调用协议（HTTP / Kafka / RabbitMQ / gRPC 等）",
+  "target_identifier": "目标服务标识（Feign 接口名 / URL 模板 / topic 名等）",
+  "taint_variable": "跨服务传递的污点变量名"
+}
+```
+
+- 不得输出 `call_chain` / `entry_route` 等场景 A 字段
+- 引擎收到后会自动在其他微服务中并发启动溯源 Agent
+
+### 场景 C：链路断裂
+
+污点变量被硬编码常量、枚举值或不可被外部覆盖的配置固定值赋值，追踪无法继续。
+
+```json
+{
+  "status": "NOT_EXPLOITABLE",
+  "break_reason": "说明断裂原因（≥20 字符），如：变量被硬编码常量赋值 / 来自枚举值 / 来自不可外部覆盖的配置固定值"
+}
+```
+
+- `break_reason` 必须 ≥ 20 字符，说明断裂的具体原因
+- 不得输出 `vuln_type` / `entry_route` / `call_chain` / `action` 等业务字段
+
+### 互斥约束
+
+- 三个场景严格互斥，不可混合输出
+- 同时输出 DEFENDED 和 call_chain / entry_route 视为矛盾，下游直接丢弃
 
 ## ⚠️ 重要提醒
 **完成所有追踪工作后，必须在响应末尾输出符合 JSON Schema 的结构化输出。**
