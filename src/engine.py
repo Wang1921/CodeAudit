@@ -740,34 +740,40 @@ class AuditEngine:
 
             # 2) 处理在途任务：Ctrl+C 或异常退出时 inflight 可能仍有协程。
             # 优雅等待 5 秒，超时则取消剩余任务。正常退出路径下 inflight 已为空，直接通过。
-            if inflight:
-                pending_count = len(inflight)
-                logging.info(f"等待 {pending_count} 个在途任务收尾（最长 5 秒）...")
-                try:
-                    await asyncio.wait_for(
-                        asyncio.gather(*inflight, return_exceptions=True),
-                        timeout=5.0,
-                    )
-                except asyncio.TimeoutError:
-                    still_alive = [t for t in inflight if not t.done()]
-                    logging.warning(f"{len(still_alive)} 个在途任务超时未收尾，取消中...")
-                    for t in still_alive:
-                        t.cancel()
-                    await asyncio.gather(*still_alive, return_exceptions=True)
+            try:
+                if inflight:
+                    pending_count = len(inflight)
+                    logging.info(f"等待 {pending_count} 个在途任务收尾（最长 5 秒）...")
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*inflight, return_exceptions=True),
+                            timeout=5.0,
+                        )
+                    except asyncio.TimeoutError:
+                        still_alive = [t for t in inflight if not t.done()]
+                        logging.warning(f"{len(still_alive)} 个在途任务超时未收尾，取消中...")
+                        for t in still_alive:
+                            t.cancel()
+                        await asyncio.gather(*still_alive, return_exceptions=True)
+            except Exception as e:
+                logging.error(f"在途任务收尾异常（不影响报告生成）: {e}")
 
             # 3) 关闭 Agent 管理器
-            await self.agent_manager.shutdown_all()
+            try:
+                await self.agent_manager.shutdown_all()
+            except Exception as e:
+                logging.error(f"关闭 Agent 管理器异常（不影响报告生成）: {e}")
 
             # 4) 生成汇总报告（reports/SUMMARY.md）
             try:
                 from src.build_summary_report import build_summary
                 reports_dir = os.path.join(self.target_source_dir, "reports")
-                if os.path.isdir(reports_dir):
-                    project = os.path.basename(self.target_source_dir.rstrip("/")) or "未命名项目"
-                    md = build_summary(reports_dir, self.target_source_dir, project)
-                    out_path = os.path.join(reports_dir, "SUMMARY.md")
-                    with open(out_path, "w", encoding="utf-8") as f:
-                        f.write(md)
-                    logging.info(f"汇总报告已生成: {out_path}")
+                os.makedirs(reports_dir, exist_ok=True)
+                project = os.path.basename(self.target_source_dir.rstrip("/")) or "未命名项目"
+                md = build_summary(reports_dir, self.target_source_dir, project)
+                out_path = os.path.join(reports_dir, "SUMMARY.md")
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(md)
+                logging.info(f"汇总报告已生成: {out_path}")
             except Exception as e:
                 logging.warning(f"生成汇总报告失败（不影响主流程）: {e}")
