@@ -21,7 +21,7 @@ class AuditEngine:
     def __init__(self, target_source_dir: str, semgrep_rules: str | None = None):
         self.tracker = StateTracker(target_source_dir)
         self.bus = A2ABusManager(target_source_dir)
-        self.router = StateRouter(self.bus, self.tracker)
+        self.router = StateRouter(self.bus, self.tracker, target_source_dir)
         self.target_source_dir = target_source_dir
         self.semgrep_rules = semgrep_rules
         # 主 semaphore 给初始 Semgrep 派发用；chain_semaphore 给所有非 SemgrepScanner 发出的

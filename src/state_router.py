@@ -351,9 +351,10 @@ ROUTE_RULES: dict[str, RouteRule] = {
 
 
 class StateRouter:
-    def __init__(self, bus: A2ABusManager, tracker=None):
+    def __init__(self, bus: A2ABusManager, tracker=None, target_dir: str = ""):
         self.bus = bus
         self.tracker = tracker
+        self.target_dir = target_dir
 
     # ---------- JSON 提取（权威值优先） ----------
 
@@ -729,9 +730,9 @@ class StateRouter:
     # ---------- 终点副作用：报告落盘 ----------
 
     def _save_vulnerability_report(self, task_id: str, report_fields: dict[str, Any]) -> None:
-        """写漏洞报告到 reports/ 目录。report_fields 由 _build_report_fields 映射好，函数只负责落盘。"""
+        """写漏洞报告到被审计项目的 reports/ 目录。report_fields 由 _build_report_fields 映射好，函数只负责落盘。"""
         try:
-            output_dir = "reports"
+            output_dir = os.path.join(self.target_dir, "reports")
             os.makedirs(output_dir, exist_ok=True)
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
