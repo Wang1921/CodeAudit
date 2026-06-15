@@ -451,6 +451,12 @@ class AuditEngine:
             root_path = Path(self.target_source_dir)
             service_dirs = [d for d in root_path.iterdir() if d.is_dir() and not d.name.startswith('.')]
 
+        # 排除当前 sink 所属的微服务（已在当前服务内追踪过）
+        current_sink_file = env.get("payload", {}).get("sink_details", {}).get("filepath", "")
+        if current_sink_file:
+            current_service_dir = self._get_service_dir(current_sink_file)
+            service_dirs = [sd for sd in service_dirs if os.path.normpath(str(sd)) != os.path.normpath(current_service_dir)]
+
         if not service_dirs:
             logging.warning("未发现其他微服务目录，跨界追踪终止。")
             return {}
