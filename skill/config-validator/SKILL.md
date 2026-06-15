@@ -24,7 +24,7 @@ description: 配置静态分析专家运行时指导。当 ConfigValidator Agent
 ## 工作步骤
 
 ### 1. 读取 sink 上下文
-用 `codegraph` 工具打开 `sink_details.filepath`，查看 `line_number` 前后 20 行。
+用 `codegraph` 工具打开 `sink_details.filepath`，结合上下文分析 sink 点的语义和用途。
 
 ### 2. 基于代码证据定性
 
