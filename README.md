@@ -61,9 +61,9 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   支持查看每个 Agent 的会话详情、消息历史、工具调用记录。
     *   漏洞数据从**被审计项目目录**的 `reports/` 读取（修复了之前从 CodeAudit 项目读取的 bug）。
 *   **报告生成 (Report Generation)**
-    *   每个 VULNERABLE 漏洞落盘为 `<target_dir>/reports/vulnerability_<task_id>_<timestamp>.json`（**纯 Python 字段映射，无 LLM**）。
-    *   引擎收尾自动生成 `<target_dir>/reports/SUMMARY.md`：按严重度排序的全量汇总（含按类型 / 按文件 Top10 / 失败任务统计）。
-    *   **报告层去重**：按 `(vuln_type, entry_route, location.file)` 聚合，同一漏洞类型+同一入口+同一 sink 文件路径只保留一条，保留严重度最高的。
+    *   每个 VULNERABLE 漏洞由 **BlueValidator/ConfigValidator 直接生成 Markdown 报告**，写入 `<target_dir>/reports/vuln/{vuln_type}_{task_id}.md`。
+    *   Markdown 报告内容：CWE、严重度、入口路由、文件路径、调用链、漏洞描述、攻击向量、PoC、最大影响。**不需要修复建议**。
+    *   引擎收尾自动生成 `<target_dir>/reports/SUMMARY.md`：按严重度排序的全量汇总（含按类型 / 按文件 Top10 / 失败任务统计），并引用各独立 MD 报告。
 
 ## 🏗️ 智能体架构 (Agent Roster)
 
@@ -79,10 +79,9 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 | **ReverseTracer** | 专家节点 | 接收 Sink 坐标，自底向上逆向追踪调用链，支持跨微服务追踪。场景 C（追踪断裂）输出 `status: NOT_EXPLOITABLE` + `break_reason`（≥20 字符） | `lsp, read, codesearch` + CodeGraph MCP（强制用 codegraph 读取代码） |
 | **LogicAuditor** | 专家节点 | 从 API 路由向下正向推演业务逻辑漏洞（IDOR、Privilege Escalation、Authentication Bypass、Open Redirect），输出限定 **4 类标准 vuln_type 白名单**；遇到技术类漏洞（SQL Injection 等）强制返回 DEFENDED 让位 Sink 路径；timeout=480s（其他 agent 300s） | `lsp, read, codesearch` + CodeGraph MCP |
 | **RedValidator** | 攻击验证节点 | 扮演红队构造 Payload，验证漏洞可利用性，生成攻击向量；**逐参数判定 exploitability**，NOT_EXPLOITABLE 时强制带 defense_analysis（minLength: 20）证明 | `lsp, read, codesearch` + CodeGraph MCP |
-| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞。**禁止以教学项目作为 DEFENDED 理由** | `lsp, read, codesearch` + CodeGraph MCP |
-| **ConfigValidator** | 配置静态分析专家 | 从 BlueValidator 拆分，专门处理 **taint_required=false 的 14 种静态配置漏洞**（弱加密、弱随机、硬编码凭据、不安全 TLS、JWT None、不安全 Cookie、信任边界违反、敏感信息泄露等），走 fast-path 直接静态定性 | `lsp, read, codesearch` + CodeGraph MCP |
-| **report 落盘** | Python 函数 | `state_router._build_report_fields()` + `_save_vulnerability_report()`：把 BlueValidator/ConfigValidator 输出映射为最终报告 JSON。无 LLM。 | — |
-| **summary 汇总** | Python 函数 | `build_summary_report.build_summary()`：聚合 reports/ 下全部 JSON 写 `reports/SUMMARY.md`。引擎收尾自动调用。 | — |
+| **BlueValidator** | 防御验证节点 | 扮演蓝队核查防御机制（过滤器、拦截器），确认最终漏洞。**判定 VULNERABLE 时直接生成 Markdown 报告**。禁止以教学项目作为 DEFENDED 理由 | `lsp, read, codesearch` + CodeGraph MCP |
+| **ConfigValidator** | 配置静态分析专家 | 从 BlueValidator 拆分，专门处理 **taint_required=false 的 14 种静态配置漏洞**（弱加密、弱随机、硬编码凭据、不安全 TLS、JWT None、不安全 Cookie、信任边界违反、敏感信息泄露等），**判定 VULNERABLE 时直接生成 Markdown 报告** | `lsp, read, codesearch` + CodeGraph MCP |
+| **summary 汇总** | Python 函数 | `build_summary_report.build_summary()`：聚合 reports/vuln/ 下全部 MD 报告写 `reports/SUMMARY.md`。引擎收尾自动调用。 | — |
 
 ## 🚀 快速开始 (Quick Start)
 
@@ -211,7 +210,8 @@ CodeAudit/
 │   └── index.html                  # Vue.js 实时看板
 ├── doc/                            # 详细设计文档
 └── reports/                        # 漏洞报告输出目录（自动生成）
-    ├── vulnerability_*.json        # 每个 VULNERABLE 一份
+    ├── vuln/                       # 每个 VULNERABLE 的独立 Markdown 报告
+    │   └── {vuln-type}_{task-id}.md
     └── SUMMARY.md                  # 汇总报告（引擎收尾自动产出）
 ```
 
