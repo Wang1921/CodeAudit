@@ -41,8 +41,12 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 - `HttpServletRequest.getParameter()`
 - 其他框架的 HTTP 入参注解
 
+⚠️ **以下不是 HTTP 入口，必须走跨界终止**：
+- `@KafkaListener` / `@RabbitListener` / `@JmsListener` → 数据来自其他微服务的生产者，无法在本服务内追溯原始外部入口
+- 遇到消息消费入口时，不要把它当作场景 A 的外部可控入口输出，必须输出场景 B
+
 **跨界终止**：追踪到微服务边界：
-- `@KafkaListener` / `@RabbitListener` 消息消费入口
+- `@KafkaListener` / `@RabbitListener` / `@JmsListener` 消息消费入口
 - `RestTemplate` / `@FeignClient` 远程调用返回值
 - `HttpClient` / `WebClient` 响应数据
 - → 输出场景 B（cross_service_trace），不要猜测外部入口
@@ -86,7 +90,8 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 
 ### 场景 A：成功追踪
 
-追踪到外部可控入口（如 `@RequestParam` / `@PathVariable` / `HttpServletRequest.getParameter()` 等）。
+追踪到 HTTP 外部可控入口（如 `@RequestParam` / `@PathVariable` / `HttpServletRequest.getParameter()` 等）。
+**消息消费入口（`@KafkaListener` 等）不属于场景 A**，即使消息内容攻击者可控，也应输出场景 B 让引擎跨服务追踪到生产者。
 
 ```json
 {
@@ -109,7 +114,7 @@ description: 逆向溯源专家运行时指导。当 ReverseTracer Agent 执行�
 
 ### 场景 B：跨界追踪
 
-追踪到微服务边界（如 `@FeignClient` / `RestTemplate` / `@KafkaListener` 等），无法在当前服务内确认外部入口。
+追踪到微服务边界（如 `@KafkaListener` / `@FeignClient` / `RestTemplate` 等），无法在当前服务内确认外部入口。
 
 ```json
 {

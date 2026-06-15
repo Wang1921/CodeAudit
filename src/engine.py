@@ -698,12 +698,20 @@ class AuditEngine:
             idle_ticks = 0
             IDLE_TICKS_TO_EXIT = 2
 
+            async def _on_task_done(t: asyncio.Task):
+                inflight.discard(t)
+                # 协程结束后可能有新下游消息写入 pending/，
+                # 通知主循环立即检查，避免误判空闲退出。
+                wakeup_event.set()
+
+            wakeup_event = asyncio.Event()
+
             while True:
                 tasks = self.bus.get_pending_tasks()
                 for filepath in tasks:
                     t = asyncio.create_task(self.process_task(filepath))
                     inflight.add(t)
-                    t.add_done_callback(inflight.discard)
+                    t.add_done_callback(_on_task_done)
 
                 if not tasks and not inflight:
                     idle_ticks += 1
@@ -713,7 +721,12 @@ class AuditEngine:
                 else:
                     idle_ticks = 0
 
-                await asyncio.sleep(1)
+                # 等待新任务或 1 秒超时；有新下游消息时立即唤醒，不浪费轮询
+                try:
+                    await asyncio.wait_for(wakeup_event.wait(), timeout=1.0)
+                    wakeup_event.clear()
+                except asyncio.TimeoutError:
+                    pass
         finally:
             # 1) 停掉 tracker 后台任务
             if tracker_task is not None and not tracker_task.done():

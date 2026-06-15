@@ -98,15 +98,27 @@ class StateTracker:
         self.completed_tasks = 0
 
         self.port = port
+
+        max_tries = 20
+        for attempt in range(max_tries):
+            try:
+                import socket
+                test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_sock.bind(('0.0.0.0', self.port))
+                test_sock.close()
+                break
+            except OSError:
+                logging.info(f"端口 {self.port} 已被占用，尝试 {self.port + 1}")
+                self.port += 1
+        else:
+            logging.error(f"无法找到可用端口（尝试 {max_tries} 次），Web 看板未启动")
+            return
+
         class ReusableHTTPServer(HTTPServer):
             allow_reuse_address = True
             tracker = None
 
-        try:
-            self.server = ReusableHTTPServer(('0.0.0.0', self.port), TrackerHandler)
-        except OSError:
-            self.port += 1
-            self.server = ReusableHTTPServer(('0.0.0.0', self.port), TrackerHandler)
+        self.server = ReusableHTTPServer(('0.0.0.0', self.port), TrackerHandler)
 
         self.server.tracker = self
         self.server_thread = threading.Thread(target=self.server.serve_forever)
