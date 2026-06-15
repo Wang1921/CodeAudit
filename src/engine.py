@@ -601,28 +601,32 @@ class AuditEngine:
         agent.set_session_tracker(self.tracker)
         agent.set_current_task(task_id)
 
-        result = await agent.execute(
-            prompt,
-            allowed_tools="lsp,read,codesearch",
-            output_schema=output_schema,
-        )
-        tokens_used = result.pop('_tokens', 0)
-        if tokens_used > 0:
-            self.tracker.add_tokens(tokens_used)
+        self.tracker.agent_start(task_id, "ReverseTracer", f"跨服务溯源 - {service_name}")
+        try:
+            result = await agent.execute(
+                prompt,
+                allowed_tools="lsp,read,codesearch",
+                output_schema=output_schema,
+            )
+            tokens_used = result.pop('_tokens', 0)
+            if tokens_used > 0:
+                self.tracker.add_tokens(tokens_used)
 
-        parsed_result = result
-        if isinstance(result, dict) and "response" in result:
-            try:
-                parsed_result = json.loads(result["response"])
-            except json.JSONDecodeError:
-                parsed_result = result
+            parsed_result = result
+            if isinstance(result, dict) and "response" in result:
+                try:
+                    parsed_result = json.loads(result["response"])
+                except json.JSONDecodeError:
+                    parsed_result = result
 
-        if parsed_result.get("status") == "NOT_EXPLOITABLE":
-            logging.debug(f"微服务 [{service_name}] 中未发现调用链路。")
-            return None
+            if parsed_result.get("status") == "NOT_EXPLOITABLE":
+                logging.debug(f"微服务 [{service_name}] 中未发现调用链路。")
+                return None
 
-        logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
-        return parsed_result
+            logging.info(f"微服务 [{service_name}] 成功接力并贯通外网入口！")
+            return parsed_result
+        finally:
+            self.tracker.agent_finish(task_id)
 
     async def _update_tracker_loop(self):
         """后台刷新 Agent 用时显示，随 run() 生命周期一起终止。"""
