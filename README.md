@@ -45,7 +45,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   所有智能体 Prompt 存储于 `prompts/core/` 目录下的 YAML 文件中，同时携带 `output_schema`。
     *   引擎按 Agent 名加载模板，只做 `{payload_json}` 一处变量替换；追踪策略由大模型自行识别。
 *   **Semgrep 静态扫描集成 (Semgrep Integration)**
-    *   支持自定义 Semgrep 规则目录或单文件规则（项目内置规则始终包含）。
+    *   支持自定义 Semgrep 规则目录或单文件规则（指定自定义规则时不加载内置规则，否则使用内置规则）。
     *   一次性扫描产出 `routes`（API 路由）和 `sinks`（危险点）两类结构化结果。
     *   **入口 sink/route 自动去重**：sink 按 `(vuln_class, filepath, line)`，route 按 `(method, path, handler_file)`。
     *   引擎启动时立即触发，按 `taint_required` 元数据分流派发。
@@ -119,7 +119,7 @@ python3 -m src.main /path/to/your-java-project
 
 ### 高级选项
 ```bash
-# 使用自定义 Semgrep 规则（目录或单文件）—— 项目内置规则始终包含
+# 使用自定义 Semgrep 规则（目录或单文件）—— 此时不会加载内置规则
 codeaudit /path/to/proj --semgrep-rules /your/rules/
 
 # 单独生成已有 reports/ 的汇总（不重新扫描）

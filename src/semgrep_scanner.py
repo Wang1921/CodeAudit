@@ -45,10 +45,10 @@ class SemgrepScanner:
         """
         target_dir:  待扫描的源码目录
         rules_path:  用户指定的 Semgrep 规则路径（可选）
-        
+
         说明：
-        - 项目内置的自定义规则（/home/CodeAudit/semgrep_rules/）始终会被包含
-        - 用户可以额外指定外部规则进行补充（逗号分隔多个）
+        - 若用户指定了自定义规则，则仅使用用户规则，不加载内置规则
+        - 若未指定用户规则，则使用项目内置规则（/home/CodeAudit/semgrep_rules/）
         """
         self.target_dir = target_dir
 
@@ -64,10 +64,10 @@ class SemgrepScanner:
             self._user_rules = None
 
     def _resolve_config(self, language: str | None = None) -> list | None:
-        """返回规则路径列表，始终包含项目内置规则并去重"""
+        """返回规则路径列表。有用户规则时只用用户规则，否则用内置规则"""
         configs = []
 
-        # 1. 首先添加用户指定的规则（如果有）
+        # 1. 优先使用用户指定的规则
         if self._user_rules:
             for rule in self._user_rules:
                 if rule.exists():
@@ -75,9 +75,8 @@ class SemgrepScanner:
                     logger.info(f"添加用户规则: {rule}")
                 else:
                     logger.warning(f"用户规则不存在: {rule}")
-
-        # 2. 始终添加项目内置的自定义规则（如果存在）
-        if self.builtin_rules_dir.exists():
+        # 2. 无用户规则时，使用项目内置规则
+        elif self.builtin_rules_dir.exists():
             configs.append(self.builtin_rules_dir)
             logger.info(f"添加内置规则: {self.builtin_rules_dir}")
         else:
