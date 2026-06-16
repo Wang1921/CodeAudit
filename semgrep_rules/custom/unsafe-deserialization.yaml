@@ -109,17 +109,56 @@ rules:
           # FastJson 2.x
           - pattern: JSONReader.Feature.SupportAutoType
           - pattern: com.alibaba.fastjson2.JSONReader.Feature.SupportAutoType
-          # FastJson 2.x —— JSON.parseObject 接收非字面量输入且目标类型为 Object / 无类型约束
-          # 即使未显式开启 SupportAutoType，fastjson2 在特定配置下仍可能被绕过
-          - patterns:
-              - pattern-either:
-                  - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA)
-                  - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA, Object.class)
-                  - pattern: com.alibaba.fastjson2.JSON.parse($DATA)
-                  - pattern: com.alibaba.fastjson2.JSON.parseArray($DATA)
-              - metavariable-type:
-                  metavariable: $DATA
-                  type: String
+
+  # FastJson 2.x —— 默认配置（未显式开启 autoType）的 parse 接口
+  # fastjson2 默认不启用 autoType，风险低于 fastjson1 显式开启 autoType 的场景
+  # 但仍需标记为 WARNING 让下游 Agent 关注是否有人为开启
+  - id: java-unsafe-deserialization-fastjson2-default
+    message: |
+      ⚠️ FastJson 2.x 反序列化警告 (CWE-502): JSON.parse/parseObject/parseArray 默认配置。
+
+      fastjson2 默认**不启用** autoType（与 fastjson1 不同），直接使用 JSON.parse() /
+      JSON.parseObject() / JSON.parseArray() 通常是**相对安全**的。
+
+      但以下情况仍存在风险：
+      1. 代码中其他地方手动开启了 ParserConfig.setAutoTypeSupport(true)
+      2. 运行时通过 -Dfastjson2.parser.autoTypeSupport=true 开启全局开关
+      3. 攻击者通过恶意构造的 JSON 绕过限制
+
+      本规则 confidence=LOW，标记为 WARNING。请结合上下文人工确认：
+      - 是否存在显式开启 autoType 的代码（搜索 ParserConfig.setAutoTypeSupport）
+      - JVM 启动参数是否包含 -Dfastjson2.parser.autoTypeSupport=true
+
+      建议修复：
+      1. 避免对不可信数据做反序列化
+      2. 优先使用显式指定具体 POJO 类的 API：
+         - JSON.parseObject(json, MyClass.class) — 类型安全
+         - JSON.parseObject(json, new TypeReference<MyDTO>(){}) — Jackson 风格
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: LOW
+      taint_required: true
+      note: "fastjson2 默认不启用 autoType，需人工确认是否显式开启"
+      references:
+        - https://github.com/alibaba/fastjson2/security/advisories/GHSA-8hpc-jvff-6w9f
+    patterns:
+      - pattern-either:
+          - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA)
+          - pattern: com.alibaba.fastjson2.JSON.parseObject($DATA, Object.class)
+          - pattern: com.alibaba.fastjson2.JSON.parse($DATA)
+          - pattern: com.alibaba.fastjson2.JSON.parseArray($DATA)
+      # 排除指定了具体 POJO 类的 parseObject（类型安全，autoType 不生效）
+      - pattern-not: com.alibaba.fastjson2.JSON.parseObject($DATA, $SPECIFIC_CLASS.class)
+      - pattern-not: com.alibaba.fastjson2.JSON.parseObject($DATA, com.alibaba.fastjson2.JSONB.class)
+      # 排除字面量
+      - pattern-not: com.alibaba.fastjson2.JSON.parseObject("...")
+      - pattern-not: com.alibaba.fastjson2.JSON.parse("...")
+      - pattern-not: com.alibaba.fastjson2.JSON.parseArray("...")
       # 字面量排除（readObject 无参数不需要排除；XStream / Yaml 可能传字面量）
       - pattern-not: $XS.fromXML("...", ...)
       - pattern-not: new Yaml().load("...", ...)
