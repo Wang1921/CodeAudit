@@ -70,10 +70,13 @@ def _red_hit(p: dict[str, Any]) -> bool:
 
 
 def _blue_hit(p: dict[str, Any]) -> bool:
-    """BlueValidator 是否确认存在漏洞：要么 status==VULNERABLE，
-    要么直接给出了 mitigation_advice 字段（兼容旧 schema 的兜底）。
-    """
-    return p.get("status") == "VULNERABLE" or "mitigation_advice" in p
+    """BlueValidator 是否确认存在漏洞：检查 report_written 字段是否存在（Agent 已写入 Markdown 报告）"""
+    return "report_written" in p
+
+
+def _config_validator_hit(p: dict[str, Any]) -> bool:
+    """ConfigValidator 是否确认存在漏洞：检查 report_written 字段是否存在"""
+    return "report_written" in p
 
 
 # ---------- CWE 映射表：vuln_type（Semgrep metadata.vuln_class + LogicAuditor 白名单）→ CWE 编号 ----------
@@ -314,8 +317,7 @@ ROUTE_RULES: dict[str, RouteRule] = {
     "BlueValidator": RouteRule(
         sender="BlueValidator",
         success_check=_blue_hit,
-        # 报告生成不再走 LLM agent：BlueValidator 裁决 VULNERABLE 后，
-        # on_success_hook 在 Python 侧直接组装并落盘报告（字段映射 + CWE 查表）。
+        # 报告已由 Agent 写入 Markdown 文件，不再需要 Python 侧 hook
         next_message_type=None,
         next_recipient=None,
         success_kanban_category="resolved",
@@ -324,13 +326,12 @@ ROUTE_RULES: dict[str, RouteRule] = {
         success_add_task=False,
         miss_kanban_label="BLUE-FAIL",
         miss_kanban_reason="防御有效",
-        on_success_hook=_save_report_hook,
     ),
     "ConfigValidator": RouteRule(
         # ConfigValidator 处理 taint_required=false 的静态配置漏洞
-        # 输出 VULNERABLE 或 DEFENDED 后直接终止（落盘报告）
+        # 报告已由 Agent 写入 Markdown 文件，不再需要 Python 侧 hook
         sender="ConfigValidator",
-        success_check=lambda p: p.get("status") == "VULNERABLE",
+        success_check=_config_validator_hit,
         next_message_type=None,
         next_recipient=None,
         success_kanban_category="resolved",
@@ -339,7 +340,6 @@ ROUTE_RULES: dict[str, RouteRule] = {
         success_add_task=False,
         miss_kanban_label="CONFIG-DEFENDED",
         miss_kanban_reason="静态分析通过",
-        on_success_hook=_save_report_hook,
     ),
     "SemgrepScanner": RouteRule(
         # 语义完整性：SemgrepScanner 的任务由 engine 初始化时直接派发，不会走到 route()

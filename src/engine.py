@@ -219,6 +219,19 @@ class AuditEngine:
         # 诱导写出 prompt 里仅见过的 cross_service_trace 值，误触发跨服务 fan-out。
         for i, route in enumerate(routes):
             self.tracker.add_task()
+            route_details = route.get("route_details", {})
+            method = route.get("method", "UNKNOWN")
+            path = route.get("path", "unknown")
+            handler_file = route.get("handler_file", "Unknown")
+
+            # 添加到 suspicious 看板
+            self.tracker.update_kanban(
+                "suspicious",
+                f"{task_id}_ROUTE_{i}",
+                f"API Route: {method} {path}",
+                handler_file
+            )
+
             self.bus.write_message(
                 message_type="TaskRequest",
                 task_id=f"{task_id}_ROUTE_{i}",
@@ -236,13 +249,7 @@ class AuditEngine:
             vuln_class = sink_details.get("vuln_class", "Unknown")
             filepath = sink_details.get("filepath", "Unknown")
 
-            self.tracker.update_kanban(
-                "suspicious",
-                f"{task_id}_SINK_{i}",
-                vuln_class,
-                filepath
-            )
-
+            # 先判断 taint_required，决定任务后缀
             taint_required = sink_details.get("taint_required", True)
             if taint_required:
                 recipient = "ReverseTracer"
@@ -251,9 +258,18 @@ class AuditEngine:
                 recipient = "ConfigValidator"
                 task_suffix = "STATIC"
 
+            # 用完整的 task_id 更新 kanban（包含 _TRACE 或 _STATIC 后缀），与后续派发保持一致
+            full_task_id = f"{task_id}_SINK_{i}_{task_suffix}"
+            self.tracker.update_kanban(
+                "suspicious",
+                full_task_id,
+                vuln_class,
+                filepath
+            )
+
             self.bus.write_message(
                 message_type="TaskRequest",
-                task_id=f"{task_id}_SINK_{i}_{task_suffix}",
+                task_id=full_task_id,
                 sender="SemgrepScanner",
                 recipient=recipient,
                 payload={"sink_details": sink_details},

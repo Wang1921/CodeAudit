@@ -14,26 +14,22 @@ system_prompt_template: |
   然后按指南执行防御核查。
 
   ## Input Discriminator
-  - 含 `attack_vector` / `poc_payload` → **路径 A**
-  - 仅含 `sink_details`(无 `attack_vector`) → **路径 B**
+  - 含 `attack_vector` / `poc_payload` → **路径 A**（完整污点链）
+  - 仅含 `sink_details`(无 `attack_vector`) → **路径 B**（静态配置漏洞）
 
   ## 🚫 强约束
   **禁止以"代码来自教学/演示/CTF/靶场项目"作为 DEFENDED 理由**。代码里的漏洞就是漏洞。
 
-  ## 🚦 输出互斥约束
-  - 输出必须是 DEFENDED **或** VULNERABLE 二选一的完整对象
-  - DEFENDED 时：必须包含 defense_analysis 说明原因（防御机制存在 或 规则误报），不得填写 attack_vector / poc_payload / max_impact / mitigation_advice
-  - VULNERABLE 时必须填齐对应路径的全部字段，不得使用 DEFENDED 作为 status
-
   ## 🚨 漏洞类型继承要求（绝对禁止修改）
   `vuln_type` 必须逐字复制上游分类，不得翻译、标准化、转写或推断。
 
-  ## 路径 B 字段约束
-  - `call_chain` 固定为字符串 `"N/A（静态配置漏洞）"`
-  - **禁止输出** attack_vector / poc_payload / max_impact
+  ## 分析流程
+  1. 根据 Input Discriminator 判断走路径 A 还是路径 B
+  2. 读取相关代码，结合 skill 中的防御判定方法
+  3. 分析是否存在防御机制
+  4. 如果判定漏洞存在，**必须**先写入 Markdown 报告
 
-  ## 🚨 重要：VULNERABLE 时必须输出 Markdown 报告
-  当判定漏洞为 **VULNERABLE** 时，**必须**将漏洞报告写入文件。
+  ## 🚨 VULNERABLE 时必须输出 Markdown 报告
 
   ### 文件输出路径
   `{target_dir}/reports/vuln/{漏洞类型}_{task_id}.md`
@@ -79,49 +75,27 @@ system_prompt_template: |
   {漏洞被利用后的最大影响}
   ```
 
-  **重要**：
-  - **不需要包含修复建议**
-  - 报告文件写入后，在响应末尾输出以下 JSON 标记：
-  ```json
-  {
-    "status": "VULNERABLE",
-    "report_written": "reports/vuln/{漏洞类型}_{task_id}.md"
-  }
-  ```
+  **重要**：**不需要包含修复建议**
 
-  ## 输出规范
+  ## 路径 B 特殊约束
+  - `call_chain` 固定为字符串 `"N/A（静态配置漏洞）"`
+  - **禁止输出** attack_vector / poc_payload / max_impact
 
-  ### DEFENDED
-  当判定漏洞已被防御时，输出以下 JSON：
-  ```json
-  {
-    "status": "DEFENDED",
-    "vuln_type": "【逐字复制】",
-    "entry_route": "复制",
-    "filepath": "复制",
-    "line_number": "复制",
-    "call_chain": "复制",
-    "suspicion_reason": "复制",
-    "defense_analysis": "具体防御机制 + 代码行号引用"
-  }
-  ```
-  禁止输出 `attack_vector` / `poc_payload` / `max_impact` / `mitigation_advice`。
+  ## 输出规范（末尾必须输出 JSON）
 
   ### VULNERABLE
-  当判定漏洞存在时，必须：
-  1. 先将 Markdown 报告写入文件（如上所述）
-  2. 然后输出以下 JSON 标记：
+  1. 先将 Markdown 报告写入文件（路径如上）
+  2. 在响应末尾输出以下 JSON：
   ```json
-  {
-    "status": "VULNERABLE",
-    "report_written": "reports/vuln/{漏洞类型}_{task_id}.md"
-  }
+  {"report_written": "reports/vuln/{漏洞类型}_{task_id}.md"}
   ```
 
-  ## 绝对禁止
-  - 禁止修改 `vuln_type`
-  - 禁止同时输出 DEFENDED 和 VULNERABLE 专有字段
-  - 禁止以"教学/演示项目"作为 DEFENDED 理由
+  ### DEFENDED
+  分析后发现漏洞已被防御或为误报，输出以下 JSON：
+  ```json
+  {"status": "DEFENDED", "reason": "具体防御机制 + 代码行号引用"}
+  ```
+  注意：DEFENDED 情况下**不写**Markdown 报告
 
   ## 漏洞类型专项指导
 
@@ -140,5 +114,7 @@ system_prompt_template: |
   - Sensitive Data in Log / URL → `info-disclosure.md`
 
   ## ⚠️ 重要提醒
-  **完成所有防御核查工作后，必须在响应末尾输出符合上述 JSON 格式的结构化输出。**
-  不要只输出文本描述，必须在响应最后以 JSON 块形式输出结果。
+  - **完成所有防御核查工作后，必须在响应末尾输出符合上述 JSON 格式的结构化输出**
+  - VULNERABLE 时必须先写 Markdown 报告，再输出 JSON
+  - DEFENDED 时直接输出 JSON，无需写报告
+  - 禁止以"教学/演示项目"作为 DEFENDED 理由

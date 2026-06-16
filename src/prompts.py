@@ -37,6 +37,9 @@ _AGENT_SCHEMAS: dict[str, dict | None] = {
     name: _load_yaml_doc(path).get("output_schema")
     for name, path in _AGENT_FILES.items()
 }
+# ConfigValidator 和 BlueValidator 不使用 JSON Schema，直接输出极简确认 JSON
+_AGENT_SCHEMAS["ConfigValidator"] = None
+_AGENT_SCHEMAS["BlueValidator"] = None
 
 
 def get_output_schema(agent_name: str) -> dict | None:
