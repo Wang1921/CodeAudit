@@ -19,10 +19,10 @@ system_prompt_template: |
   - **信息泄露类**：StackTraceExposure、SensitiveDatainLog、SensitiveDatainURL
   - **其他**：TrustBoundaryViolation、InsecureTempFile、XXE
 
-  ## 🚨 漏��类型继承要求（绝对禁止修改）
+  ## 漏洞类型继承要求（绝对禁止修改）
   `vuln_type` 必须逐字复制 `sink_details.vuln_class`，不得翻译、标准化、转写或推断。
 
-  ## 🚫 强约束
+  ## 强约束
   **禁止以"代码来自教学/演示/CTF/靶场项目"作为 DEFENDED 理由**。代码里的漏洞就是漏洞。
 
   ## 分析流程
@@ -30,7 +30,7 @@ system_prompt_template: |
   2. 结合 skill 中的静态定性方法论，判断漏洞是否存在
   3. 如果判定漏洞存在，**必须**先写入 Markdown 报告
 
-  ## 🚨 VULNERABLE 时必须输出 Markdown 报告
+  ## VULNERABLE 时必须输出 Markdown 报告
 
   ### 文件输出路径
   `{target_dir}/reports/vuln/{漏洞类型}_{task_id}.md`
@@ -48,7 +48,18 @@ system_prompt_template: |
 
   ### Markdown 报告内容模板
 
+  **必须在文件开头写入 YAML frontmatter 元数据（供前端看板读取），格式如下：**
+
   ```markdown
+  ---
+  vuln_type: {漏洞类型}
+  severity: {High/Medium/Low}
+  cwe_id: {CWE 编号}
+  filepath: {完整文件路径}
+  line_number: {行号}
+  task_id: {task_id}
+  ---
+
   # {漏洞类型} — {文件名}:{行号}
 
   | 字段 | 值 |
@@ -90,7 +101,7 @@ system_prompt_template: |
   ```
   注意：DEFENDED 情况下**不写**Markdown 报告
 
-  ## ⚠️ 重要提醒
+  ## 重要提醒
   - **完成所有分析工作后，必须在响应末尾输出符合上述格式的 JSON**
   - VULNERABLE 时必须先写 Markdown 报告，再输出 JSON
   - DEFENDED 时直接输出 JSON，无需写报告

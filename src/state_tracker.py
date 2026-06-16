@@ -596,8 +596,53 @@ class StateTracker:
 
         return report
 
+    def _parse_markdown_report(self, md_path: Path) -> dict | None:
+        """从 Markdown 报告文件中提取 frontmatter 元数据"""
+        try:
+            content = md_path.read_text(encoding='utf-8')
+
+            # 解析 YAML frontmatter
+            if not content.startswith('---'):
+                return None
+
+            parts = content.split('---', 2)
+            if len(parts) < 3:
+                return None
+
+            frontmatter = parts[1].strip()
+            import yaml
+            metadata = yaml.safe_load(frontmatter)
+
+            if not metadata:
+                return None
+
+            return {
+                "vuln_type": metadata.get("vuln_type", "Unknown"),
+                "cwe_id": metadata.get("cwe_id", ""),
+                "severity": metadata.get("severity", "Medium"),
+                "location": {
+                    "file": metadata.get("filepath", ""),
+                    "line": metadata.get("line_number", 0),
+                },
+                "entry_route": metadata.get("filepath", ""),
+                "filepath": metadata.get("filepath", ""),
+                "line_number": str(metadata.get("line_number", 0)),
+                "task_id": metadata.get("task_id", md_path.stem),
+                "call_chain": "N/A（静态配置漏洞）",
+                "description": "",
+                "remediation": "",
+                "attack_vector": "",
+                "poc_payload": "",
+                "max_impact": "",
+                "defense_analysis": "",
+                "suspicion_reason": "",
+            }
+        except Exception as e:
+            logging.warning(f"解析 Markdown 报告失败 {md_path.name}: {e}")
+            return None
+
     def _aggregate_reports(self) -> dict:
-        """聚合所有漏洞报告"""
+        """聚合所有漏洞报告（支持 JSON 和 Markdown 格式）"""
         target_dir = self.state.get("target")
         if not target_dir:
             return {"reports": []}
@@ -609,13 +654,12 @@ class StateTracker:
         all_reports = []
 
         try:
-            # 扫描所有 vulnerability_*.json 文件
+            # 1. 扫描所有 vulnerability_*.json 文件（兼容旧格式）
             for json_file in sorted(reports_dir.glob("vulnerability_*.json")):
                 try:
                     with open(json_file, encoding='utf-8') as f:
                         report = json.load(f)
 
-                    # 解析并增强报告
                     enhanced_report = self._parse_vulnerability_report(report)
                     all_reports.append(enhanced_report)
 
@@ -623,6 +667,17 @@ class StateTracker:
                     logging.warning(f"解析报告文件失败 {json_file.name}: {e}")
                 except Exception as e:
                     logging.warning(f"读取报告文件失败 {json_file.name}: {e}")
+
+            # 2. 扫描 reports/vuln/*.md 文件（优先于 JSON）
+            vuln_dir = reports_dir / "vuln"
+            if vuln_dir.exists():
+                for md_file in sorted(vuln_dir.glob("*.md")):
+                    try:
+                        md_report = self._parse_markdown_report(md_file)
+                        if md_report:
+                            all_reports.append(md_report)
+                    except Exception as e:
+                        logging.warning(f"读取 Markdown 报告失败 {md_file.name}: {e}")
 
         except Exception as e:
             logging.error(f"扫描报告目录失败: {e}")
