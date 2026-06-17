@@ -99,12 +99,10 @@ rules:
                     - com.caucho.hessian.io.HessianInput
                     - Hessian2Input
                     - com.caucho.hessian.io.Hessian2Input
-          # FastJson —— 显式启用 autoType 或使用允许 autoType 的 parse 接口
-          - pattern: JSON.parseObject($DATA, Object.class)
+          # FastJson 1.x —— 显式启用 autoType 或使用允许 autoType 的 parse 接口
+          # 统一用全限定包名，避免捕获 fastjson2
           - pattern: com.alibaba.fastjson.JSON.parseObject($DATA, Object.class)
-          - pattern: JSON.parse($DATA, Feature.SupportAutoType)
           - pattern: com.alibaba.fastjson.JSON.parse($DATA, Feature.SupportAutoType)
-          - pattern: ParserConfig.getGlobalInstance().setAutoTypeSupport(true)
           - pattern: com.alibaba.fastjson.parser.ParserConfig.getGlobalInstance().setAutoTypeSupport(true)
           # FastJson 2.x
           - pattern: JSONReader.Feature.SupportAutoType
@@ -142,7 +140,7 @@ rules:
       owasp: "A08:2021 - Software and Data Integrity Failures"
       vuln_class: "Unsafe Deserialization"
       confidence: LOW
-      taint_required: true
+      taint_required: false
       note: "fastjson2 默认不启用 autoType，需人工确认是否显式开启"
       references:
         - https://github.com/alibaba/fastjson2/security/advisories/GHSA-8hpc-jvff-6w9f
