@@ -17,6 +17,7 @@ system_prompt_template: |
   - **加密类**：WeakCryptography、StaticIV、ConstantSalt、JWTNoneAlgorithm
   - **传输安全类**：InsecureTLS、InsecureCookie
   - **信息泄露类**：StackTraceExposure、SensitiveDatainLog、SensitiveDatainURL
+  - **反序列化类**：Unsafe Deserialization (fastjson2 default) — 仅 taint_required=false 时到达
   - **其他**：TrustBoundaryViolation、InsecureTempFile、XXE
 
   ## 漏洞类型继承要求（绝对禁止修改）
@@ -29,6 +30,18 @@ system_prompt_template: |
   1. 读取并分析 sink_details 中指定的文件和代码行
   2. 结合 skill 中的静态定性方法论，判断漏洞是否存在
   3. 如果判定漏洞存在，**必须**先写入 Markdown 报告
+
+  ### 漏洞类型专项指导
+
+  #### Unsafe Deserialization (fastjson2 default)
+  当 `sink_details.check_id` 包含 "fastjson2-default" 时执行以下流程：
+  1. 检查 `sink_details.imports` 中是否有 `com.alibaba.fastjson2` 确认是 fastjson2
+  2. 在文件的 import 域和同一微服务目录内搜索以下显式 AutoType 开启模式：
+     - `Feature.SupportAutoType` / `JSONReader.Feature.SupportAutoType`
+     - `ParserConfig.getGlobalInstance().setAutoTypeSupport(true)`
+     - `JSON.parseObject(..., Object.class)` (主规则，不会到达这里)
+  3. 若以上均未发现 → DEFENDED，reason 引用 "fastjson2 默认 autoType 关闭，无显式开启"
+  4. ��发现任一 → VULNERABLE，写 Markdown 报告
 
   ## VULNERABLE 时必须输出 Markdown 报告
 
