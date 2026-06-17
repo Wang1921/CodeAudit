@@ -80,24 +80,28 @@ class AuditEngine:
         logging.debug(f"[ServiceDir] '{filepath}' 未识别到独立微服务目录，使用根目录")
         return self.target_source_dir
 
-    def _get_prompt_for_agent(self, agent_name: str, payload_json: str) -> str:
+    def _get_prompt_for_agent(self, agent_name: str, payload_json: str, target_dir: str = None) -> str:
         """按 recipient agent 名称加载并渲染对应 prompt 模板。
 
         ReportGenerator 已退化为纯 Python 字段映射（见 state_router._build_report_fields），
         不再走 LLM；对未知 agent 抛 ValueError，避免误派发到没有 prompt 的角色。
         """
+        # 替换 prompt 中的 target_dir 占位符
+        if target_dir is None:
+            target_dir = self.target_source_dir
+
         if agent_name == "ReverseTracer":
-            return prompts.format_reverse_tracer_prompt(payload_json)
+            return prompts.format_reverse_tracer_prompt(payload_json, target_dir)
         elif agent_name == "LogicAuditor":
-            return prompts.format_logic_auditor_prompt(payload_json)
+            return prompts.format_logic_auditor_prompt(payload_json, target_dir)
         elif agent_name == "RedValidator":
-            return prompts.format_red_validator_prompt(payload_json)
+            return prompts.format_red_validator_prompt(payload_json, target_dir)
         elif agent_name == "BlueValidator":
-            return prompts.format_blue_validator_prompt(payload_json)
+            return prompts.format_blue_validator_prompt(payload_json, target_dir)
         elif agent_name == "ConfigValidator":
-            return prompts.format_config_validator_prompt(payload_json)
+            return prompts.format_config_validator_prompt(payload_json, target_dir)
         elif agent_name == "CrossServicePrefilter":
-            return prompts.format_cross_service_prefilter_prompt(payload_json)
+            return prompts.format_cross_service_prefilter_prompt(payload_json, target_dir)
         else:
             # ReportGenerator 已改为纯 Python 字段映射（state_router._build_report_fields），不再是 LLM agent
             raise ValueError(f"未知的 Agent 类型: {agent_name}")
@@ -321,7 +325,7 @@ class AuditEngine:
 
                 logging.info(f"Agent {recipient} 开始任务 {task_id}")
                 self.tracker.agent_start(task_id, recipient, f"正在处理 {task_id}")
-                prompt = self._get_prompt_for_agent(recipient, payload_json)
+                prompt = self._get_prompt_for_agent(recipient, payload_json, self.target_source_dir)
 
                 # 动态推断目录与分配工具权限
                 # 同时检查 sink_details 和 route_details
@@ -509,7 +513,8 @@ class AuditEngine:
         }
         prompt = self._get_prompt_for_agent(
             "ReverseTracer",
-            json.dumps(relay_payload, ensure_ascii=False)
+            json.dumps(relay_payload, ensure_ascii=False),
+            self.target_source_dir
         )
 
         coros = [

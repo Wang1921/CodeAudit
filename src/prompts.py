@@ -55,23 +55,23 @@ CONFIG_VALIDATOR_PROMPT_TEMPLATE = load_yaml_template("core/config_validator.yam
 CROSS_SERVICE_PREFILTER_PROMPT_TEMPLATE = load_yaml_template("core/cross_service_prefilter.yaml")
 RETRY_PROMPT_TEMPLATE = load_yaml_template("core/retry.yaml")
 
-def format_reverse_tracer_prompt(payload_json: str) -> str:
-    return REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_reverse_tracer_prompt(payload_json: str, target_dir: str = "") -> str:
+    return REVERSE_TRACER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_logic_auditor_prompt(payload_json: str) -> str:
-    return LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_logic_auditor_prompt(payload_json: str, target_dir: str = "") -> str:
+    return LOGIC_AUDITOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_red_validator_prompt(payload_json: str) -> str:
-    return RED_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_red_validator_prompt(payload_json: str, target_dir: str = "") -> str:
+    return RED_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_blue_validator_prompt(payload_json: str) -> str:
-    return BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_blue_validator_prompt(payload_json: str, target_dir: str = "") -> str:
+    return BLUE_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_config_validator_prompt(payload_json: str) -> str:
-    return CONFIG_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_config_validator_prompt(payload_json: str, target_dir: str = "") -> str:
+    return CONFIG_VALIDATOR_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_cross_service_prefilter_prompt(payload_json: str) -> str:
-    return CROSS_SERVICE_PREFILTER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json)
+def format_cross_service_prefilter_prompt(payload_json: str, target_dir: str = "") -> str:
+    return CROSS_SERVICE_PREFILTER_PROMPT_TEMPLATE.replace("{payload_json}", payload_json).replace("{target_dir}", target_dir)
 
-def format_retry_prompt(error_details: str, raw_output: str) -> str:
-    return RETRY_PROMPT_TEMPLATE.replace("{error_details}", error_details).replace("{raw_output}", raw_output)
+def format_retry_prompt(error_details: str, raw_output: str, target_dir: str = "") -> str:
+    return RETRY_PROMPT_TEMPLATE.replace("{error_details}", error_details).replace("{raw_output}", raw_output).replace("{target_dir}", target_dir)
