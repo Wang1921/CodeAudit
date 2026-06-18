@@ -43,31 +43,26 @@ rules:
               - pattern: $LOG.trace($MSG, ...)
               - pattern: $LOG.fatal($MSG, ...)
               - pattern: $LOG.severe($MSG, ...)
-          - metavariable-type:
+          # 按变量名约定约束（替代 metavariable-type）。
+          # 理由：Java 业界 >99% 的 Logger 变量名是 log/logger，命名约定本身已是强约束。
+          # 去除 type check 后 @Slf4j（Lombok 合成 log 字段，源码无声明、类型不可解析）
+          # 与 var log = ... 均可匹配，避免 @Slf4j 类全量漏检。
+          - metavariable-regex:
               metavariable: $LOG
-              types:
-                - Logger
-                - org.slf4j.Logger
-                - org.apache.logging.log4j.Logger
-                - org.apache.log4j.Logger
-                - java.util.logging.Logger
-                - org.apache.commons.logging.Log
+              regex: '(?i)^(log|logger|_log|_logger|LOG|LOGGER)$'
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value|user[_-]?token|cookie|authorization|bearer)(?![a-z])'
 
       # Logger.log(Level, msg, ...)
       - patterns:
           - pattern: $LOG.log($LVL, $MSG, ...)
-          - metavariable-type:
+          - metavariable-regex:
               metavariable: $LOG
-              types:
-                - Logger
-                - java.util.logging.Logger
-                - org.apache.logging.log4j.Logger
+              regex: '(?i)^(log|logger|_log|_logger|LOG|LOGGER)$'
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value|user[_-]?token|cookie|authorization|bearer)(?![a-z])'
 
       # ---------------- System.out / System.err ----------------
       - patterns:
@@ -82,7 +77,7 @@ rules:
               - pattern: System.err.format($MSG, ...)
           - metavariable-pattern:
               metavariable: $MSG
-              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value)(?![a-z])'
+              pattern-regex: '(?i)(password|passwd|pwd|secret|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|apikey|api[_-]?secret|credential|jwt[_-]?token|ssn|social[_-]?security|credit[_-]?card|creditcard|card[_-]?number|cvv|cvc|pin[_-]?code|private[_-]?key|priv[_-]?key|session[_-]?id|cookie[_-]?value|user[_-]?token|cookie|authorization|bearer)(?![a-z])'
 
   # ---------------- 启发式：Logger 打印可能含敏感字段的业务对象 ----------------
   # 覆盖 java-sensitive-data-in-log 抓不到的典型场景：
@@ -153,15 +148,9 @@ rules:
           - pattern: $LOG.trace($MSG, $OBJ, ...)
           - pattern: $LOG.fatal($MSG, $OBJ, ...)
           - pattern: $LOG.severe($MSG, $OBJ, ...)
-      - metavariable-type:
+      - metavariable-regex:
           metavariable: $LOG
-          types:
-            - Logger
-            - org.slf4j.Logger
-            - org.apache.logging.log4j.Logger
-            - org.apache.log4j.Logger
-            - java.util.logging.Logger
-            - org.apache.commons.logging.Log
+          regex: '(?i)^(log|logger|_log|_logger|LOG|LOGGER)$'
       - metavariable-regex:
           metavariable: $OBJ
           # 变量名 / 方法调用 / 属性访问中含常见"业务对象 or 容器"关键字。
