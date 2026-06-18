@@ -30,7 +30,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
     *   客户端二次校验：用 jsonschema 验证 structured_output，确保数据合规。
     *   降级处理：如果 structured_output 为空，从 response 文本提取 JSON。
     *   **SDK 无内置重试**：schema 验证失败时 SDK 直接返回 `structured_output=None`，由业务层（CodeAudit 引擎）处理重试或降级提取。
-    *   所有 Agent 仅赋 `lsp, read, codesearch` 工具，不赋 `write / bash`。依据文件路径归属动态推断工作目录（根目录 vs 微服务子目录）。
+    *   所有 Agent 赋 `Read, Bash, Glob, Grep, Skill, Write` 工具（`base_tools` 同步含 `write`），`permission_mode=bypassPermissions` 全量放行，Agent 可直接读写落盘报告 / 执行命令。依据文件路径归属动态推断工作目录（根目录 vs 微服务子目录）。
 *   **红蓝对抗验证 (Adversarial Validation)**
     *   **RedValidator**: 负责构造 Payload，尝试寻找利用攻击链的可能途径。Prompt 内置 13 类 vuln_type 的 PoC 构造提示。
         **逐参数判定强约束**：sink 多参数时只要任一参数仍可控就构成 EXPLOITABLE，单参数白名单不构成整体防御（防 LLM 浅推理误判 NOT_EXPLOITABLE）。NOT_EXPLOITABLE 时**强制带 `defense_analysis` 字段**（minLength: 20）证明每个参数都被过滤。

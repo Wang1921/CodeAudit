@@ -56,7 +56,7 @@ class ClaudeAgent:
         ]
 
         # 基础工具列表
-        base_tools = ["read", "bash", "glob", "grep", "skill"]
+        base_tools = ["read", "bash", "glob", "grep", "skill", "write"]
 
         # CodeGraph MCP 配置 - 根据操作系统选择命令
         if platform.system() == "Windows":
@@ -67,11 +67,11 @@ class ClaudeAgent:
             mcp_args = ["serve", "--mcp"]
 
         options = ClaudeAgentOptions(
-            tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill'],
+            tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill', 'Write'],
             skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer', 'config-validator'],
             setting_sources=["user", "project"],
             cwd=self.cwd,
-            permission_mode="acceptEdits",
+            permission_mode="bypassPermissions",
             # CodeGraph MCP 配置
             mcp_servers={
                 "codegraph": {
