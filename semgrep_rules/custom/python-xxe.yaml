@@ -1,0 +1,90 @@
+rules:
+  - id: python-xxe-xml-etree
+    message: |
+      🚨 XXE (CWE-611) Sink: xml.etree.ElementTree 默认解析外部实体。
+      若解析来自用户的 XML，攻击者可声明外部实体读取文件
+      (`<!ENTITY xxe SYSTEM "file:///etc/passwd">`)、SSRF、或盲打 OOB。
+
+      常见 bug 模式：
+        ET.parse(user_xml_file)                    # 漏洞
+        ET.fromstring(user_xml_str)                # 漏洞
+        xml.sax.parse(user_input, handler)         # 漏洞
+
+      修复建议：
+      1. 使用 defusedxml 替代标准库 XML 解析（默认禁用外部实体）：
+         `import defusedxml.ElementTree as ET`；
+      2. xml.sax：用 defusedxml.sax 或自定义 ContentHandler 拒绝外部实体；
+      3. 禁用 DTD：defusedxml 的 forbid_dtd=True。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/611.html
+        - https://docs.python.org/3/library/xml.html#xml-vulnerabilities
+        - https://pypi.org/project/defusedxml/
+    patterns:
+      - pattern-either:
+          - pattern: xml.etree.ElementTree.parse($X)
+          - pattern: xml.etree.ElementTree.fromstring($X)
+          - pattern: xml.etree.ElementTree.iterparse($X)
+          - pattern: xml.etree.ElementTree.XMLParser(...)
+          - pattern: ET.parse($X)
+          - pattern: ET.fromstring($X)
+          - pattern: ET.iterparse($X)
+          - pattern: xml.sax.parse($X, ...)
+          - pattern: xml.sax.parseString($X, ...)
+          - pattern: xml.dom.minidom.parse($X)
+          - pattern: xml.dom.minidom.parseString($X)
+          - pattern: xml.dom.pulldom.parse($X)
+          - pattern: xmltodict.parse($X)
+      # defusedxml 已禁用外部实体，安全
+      - pattern-not: defusedxml.ElementTree.parse($X)
+      - pattern-not: defusedxml.ElementTree.fromstring($X)
+      - pattern-not: defusedxml.sax.parse($X, ...)
+      - pattern-not: defusedxml.minidom.parse($X)
+      - pattern-not: defusedxml.expatreader.parse($X, ...)
+
+  - id: python-xxe-lxml
+    message: |
+      🚨 XXE (CWE-611) Sink: lxml 默认解析外部实体。
+      lxml.etree 默认 resolve_entities=True，可被 XXE 攻击。
+
+      常见 bug 模式：
+        parser = etree.XMLParser()                 # 漏洞（默认开实体）
+        tree = etree.parse(user_xml, parser)
+        etree.fromstring(user_xml)                 # 漏洞
+
+      修复建议：
+      1. etree.XMLParser(resolve_entities=False, no_network=True, forbid_dtd=True)；
+      2. 或用 defusedxml.lxml；
+      3. 禁用 DTD：forbid_dtd=True。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: lxml.etree.parse($X, ...)
+          - pattern: lxml.etree.fromstring($X, ...)
+          - pattern: lxml.etree.XMLParser(...)
+          - pattern: lxml.etree.iterparse($X, ...)
+          - pattern: etree.parse($X, ...)
+          - pattern: etree.fromstring($X, ...)
+          - pattern: etree.XMLParser(...)
+          - pattern: etree.iterparse($X, ...)
+      # 显式禁用实体的安全配置不算漏洞
+      - pattern-not: lxml.etree.XMLParser(resolve_entities=False, ...)
+      - pattern-not: lxml.etree.XMLParser(no_network=True, resolve_entities=False, ...)
+      - pattern-not: lxml.etree.XMLParser(forbid_dtd=True, ...)
+      - pattern-not: etree.XMLParser(resolve_entities=False, ...)
+      - pattern-not: etree.XMLParser(no_network=True, resolve_entities=False, ...)
+      - pattern-not: etree.XMLParser(forbid_dtd=True, ...)

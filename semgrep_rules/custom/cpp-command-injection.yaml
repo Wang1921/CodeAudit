@@ -1,0 +1,95 @@
+rules:
+  - id: cpp-command-injection-system
+    message: |
+      🚨 Command Injection (CWE-78) Sink: system() / popen() 接收非字面量命令。
+      system() 通过 shell 执行命令，用户输入中的 `;` / `|` / `$(...)` / `` ` ``
+      元字符都会触发任意命令执行 (RCE)。
+
+      常见 bug 模式：
+        system(user_input);                         // 漏洞
+        popen(("ls " + user).c_str(), "r");         // 漏洞
+        system(cmd.c_str());                         // 漏洞（cmd 来自用户）
+
+      修复建议：
+      1. 用 execve/execl 系列不经 shell，参数列表传递；
+      2. Windows 用 CreateProcessW + lpCommandLine 拆分参数；
+      3. 必须用 system 时对输入做严格白名单 + shell 字符转义。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+    patterns:
+      - pattern-either:
+          - pattern: system($CMD)
+          - pattern: popen($CMD, $MODE)
+          - pattern: _popen($CMD, $MODE)
+          - pattern: _wsystem($CMD)
+          - pattern: _wpopen($CMD, $MODE)
+      # 字面量命令不算外部输入
+      - pattern-not: system("...")
+      - pattern-not: popen("...", $MODE)
+      - pattern-not: _popen("...", $MODE)
+
+  - id: cpp-command-injection-exec
+    message: |
+      🚨 Command Injection (CWE-78) Sink: exec* / spawn* 接收非字面量程序路径。
+      execl/execlp/execv/execvp 等直接替换进程映像，若路径/参数来自用户输入
+      可导致执行任意程序。Windows 的 _wsystem / CreateProcess 同理。
+
+      修复建议：对程序路径做白名单，参数列表不经 shell 拼接。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: execl($PATH, ...)
+          - pattern: execlp($FILE, ...)
+          - pattern: execle($PATH, ...)
+          - pattern: execv($PATH, $ARGS)
+          - pattern: execvp($FILE, $ARGS)
+          - pattern: execvpe($FILE, $ARGS, $ENV)
+          - pattern: _execl($PATH, ...)
+          - pattern: _wexecl($PATH, ...)
+          - pattern: _execv($PATH, $ARGS)
+          - pattern: _wexecv($PATH, $ARGS)
+          - pattern: posix_spawnp($PID, $FILE, ...)
+          - pattern: posix_spawn($PID, $PATH, ...)
+      - pattern-not: execl("...", ...)
+      - pattern-not: execlp("...", ...)
+      - pattern-not: execv("...", $ARGS)
+      - pattern-not: execvp("...", $ARGS)
+
+  - id: cpp-command-injection-createprocess
+    message: |
+      🚨 Command Injection (CWE-78) Sink: CreateProcess 接收非字面量命令行。
+      Windows CreateProcess 的 lpCommandLine 若拼接用户输入且 bInheritHandles +
+      lpApplicationName=NULL，会经 shell 解析，存在命令注入风险。
+
+      修复建议：用 lpApplicationName 指定可执行文件，lpCommandLine 仅传参数列表。
+    severity: WARNING
+    languages: [cpp]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: CreateProcess($APP, $CMD, ...)
+          - pattern: CreateProcessW($APP, $CMD, ...)
+          - pattern: CreateProcessA($APP, $CMD, ...)
+          - pattern: _wsystem($CMD)
+      - pattern-not: CreateProcess($APP, "...", ...)
+      - pattern-not: CreateProcessW($APP, L"...", ...)

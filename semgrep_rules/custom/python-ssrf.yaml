@@ -1,0 +1,59 @@
+rules:
+  - id: python-ssrf-requests
+    message: |
+      🚨 SSRF (CWE-918) Sink: requests / httpx / urllib HTTP 客户端接收非字面量 URL。
+      若 URL 来自用户输入，攻击者可让服务器访问内网（如 http://127.0.0.1、
+      http://169.254.169.254 云元数据）、读本地文件（file://）、扫内网端口。
+
+      常见 bug 模式：
+        requests.get(user_url)                       # 漏洞
+        requests.get(f"http://api/{user_path}")      # 漏洞
+        urllib.request.urlopen(user_input)           # 漏洞
+
+      修复建议：
+      1. URL 白名单校验（scheme 仅 http/https，host 白名单）；
+      2. 解析后校验 IP 不在私有/保留网段（10.0.0.0/8、172.16.0.0/12、
+         192.168.0.0/16、127.0.0.0/8、169.254.0.0/16）；
+      3. 禁止 file:// / gopher:// / dict:// 等危险 scheme；
+      4. 禁止重定向跟随或对重定向目标重新校验。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp: "A10:2021 - Server-Side Request Forgery"
+      vuln_class: "SSRF"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/918.html
+        - https://owasp.org/www-community/attacks/Server_Side_Request_Forgery
+    patterns:
+      - pattern-either:
+          - pattern: requests.get($URL, ...)
+          - pattern: requests.post($URL, ...)
+          - pattern: requests.put($URL, ...)
+          - pattern: requests.delete($URL, ...)
+          - pattern: requests.patch($URL, ...)
+          - pattern: requests.head($URL, ...)
+          - pattern: requests.request($METHOD, $URL, ...)
+          - pattern: httpx.get($URL, ...)
+          - pattern: httpx.post($URL, ...)
+          - pattern: httpx.request($METHOD, $URL, ...)
+          - pattern: urllib.request.urlopen($URL, ...)
+          - pattern: urllib.urlopen($URL, ...)
+          - pattern: urllib2.urlopen($URL, ...)
+          - pattern: pycurl.Curl().setopt(pycurl.URL, $URL)
+          - pattern: http.client.HTTPConnection($HOST, ...).request($METHOD, $URL, ...)
+      - pattern-not: requests.get("...", ...)
+      - pattern-not: requests.post("...", ...)
+      - pattern-not: requests.put("...", ...)
+      - pattern-not: requests.delete("...", ...)
+      - pattern-not: requests.patch("...", ...)
+      - pattern-not: requests.head("...", ...)
+      - pattern-not: requests.request($METHOD, "...", ...)
+      - pattern-not: httpx.get("...", ...)
+      - pattern-not: httpx.post("...", ...)
+      - pattern-not: httpx.request($METHOD, "...", ...)
+      - pattern-not: urllib.request.urlopen("...", ...)
+      - pattern-not: urllib.urlopen("...", ...)
+      - pattern-not: urllib2.urlopen("...", ...)

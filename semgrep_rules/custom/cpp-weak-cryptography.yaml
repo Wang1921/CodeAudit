@@ -1,0 +1,89 @@
+rules:
+  - id: cpp-weak-cryptography-openssl
+    message: |
+      🚨 Weak Cryptography (CWE-327 / CWE-328) Sink: OpenSSL 使用弱算法。
+      MD5 / SHA-1 / DES / RC4 已被破解或不再安全。
+
+      该告警**无须污点链**（算法由代码本地决定），走 fast path 交给 BlueValidator 做静态定性。
+
+      修复建议：
+      1. 哈希用 EVP_sha256() / EVP_sha3_256()；
+      2. 对称加密用 EVP_aes_256_gcm()；
+      3. 口令哈希用 bcrypt / argon2；
+      4. 禁止 MD5 / SHA1 / DES / RC4。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+        - "CWE-328: Use of Weak Hash"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    pattern-either:
+      # EVP 接口
+      - pattern: EVP_md5()
+      - pattern: EVP_md4()
+      - pattern: EVP_sha1()
+      - pattern: EVP_des_cbc()
+      - pattern: EVP_des_ecb()
+      - pattern: EVP_des_ede_cbc()
+      - pattern: EVP_rc4()
+      - pattern: EVP_bf_cbc()
+      - pattern: EVP_bf_ecb()
+      # 底层接口
+      - pattern: MD5(...)
+      - pattern: MD4(...)
+      - pattern: SHA1(...)
+      - pattern: SHA1_Init(...)
+      - pattern: MD5_Init(...)
+      - pattern: DES_set_key(...)
+      - pattern: DES_set_key_unchecked(...)
+      - pattern: RC4_set_key(...)
+      - pattern: BF_set_key(...)
+
+  - id: cpp-weak-cryptography-hardcoded-key
+    message: |
+      🚨 Weak Cryptography (CWE-321) Sink: 硬编码密钥用于加密。
+      密钥写死在源码里，源码泄露即等价于密钥泄露（C/C++ 二进制反编译也易提取）。
+
+      该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。
+
+      修复建议：
+      1. 密钥经环境变量 / 配置文件 / KMS 下发；
+      2. 用 OpenSSL 的 EVP_PKEY 从 PEM 文件加载；
+      3. 严禁 unsigned char key[] = {0x12, 0x34, ...} 形态。
+    severity: ERROR
+    languages: [cpp]
+    metadata:
+      cwe:
+        - "CWE-321: Use of Hard-coded Cryptographic Key"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+    patterns:
+      - pattern-regex: '(?i)(std::string|QString|auto)\s+(password|passwd|pwd|secret|token|apikey|api_key|accesskey|access_key|privatekey|private_key)\w*\s*=\s*"([^"]{3,})"'
+
+  - id: cpp-weak-cryptography-ecb
+    message: |
+      🚨 Weak Cryptography (CWE-327) Sink: AES ECB 模式不具备语义安全。
+      相同明文块 → 相同密文块（ECB penguin），泄露明文模式。
+
+      修复建议：用 AES-GCM 或 AES-CBC + 随机 IV。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+    pattern-either:
+      - pattern: EVP_aes_128_ecb()
+      - pattern: EVP_aes_192_ecb()
+      - pattern: EVP_aes_256_ecb()

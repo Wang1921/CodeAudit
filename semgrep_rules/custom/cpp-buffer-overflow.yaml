@@ -1,0 +1,113 @@
+rules:
+  - id: cpp-buffer-overflow-strcpy
+    message: |
+      🚨 Buffer Overflow (CWE-120 / CWE-121) Sink: strcpy / strcat / gets 无边界检查。
+      strcpy / strcat 不检查目标缓冲区大小，源字符串过长即栈/堆溢出，
+      可覆盖返回地址达成 RCE。gets 同理（已被 C11 标准删除）。
+
+      常见 bug 模式：
+        char buf[64];
+        strcpy(buf, user_input);          // 漏洞（user_input > 64 字节即溢出）
+        strcat(buf, suffix);               // 漏洞
+        gets(buf);                         // 漏洞（gets 已被 C11 删除）
+
+      修复建议：
+      1. 改用 strncpy + 显式终止符 / strncat（仍需手算 size）；
+      2. 优先用 snprintf / asprintf 返回长度；
+      3. C++ 用 std::string / std::string_view 替代 C 字符串；
+      4. 永远禁用 gets()。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-120: Buffer Copy without Checking Size of Input"
+        - "CWE-121: Stack-based Buffer Overflow"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Buffer Overflow"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/120.html
+        - https://cwe.mitre.org/data/definitions/121.html
+    pattern-either:
+      - pattern: strcpy($DST, $SRC)
+      - pattern: strcat($DST, $SRC)
+      - pattern: gets($BUF)
+      - pattern: _strcpy($DST, $SRC)
+      - pattern: _strcat($DST, $SRC)
+      - pattern: wcscpy($DST, $SRC)
+      - pattern: wcscat($DST, $SRC)
+      - pattern: _tcscpy($DST, $SRC)
+      - pattern: _tcscat($DST, $SRC)
+      - pattern: lstrcpy($DST, $SRC)
+      - pattern: lstrcat($DST, $SRC)
+
+  - id: cpp-buffer-overflow-sprintf
+    message: |
+      🚨 Buffer Overflow (CWE-120 / CWE-134) Sink: sprintf / vsprintf 无边界检查。
+      sprintf 把格式化结果写入固定大小缓冲区，输出超长即溢出。
+      vsprintf 同理。两者都不接受 size 参数。
+
+      常见 bug 模式：
+        char buf[64];
+        sprintf(buf, "%s", user_input);          // 漏洞（user_input 超 64 字节溢出）
+        sprintf(buf, "Hello %s", name);           // 漏洞
+
+      修复建议：
+      1. 改用 snprintf(buf, sizeof(buf), ...) 并检查返回值；
+      2. 改用 asprintf（GNU 扩展，自动分配）；
+      3. C++ 用 std::ostringstream / std::format。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-120: Buffer Copy without Checking Size of Input"
+        - "CWE-134: Use of Externally-Controlled Format String"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Buffer Overflow"
+      confidence: HIGH
+      taint_required: false
+    pattern-either:
+      - pattern: sprintf($BUF, $FMT, ...)
+      - pattern: vsprintf($BUF, $FMT, $ARGS)
+      - pattern: _sprintf($BUF, $FMT, ...)
+      - pattern: swprintf($BUF, $FMT, ...)
+      - pattern: vswprintf($BUF, $FMT, $ARGS)
+      # Windows 旧版无 _s 后缀的 swprintf 也是无界
+      - pattern: wsprintf($BUF, $FMT, ...)
+      - pattern: wvsprintf($BUF, $FMT, $ARGS)
+
+  - id: cpp-buffer-overflow-unsafe-runtime
+    message: |
+      🚨 Buffer Overflow (CWE-120) Sink: scanf 系列无字段宽度限制。
+      scanf / sscanf / fscanf 的 %s 不带宽度即等价 gets，可溢出缓冲区。
+
+      常见 bug 模式：
+        char buf[32];
+        scanf("%s", buf);                       // 漏洞（无 %31s 宽度限制）
+        sscanf(input, "%s", buf);                // 漏洞
+
+      修复建议：
+      1. %s 改为 %31s（buf size - 1）；
+      2. 优先用 fgets + sscanf 分离读取与解析；
+      3. C++ 用 std::cin >> std::setw(31) >> buf。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Buffer Overflow"
+      confidence: MEDIUM
+      taint_required: false
+    patterns:
+      - pattern-either:
+          - pattern: scanf($FMT, ...)
+          - pattern: sscanf($SRC, $FMT, ...)
+          - pattern: fscanf($STREAM, $FMT, ...)
+          - pattern: wscanf($FMT, ...)
+          - pattern: swscanf($SRC, $FMT, ...)
+      # 带 %Ns 宽度的 scanf 相对安全（但仍需 ReverseTracer 确认宽度正确）
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: '^"[^"]*%[0-9]*s[^"]*"$'

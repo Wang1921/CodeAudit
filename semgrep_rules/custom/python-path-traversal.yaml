@@ -1,0 +1,136 @@
+rules:
+  - id: python-path-traversal-open
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: open() 接收非字面量路径。
+      若路径含 `../` 或绝对路径跳出预期目录，攻击者可读写任意文件
+      （如 /etc/passwd、配置、密钥）；写入场景更可能覆盖 webshell 达到 RCE。
+
+      修复建议：
+      1. 校验规范化的绝对路径以 base_dir 为前缀：
+         `safe = os.path.realpath(path); if not safe.startswith(base): raise`；
+      2. 只允许白名单文件名（仅 [a-zA-Z0-9._-]+）；
+      3. 上传/下载用内容 hash 作为文件名，不要直接用用户输入；
+      4. werkzeug.utils.secure_filename() 仅清理文件名，不防 `../`，仍需前缀校验。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+        - https://owasp.org/www-community/attacks/Path_Traversal
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: open($PATH)
+      # 字面量路径不算外部输入
+      - pattern-not: open("...", ...)
+      - pattern-not: open("...")
+
+  - id: python-path-traversal-os-functions
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: os/shutil 文件操作接收非字面量路径。
+      os.remove / os.unlink / os.rename / shutil.copy / shutil.move 等若路径
+      来自用户输入，可读写删任意文件。
+
+      修复建议：对路径做 realpath + 前缀校验，参考 python-path-traversal-open。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: os.remove($PATH)
+          - pattern: os.unlink($PATH)
+          - pattern: os.rename($SRC, $DST)
+          - pattern: os.replace($SRC, $DST)
+          - pattern: os.rmdir($PATH)
+          - pattern: os.chmod($PATH, $MODE)
+          - pattern: os.chown($PATH, ...)
+          - pattern: shutil.copy($SRC, $DST)
+          - pattern: shutil.copy2($SRC, $DST)
+          - pattern: shutil.copyfile($SRC, $DST)
+          - pattern: shutil.move($SRC, $DST)
+          - pattern: shutil.rmtree($PATH)
+          - pattern: shutil.make_archive($NAME, ...)
+          - pattern: shutil.unpack_archive($NAME, ...)
+      - pattern-not: os.remove("...")
+      - pattern-not: os.unlink("...")
+      - pattern-not: os.rename("...", "...")
+      - pattern-not: os.replace("...", "...")
+      - pattern-not: os.rmdir("...")
+      - pattern-not: shutil.copy("...", "...")
+      - pattern-not: shutil.copy2("...", "...")
+      - pattern-not: shutil.copyfile("...", "...")
+      - pattern-not: shutil.move("...", "...")
+      - pattern-not: shutil.rmtree("...")
+      - pattern-not: shutil.unpack_archive("...", ...)
+
+  - id: python-path-traversal-pathlib
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: pathlib.Path 接收非字面量路径。
+      Path(user_input) / Path(base) / user_input 会构造可跳出 base 的路径，
+      配合 .read_text() / .write_text() / .open() 读写任意文件。
+
+      修复建议：
+      1. (Path(base) / user_input).resolve() 后检查 .startswith(base_resolved)；
+      2. 不要把用户输入直接作为 Path 构造参数。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: pathlib.Path($PATH)
+          - pattern: Path($PATH)
+          - pattern: pathlib.PurePath($PATH)
+          - pattern: PurePath($PATH)
+      - pattern-not: pathlib.Path("...")
+      - pattern-not: Path("...")
+      - pattern-not: pathlib.PurePath("...")
+      - pattern-not: PurePath("...")
+
+  - id: python-zip-slip
+    message: |
+      🚨 Zip Slip (CWE-22) Sink: 解压归档时未校验 ZipInfo.filename，可被 `../` 写出目标目录。
+      zipfile / tarfile 解压时若直接用 entry.name 作为目标路径，恶意归档可覆盖
+      任意文件（如 ~/.ssh/authorized_keys）达成 RCE。
+
+      常见 bug 模式：
+        with zipfile.ZipFile(f) as z:
+            z.extract(name, user_dir)         # 漏洞：name 可含 ../
+        tar.extractall(path=user_dir)          # 漏洞：tarfile 默认不防
+
+      修复建议：
+      1. zipfile: extract 前校验 os.path.realpath(os.path.join(dst, name)).startswith(dst)；
+      2. tarfile: 用 Python 3.12+ 的 filter='data'，或自定义 filter 拒绝绝对路径/`../`；
+      3. 禁止 extractall 不带 filter。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Zip Slip"
+      confidence: HIGH
+      references:
+        - https://docs.python.org/3/library/tarfile.html#tarfile-extraction-filter
+    patterns:
+      - pattern-either:
+          - pattern: $Z.extract($NAME, ...)
+          - pattern: $Z.extractall(...)
+          - pattern: $T.extract($NAME, ...)
+          - pattern: $T.extractall(...)
+          - pattern: $Z.extractall($PATH)
+          - pattern: $T.extractall($PATH)

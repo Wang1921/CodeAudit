@@ -2,15 +2,14 @@ import asyncio
 import json
 import logging
 import os
-import platform
 import time
 from pathlib import Path
 
 from src import prompts
 from src.a2a_bus import A2ABusManager
-from src.claude_agent import ClaudeAgent
 from src.semgrep_scanner import SemgrepScanner
-from src.claude_manager import ClaudeAgentManager
+from src.agent_factory import OpenCodeConfig, create_agent_manager
+from src.agents.platform_utils import build_codegraph_init_args, is_codegraph_available
 from src.state_router import StateRouter
 from src.state_tracker import StateTracker
 
@@ -18,20 +17,32 @@ MAX_CONCURRENT_AGENTS = 5     # 初始 Semgrep 派发任务的并发上限
 MAX_CHAIN_AGENTS = 3          # 链路续接（Reverse→Red→Blue 等）的专用并发上限
 
 class AuditEngine:
-    def __init__(self, target_source_dir: str, semgrep_rules: str | None = None):
+    def __init__(
+        self,
+        target_source_dir: str,
+        semgrep_rules: str | None = None,
+        backend: str = "claude",
+        opencode_config: OpenCodeConfig | None = None,
+    ):
         self.tracker = StateTracker(target_source_dir)
         self.bus = A2ABusManager(target_source_dir)
         self.router = StateRouter(self.bus, self.tracker, target_source_dir)
         self.target_source_dir = target_source_dir
         self.semgrep_rules = semgrep_rules
+        self.backend = backend
         # 主 semaphore 给初始 Semgrep 派发用；chain_semaphore 给所有非 SemgrepScanner 发出的
         # 续接消息用 —— 避免 100+ 初始任务把 FIFO 队列填满后续接消息饿死。
         self.semaphore = asyncio.Semaphore(MAX_CONCURRENT_AGENTS)
         self.chain_semaphore = asyncio.Semaphore(MAX_CHAIN_AGENTS)
         # 全局服务路由字典：service_name -> service_root_dir
         self.service_route_map: dict = {}
-        # Claude Agent 管理器
-        self.agent_manager = ClaudeAgentManager(max_active=MAX_CONCURRENT_AGENTS)
+        # Agent 管理器（按 backend 开关实例化 claude / opencode 后端）
+        self.agent_manager = create_agent_manager(
+            backend=backend,
+            max_active=MAX_CONCURRENT_AGENTS,
+            opencode_config=opencode_config,
+        )
+        logging.info(f"Agent 后端: {backend} (manager={type(self.agent_manager).__name__})")
         # 跨微服务追踪结果缓存：(protocol, target_identifier) -> Future[Dict[service_name, parsed_result|None]]
         # 使用 Future 实现 in-flight coalescing：并发同 key 请求共享同一次计算
         self._cross_service_cache: dict[tuple[str, str], asyncio.Future] = {}
@@ -680,27 +691,23 @@ class AuditEngine:
         try:
             logging.info("正在启动代码审计引擎...")
 
-            # 初始化 CodeGraph 索引
-            logging.info("正在初始化 CodeGraph 索引...")
-            if platform.system() == "Windows":
+            # 初始化 CodeGraph 索引（仅 codegraph 可用时执行）
+            if is_codegraph_available():
+                logging.info("正在初始化 CodeGraph 索引...")
+                codegraph_args = build_codegraph_init_args()
                 codegraph_proc = await asyncio.create_subprocess_exec(
-                    "cmd", "/c", "codegraph", "init", "-i",
+                    *codegraph_args,
                     cwd=self.target_source_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                stdout, stderr = await codegraph_proc.communicate()
+                if codegraph_proc.returncode == 0:
+                    logging.info("CodeGraph 索引初始化完成")
+                else:
+                    logging.warning(f"CodeGraph 索引初始化失败: {stderr.decode() if stderr else ''}")
             else:
-                codegraph_proc = await asyncio.create_subprocess_exec(
-                    "codegraph", "init", "-i",
-                    cwd=self.target_source_dir,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-            stdout, stderr = await codegraph_proc.communicate()
-            if codegraph_proc.returncode == 0:
-                logging.info("CodeGraph 索引初始化完成")
-            else:
-                logging.warning(f"CodeGraph 索引初始化失败: {stderr.decode() if stderr else ''}")
+                logging.info("codegraph 未安装，跳过 CodeGraph 索引初始化")
 
             is_fresh_start = all(len(os.listdir(d)) == 0 for d in [
                 self.bus.pending_dir, self.bus.processing_dir, self.bus.completed_dir, self.bus.help_req_dir
@@ -709,6 +716,15 @@ class AuditEngine:
             if is_fresh_start:
                 # 发现微服务
                 self.service_route_map = self._discover_microservices()
+
+                # 按微服务数自动扩容 Agent 池（README 约定：max(5, 服务数)）
+                desired = max(MAX_CONCURRENT_AGENTS, len(self.service_route_map))
+                if desired > self.agent_manager.max_active:
+                    self.agent_manager.resize(desired)
+                    logging.info(
+                        f"按微服务数扩容 Agent 池: {len(self.service_route_map)} 服务 → "
+                        f"max_active={self.agent_manager.max_active}"
+                    )
 
                 # 直接调用 Semgrep 扫描
                 logging.info("开始 Semgrep 扫描...")

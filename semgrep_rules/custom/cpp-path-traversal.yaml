@@ -1,0 +1,92 @@
+rules:
+  - id: cpp-path-traversal-fopen
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: 文件 I/O 接口接收非字面量路径。
+      fopen / ifstream / ofstream / fstream 接收用户输入路径，
+      若含 `../` 或绝对路径可读写任意文件。
+
+      常见 bug 模式：
+        fopen(user_path, "r");                          // 漏洞
+        std::ifstream in(request.getParam("file"));     // 漏洞
+        std::ofstream out(user_filename);               // 漏洞
+
+      修复建议：
+      1. 解析后 realpath + 前缀校验（startswith /safe/dir）；
+      2. 文件名白名单（仅 [a-zA-Z0-9._-]+）；
+      3. C++17 用 std::filesystem::weakly_canonical 解析后比较。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+    patterns:
+      - pattern-either:
+          # C 标准库
+          - pattern: fopen($PATH, $MODE)
+          - pattern: freopen($PATH, $MODE, $STREAM)
+          - pattern: open($PATH, $FLAGS, ...)
+          - pattern: openat($DIR, $PATH, $FLAGS, ...)
+          - pattern: access($PATH, $MODE)
+          - pattern: stat($PATH, $BUF)
+          - pattern: lstat($PATH, $BUF)
+          - pattern: unlink($PATH)
+          - pattern: remove($PATH)
+          - pattern: rename($OLD, $NEW)
+          - pattern: mkdir($PATH, $MODE)
+          - pattern: rmdir($PATH)
+          - pattern: opendir($PATH)
+          - pattern: scandir($PATH, ...)
+          # Windows
+          - pattern: _wfopen($PATH, $MODE)
+          - pattern: _wfreopen($PATH, $MODE, $STREAM)
+          - pattern: _wopen($PATH, $FLAGS, ...)
+          - pattern: CreateFile($PATH, ...)
+          - pattern: CreateFileW($PATH, ...)
+          - pattern: CreateFileA($PATH, ...)
+          - pattern: DeleteFile($PATH)
+          - pattern: DeleteFileW($PATH)
+          - pattern: MoveFile($OLD, $NEW)
+          - pattern: MoveFileEx($OLD, $NEW, ...)
+      # 字面量路径不算外部输入
+      - pattern-not: fopen("...", $MODE)
+      - pattern-not: freopen("...", $MODE, $STREAM)
+      - pattern-not: open("...", $FLAGS, ...)
+      - pattern-not: access("...", $MODE)
+      - pattern-not: stat("...", $BUF)
+      - pattern-not: unlink("...")
+      - pattern-not: remove("...")
+      - pattern-not: rename("...", "...")
+      - pattern-not: mkdir("...", $MODE)
+      - pattern-not: rmdir("...")
+      - pattern-not: opendir("...")
+      - pattern-not: CreateFile("...", ...)
+      - pattern-not: CreateFileW(L"...", ...)
+      - pattern-not: DeleteFile("...")
+      - pattern-not: DeleteFileW(L"...", ...)
+      - pattern-not: MoveFile("...", "...")
+
+  - id: cpp-path-traversal-cpp17-filesystem
+    message: |
+      🚨 Path Traversal (CWE-22) Sink: std::filesystem::path 接收非字面量路径。
+      C++17 filesystem::path 构造后配合 read/write 可读写任意文件。
+
+      修复建议：用 std::filesystem::weakly_canonical 解析后比较是否在 base 目录内。
+    severity: WARNING
+    languages: [cpp]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Path Traversal"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: std::filesystem::path($PATH)
+          - pattern: std::filesystem::current_path($PATH)
+          - pattern: std::filesystem::directory_entry($PATH)
+      - pattern-not: std::filesystem::path("...")

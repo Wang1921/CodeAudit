@@ -1,0 +1,35 @@
+rules:
+  - id: python-xpath-injection
+    message: |
+      🚨 XPath Injection (CWE-643) Sink: XPath 查询接收非字面量输入。
+      lxml.etree.xpath() / ElementTree.findall() 用字符串拼接构造 XPath，
+      攻击者可闭合引号注入 `'] | //user | //foo['` 等表达式提取敏感节点。
+
+      常见 bug 模式：
+        tree.xpath(f"//user[@name='{user}']")             # 漏洞
+        tree.findall(".//item[@id='" + uid + "']")        # 漏洞
+
+      修复建议：
+      1. 用参数化 XPath（XPath 1.0 无原生参数化，需手动转义引号）；
+      2. 对用户输入中的 `'` `"` 做转义或白名单校验；
+      3. 优先用 CSS 选择器（lxml.cssselect）替代 XPath，攻击面更小。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-643: Improper Neutralization of Data within XPath Expressions"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "XPath Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    patterns:
+      - pattern-either:
+          - pattern: $TREE.xpath($XPATH, ...)
+          - pattern: $TREE.findall($XPATH, ...)
+          - pattern: $TREE.find($XPATH)
+          - pattern: $TREE.iterfind($XPATH, ...)
+      - pattern-not: $TREE.xpath("...", ...)
+      - pattern-not: $TREE.findall("...", ...)
+      - pattern-not: $TREE.find("...")
+      - pattern-not: $TREE.iterfind("...", ...)

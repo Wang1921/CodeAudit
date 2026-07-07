@@ -1,0 +1,38 @@
+rules:
+  - id: python-ldap-injection
+    message: |
+      🚨 LDAP Injection (CWE-90) Sink: ldap 查询过滤器接收非字面量输入。
+      python-ldap / ldap3 的 search_s / search 接收用户拼接的 filter 字符串，
+      攻击者可用 `*` 通配符或 `)(uid=*` 闭合绕过过滤。
+
+      常见 bug 模式：
+        conn.search_s(base, scope, f"(uid={user})")        # 漏洞
+        conn.search(base, scope, "(cn=" + name + ")")      # 漏洞
+
+      修复建议：
+      1. 用 ldap.filter.escape_filter_chars(user_input) 转义特殊字符；
+      2. 构造 filter 时用模板 + 转义后的变量；
+      3. 禁止 f-string / + 拼接 filter。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "LDAP Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.search_s($BASE, $SCOPE, $FILTER, ...)
+          - pattern: $CONN.search_st($BASE, $SCOPE, $FILTER, ...)
+          - pattern: $CONN.search_ext($BASE, $SCOPE, $FILTER, ...)
+          - pattern: $CONN.search_ext_s($BASE, $SCOPE, $FILTER, ...)
+          - pattern: $CONN.search($BASE, $SCOPE, $FILTER, ...)
+          - pattern: $CONN.search_subtree($BASE, $FILTER, ...)
+      - pattern-not: $CONN.search_s($BASE, $SCOPE, "...", ...)
+      - pattern-not: $CONN.search_st($BASE, $SCOPE, "...", ...)
+      - pattern-not: $CONN.search_ext($BASE, $SCOPE, "...", ...)
+      - pattern-not: $CONN.search_ext_s($BASE, $SCOPE, "...", ...)
+      - pattern-not: $CONN.search($BASE, $SCOPE, "...", ...)

@@ -1,0 +1,33 @@
+rules:
+  - id: python-stack-trace-exposure
+    message: |
+      🚨 Stack Trace Exposure (CWE-209) Sink: 异常堆栈直接返回给用户。
+      traceback.format_exc() / traceback.format_exception() 把内部堆栈暴露给调用方，
+      会泄露文件路径、库版本、SQL 片段，便于攻击者构造后续攻击。
+
+      该告警**无须污点链**，走 fast path 交给 ConfigValidator 定性：
+      若调用结果仅写入日志而非 HTTP 响应 → DEFENDED。
+
+      修复建议：
+      1. except 块只 logger.exception() 记录日志，返回通用错误信息；
+      2. Flask：app.config['PROPAGATE_EXCEPTIONS'] = False；
+      3. Django：DEBUG=False 时 Django 自动隐藏堆栈；
+      4. FastAPI：自定义 exception_handler 返回通用 message。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-209: Generation of Error Message Containing Sensitive Information"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Stack Trace Exposure"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/209.html
+    pattern-either:
+      - pattern: traceback.format_exc()
+      - pattern: traceback.format_exception(...)
+      - pattern: traceback.format_tb(...)
+      - pattern: traceback.print_exc()
+      - pattern: traceback.print_exception(...)
+      - pattern: traceback.print_last(...)

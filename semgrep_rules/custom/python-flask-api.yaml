@@ -1,0 +1,112 @@
+rules:
+  # ============================================================
+  # Flask 路由提取规则（非漏洞，仅供 LogicAuditor 顶级入口扫描）。
+  # check_id 含 "api" 让下游 semgrep_scanner._parse_route_result 的
+  # `"api" in check_id.lower()` 判定为路由。
+  # ============================================================
+
+  - id: python-flask-api-route-get
+    message: "发现 API (Flask GET) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE, methods=["GET", ...])
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-get-default
+    message: "发现 API (Flask GET 默认) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE)
+          def $FUNC(...):
+              ...
+      # 排除显式声明 methods 的（已被上面规则匹配）
+      - pattern-not-inside: |
+          @$APP.route($RULE, methods=[...])
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-post
+    message: "发现 API (Flask POST) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE, methods=["POST", ...])
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-put
+    message: "发现 API (Flask PUT) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE, methods=["PUT", ...])
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-delete
+    message: "发现 API (Flask DELETE) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE, methods=["DELETE", ...])
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-patch
+    message: "发现 API (Flask PATCH) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.route($RULE, methods=["PATCH", ...])
+          def $FUNC(...):
+              ...
+
+  # Flask 装饰器快捷方法：@app.get / @app.post / @app.put / @app.delete / @app.patch
+  - id: python-flask-api-route-shortcut-get
+    message: "发现 API (Flask @app.get) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.get($RULE)
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-shortcut-post
+    message: "发现 API (Flask @app.post) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.post($RULE)
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-shortcut-put
+    message: "发现 API (Flask @app.put) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.put($RULE)
+          def $FUNC(...):
+              ...
+
+  - id: python-flask-api-route-shortcut-delete
+    message: "发现 API (Flask @app.delete) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.delete($RULE)
+          def $FUNC(...):
+              ...

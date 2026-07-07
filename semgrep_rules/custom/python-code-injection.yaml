@@ -1,0 +1,91 @@
+rules:
+  - id: python-code-injection-eval-exec
+    message: |
+      🚨 Code Injection (CWE-94) Sink: eval() / exec() / compile() 接收非字面量代码。
+      若参数来自用户输入，攻击者可执行任意 Python 代码 (RCE)，包括
+      `__import__('os').system('rm -rf /')` 等逃逸 payload。
+
+      常见 bug 模式：
+        eval(request.GET['expr'])            # 漏洞
+        exec(user_supplied_code)             # 漏洞
+        compile(template, '<str>', 'exec')   # 漏洞（template 被污染）
+
+      修复建议：
+      1. 禁止 eval/exec 用户输入；
+      2. 需要计算器类功能用 ast.literal_eval()（仅字面量）或专用解析器；
+      3. 动态执行用受限沙盒（但 Python 沙盒极难做对，优先避免）。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-94: Improper Control of Generation of Code"
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Code Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/94.html
+        - https://owasp.org/www-community/attacks/Code_Injection
+    patterns:
+      - pattern-either:
+          - pattern: eval($CODE, ...)
+          - pattern: exec($CODE, ...)
+          - pattern: exec($CODE, $GLOBALS, ...)
+          - pattern: compile($CODE, $FILE, $MODE)
+      # 字面量代码不算注入（虽然 eval 仍不推荐，但无外部输入面）
+      - pattern-not: eval("...", ...)
+      - pattern-not: exec("...", ...)
+      - pattern-not: exec("...", $G, ...)
+      - pattern-not: compile("...", $F, $M)
+
+  - id: python-code-injection-os-exec
+    message: |
+      🚨 Code Injection (CWE-94) Sink: os.exec*() 系列接收非字面量程序路径/参数。
+      os.execl/execv/execvp/execle/execve 等直接替换进程映像，若路径/参数来自
+      用户输入可导致执行任意程序。
+
+      修复建议：对程序路径做白名单校验，参数列表不经 shell 拼接。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Code Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: os.execl($PATH, ...)
+          - pattern: os.execle($PATH, ...)
+          - pattern: os.execlp($FILE, ...)
+          - pattern: os.execlpe($FILE, ...)
+          - pattern: os.execv($PATH, $ARGS)
+          - pattern: os.execve($PATH, $ARGS, $ENV)
+          - pattern: os.execvp($FILE, $ARGS)
+          - pattern: os.execvpe($FILE, $ARGS, $ENV)
+      - pattern-not: os.execl("...", ...)
+      - pattern-not: os.execv("...", ...)
+      - pattern-not: os.execve("...", ..., ...)
+      - pattern-not: os.execvp("...", ...)
+
+  - id: python-code-injection-importlib
+    message: |
+      🚨 Code Injection (CWE-94) Sink: importlib 动态导入接收非字面量模块名。
+      importlib.import_module(user_input) 可加载任意已安装模块，配合模块副作用
+      或 __import__ 链可达成代码执行。
+
+      修复建议：模块名做严格白名单，禁止导入用户指定的任意模块名。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-94: Improper Control of Generation of Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Code Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: importlib.import_module($NAME, ...)
+          - pattern: __import__($NAME, ...)
+      - pattern-not: importlib.import_module("...", ...)
+      - pattern-not: __import__("...", ...)

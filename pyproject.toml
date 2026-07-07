@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codeaudit"
 version = "0.1.0"
-description = "双轨制多智能体代码审计系统：Python 异步引擎 + Claude Agent SDK + Semgrep 静态扫描，发现技术型与业务逻辑型 Java 安全漏洞"
+description = "双轨制多智能体代码审计系统：Python 异步引擎 + Claude Agent SDK / OpenCode HTTP 双后端 + Semgrep 静态扫描，发现 Java/Python/C/C++ 技术型与业务逻辑型安全漏洞"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Wang1921" }]
@@ -24,6 +24,8 @@ classifiers = [
 ]
 
 # 运行时依赖
+# claude-agent-sdk 保留在主依赖中以保持向后兼容（现有用户已在用 claude 后端）；
+# 若仅使用 opencode 后端，可 pip install --no-deps 跳过。
 dependencies = [
     "aiohttp>=3.10",
     "PyYAML>=6.0",
@@ -40,6 +42,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+# opencode 后端无需额外依赖（仅用主依赖里的 aiohttp），
+# 这里保留 extras 占位以便未来扩展和显式声明意图。
+opencode = []
 
 [project.scripts]
 # 装完后可直接：codeaudit /path/to/project
@@ -53,7 +58,7 @@ Repository = "https://github.com/Wang1921/CodeAudit"
 # setuptools 包发现
 # ============================================================
 [tool.setuptools]
-packages = ["src"]
+packages = ["src", "src.agents"]
 include-package-data = true
 
 [tool.setuptools.package-data]

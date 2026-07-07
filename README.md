@@ -7,7 +7,7 @@ CodeAudit 是一个**高度自动化、具备专家级推理能力**的代码审
 ## 🌟 核心特性 (Core Features)
 
 *   **双轨并行审查 (Dual-Track Auditing)**
-    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~60 条 rule_id（34 个 yaml）**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、硬编码凭据等。
+    *   **技术轨道 (Bottom-Up)**: 通过 Semgrep 静态扫描器发现底层危险函数 (Sinks)，向上逆向追踪。覆盖 **~146 条 rule_id（55 个 yaml），跨 Java / Python / C / C++ 四语言**：注入类、反序列化、SSRF、XXE、加密、JWT、TLS、信息泄露、硬编码凭据、缓冲区溢出、格式化字符串等。
     *   **业务轨道 (Top-Down)**: 从 API 路由入口向下正向推演，专攻 IDOR（越权）、Privilege Escalation、Authentication Bypass、Open Redirect 等业务逻辑漏洞。
     *   **互不抢任务**：LogicAuditor 遇到技术类形态（SQL Injection / Path Traversal / XSS / SSRF / XXE / Unsafe Deserialization / Command Injection 等）强制返回 DEFENDED，让 Sink 路径处理。技术类、业务类各司其职。
 *   **CodeGraph 代码智能增强 (CodeGraph Integration)**
@@ -163,10 +163,10 @@ CodeAudit/
 │       ├── config_validator.yaml   # 配置静态分析（taint_required=false 专用）
 │       ├── cross_service_prefilter.yaml
 │       └── retry.yaml
-├── semgrep_rules/                  # Semgrep 规则集合（~60 条 rule_id / 35 yaml）
+├── semgrep_rules/                  # Semgrep 规则集合（~146 条 rule_id / 55 yaml，覆盖 Java/Python/C/C++）
 │   └── custom/
 │       ├── spring-api.yaml         # Spring API 路由提取（非漏洞，12 条 rule）
-│       #  走完整污点链 (taint_required: true)
+│       #  Java 走完整污点链 (taint_required: true)
 │       ├── sql-injection.yaml      # JDBC/JdbcTemplate/Hibernate/JPA/MyBatis 注解 + R2DBC + 链式 (5 rules)
 │       ├── mybatis-xml-sql-injection.yaml
 │       ├── command-injection.yaml  # Runtime/ProcessBuilder/Desktop/Commons Exec/JSch
@@ -187,7 +187,7 @@ CodeAudit/
 │       ├── xss.yaml                # PrintWriter/ServletOutputStream/Model.addAttribute/ResponseEntity.body
 │       ├── open-redirect.yaml
 │       ├── unvalidated-forward.yaml  # RequestDispatcher.forward/include
-│       # 无须污点链 (taint_required: false) — 走 fast path 到 ConfigValidator
+│       #  Java 无须污点链 (taint_required: false) — 走 fast path 到 ConfigValidator
 │       ├── weak-cryptography.yaml  # 弱算法/Mac/Signature/EC 短曲线/BC 弱密码/XOR 自定义
 │       ├── weak-random.yaml
 │       ├── insecure-crypto-config.yaml  # Static IV / Constant Salt / Insufficient Key Size (3 rules)
@@ -200,6 +200,43 @@ CodeAudit/
 │       ├── stack-trace-exposure.yaml
 │       ├── sensitive-data-in-log.yaml  # 关键字命中 + 容器对象启发式 (2 rules)
 │       └── sensitive-data-in-url.yaml
+│       #  Python 走完整污点链 (taint_required: true)
+│       ├── python-sql-injection.yaml      # DB-API cursor.execute / SQLAlchemy text/exec / 字符串拼接
+│       ├── python-command-injection.yaml  # os.system/popen + subprocess(shell=True) + pexpect
+│       ├── python-code-injection.yaml     # eval/exec/compile + importlib 动态导入
+│       ├── python-path-traversal.yaml     # open/os.* /shutil.* / pathlib + Zip Slip
+│       ├── python-ssrf.yaml               # requests/httpx/urllib/aiohttp
+│       ├── python-xxe.yaml                # xml.etree/lxml/sax/minidom + defusedxml 排除
+│       ├── python-unsafe-deserialization.yaml  # pickle/cPickle/yaml.load/marshal/jsonpickle
+│       ├── python-template-injection.yaml # Jinja2/Mako/Django SSTI
+│       ├── python-xss.yaml                # Markup/mark_safe/HttpResponse 裸写
+│       ├── python-open-redirect.yaml      # Flask/Django redirect / HttpResponseRedirect
+│       ├── python-ldap-injection.yaml     # python-ldap/ldap3 search_s filter
+│       ├── python-xpath-injection.yaml    # lxml xpath / ElementTree find
+│       ├── python-nosql-injection.yaml    # MongoDB $where/eval + Redis EVAL Lua
+│       #  Python 无须污点链 (taint_required: false)
+│       ├── python-weak-cryptography.yaml  # hashlib MD5/SHA1 + pycryptodome DES/RC4/Blowfish/ECB + 硬编码密钥
+│       ├── python-weak-random.yaml        # random.* (非 secrets/SystemRandom)
+│       ├── python-hardcoded-credentials.yaml  # password/secret/token 字面量赋值
+│       ├── python-insecure-temp-file.yaml # tempfile.mktemp + /tmp 固定路径
+│       ├── python-sensitive-data-in-log.yaml  # logging/print 含敏感关键字
+│       ├── python-stack-trace-exposure.yaml    # traceback.format_exc 返回响应
+│       #  Python 路由提取（非漏洞）
+│       ├── python-flask-api.yaml           # Flask @app.route / @app.get/post/put/delete
+│       ├── python-fastapi-api.yaml         # FastAPI @app.get/post + APIRouter
+│       └── python-django-api.yaml          # Django path/re_path + DRF @api_view
+│       #  C/C++ 走完整污点链 (taint_required: true)
+│       ├── cpp-command-injection.yaml     # system/popen/exec* + Windows CreateProcess
+│       ├── cpp-path-traversal.yaml        # fopen/open/stat/unlink/CreateFile + cpp17 filesystem
+│       ├── cpp-sql-injection.yaml         # mysql_query/PQexec/sqlite3_exec/ODBC/OCI
+│       ├── cpp-xxe.yaml                   # libxml2/pugixml/tinyxml
+│       #  C/C++ 无须污点链 (taint_required: false)
+│       ├── cpp-buffer-overflow.yaml       # strcpy/strcat/gets/sprintf/scanf 无边界
+│       ├── cpp-format-string.yaml         # printf/fprintf/sprintf/syslog 非字面量 fmt
+│       ├── cpp-weak-cryptography.yaml     # OpenSSL MD5/SHA1/DES/RC4/ECB + 硬编码密钥
+│       ├── cpp-hardcoded-credentials.yaml # std::string password = "..."
+│       ├── cpp-weak-random.yaml           # rand()/random()/srand()
+│       └── cpp-sensitive-data-in-log.yaml # printf/syslog/cout 含敏感关键字
 ├── skill/                          # Claude Code skill 形态（按角色独立分发）
 │   ├── reverse-tracer/             # 强制用 codegraph 读取代码
 │   ├── logic-auditor/

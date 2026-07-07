@@ -1,0 +1,34 @@
+rules:
+  - id: cpp-weak-random
+    message: |
+      🚨 Weak Random (CWE-330) Sink: rand() / random() 产生非密码学安全随机数。
+      C 标准库的 rand() / random() 基于线性同余或类似 PRNG，状态可预测，
+      禁止用于 token / 密码 / 会话 ID / CSRF / 加密 IV 生成。
+
+      该告警**无须污点链**（API 调用即漏洞），走 fast path 交给 BlueValidator 定性：
+      若用于 UI 动画 / 测试数据生成 / 非安全场景 → DEFENDED。
+
+      修复建议：
+      1. Linux: 用 getrandom() 或 /dev/urandom；
+      2. Windows: 用 BCryptGenRandom（取代已弃用的 RtlGenRandom）；
+      3. OpenSSL: RAND_bytes(buf, len)；
+      4. C++11: std::random_device 作种子（但仍不如 OS 熵源直接）。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-330: Use of Insufficiently Random Values"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Random"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/330.html
+    pattern-either:
+      - pattern: rand()
+      - pattern: random()
+      - pattern: srand($SEED)
+      - pattern: srandom($SEED)
+      - pattern: arc4random()  # 实际安全，但保留供 BlueValidator 上下文判定
+      # Windows
+      - pattern: rand_s(...)

@@ -1,0 +1,120 @@
+rules:
+  - id: python-sql-injection-dbapi
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: Python DB-API cursor.execute() 接收非字面量 SQL。
+      若 SQL 字符串通过 % / .format() / f-string 拼接用户输入，攻击者可注入
+      `' OR 1=1 --` 等 SQL 片段绕过鉴权、读写删任意数据。
+
+      修复建议：
+      1. 用参数化查询：cursor.execute("SELECT ... WHERE id = %s", (user_id,))
+         （psycopg2 用 %s、sqlite3 用 ?、MySQLdb 用 %s）；
+      2. 禁止用 % / .format() / f-string 拼接 SQL 字符串；
+      3. 动态表名/列名/排序字段用严格白名单校验，绝不直接拼接。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+        - https://owasp.org/www-community/attacks/SQL_Injection
+    patterns:
+      - pattern-either:
+          # cursor.execute / executemany / executescript
+          - pattern: $CUR.execute($SQL, ...)
+          - pattern: $CUR.executemany($SQL, ...)
+          - pattern: $CUR.executescript($SQL)
+      # 字面量 SQL + 参数化占位符不算注入（参数化查询是安全的）
+      - pattern-not: $CUR.execute("...", ...)
+      - pattern-not: $CUR.executemany("...", ...)
+      - pattern-not: $CUR.executescript("...")
+
+  - id: python-sql-injection-sqlalchemy-text
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: SQLAlchemy text() 接收非字面量 SQL。
+      text() 用于执行原生 SQL，若 SQL 字符串拼接了用户输入则构成注入。
+      注意：即使后续用 .bindparams() 绑定参数，只要 text() 的字符串本身被污染就有风险。
+
+      修复建议：
+      1. text("SELECT ... WHERE id = :id").bindparams(id=user_id) —— 字符串字面量 + 命名参数绑定；
+      2. 动态构造用 SQLAlchemy ORM / Core select() API，不要拼接字符串；
+      3. 禁止 text(f"...{user}...") 或 text("..." + user) 形态。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.text
+    patterns:
+      - pattern: sqlalchemy.text($SQL)
+      - pattern: text($SQL)
+      - pattern-not: sqlalchemy.text("...")
+      - pattern-not: text("...")
+
+  - id: python-sql-injection-sqlalchemy-executable
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: SQLAlchemy Engine/Session.execute() 接收非字面量 SQL。
+      若传入 text() 包装的动态拼接 SQL，或直接传字符串，构成注入。
+
+      修复建议：
+      1. session.execute(text("... WHERE id = :id"), {"id": uid}) —— 参数化；
+      2. 用 select(Model).where(Model.id == uid) ORM 风格；
+      3. 禁止 session.execute(text(f"...{user}..."))。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $ENG.execute($SQL, ...)
+          - pattern: $SESSION.execute($SQL, ...)
+      # 字面量 text() 包装 + 参数化是安全的
+      - pattern-not: $ENG.execute(text("..."), ...)
+      - pattern-not: $SESSION.execute(text("..."), ...)
+      - pattern-not: $ENG.execute("...", ...)
+      - pattern-not: $SESSION.execute("...", ...)
+
+  - id: python-sql-injection-string-format
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: SQL 语句通过 % / .format() / f-string 拼接构造。
+      这是 Python SQL 注入最常见的形态：把用户输入直接拼进 SQL 字符串再 execute。
+
+      常见 bug 模式：
+        sql = "SELECT * FROM user WHERE name = '%s'" % name       # 漏洞
+        sql = "SELECT * FROM user WHERE id = {}".format(uid)      # 漏洞
+        sql = f"SELECT * FROM user WHERE id = {uid}"              # 漏洞
+        cursor.execute(sql)
+
+      修复建议：用参数化占位符（%s / ? / :name），禁止字符串拼接构造 SQL。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          # % 格式化 + 赋值给 sql 变量
+          - pattern: $SQL = "..." % $X
+          - pattern: $SQL = "..." % ($X, ...)
+          # .format()
+          - pattern: $SQL = "...".format(...)
+          # f-string
+          - pattern: $SQL = f"..."
+      # 变量名含 sql 字样（缩小到 SQL 上下文，降低 FP）
+      - metavariable-regex:
+          metavariable: $SQL
+          regex: '(?i).*(sql|query|stmt|statement|q)_.*|.*(sql|query|stmt|statement)$'

@@ -1,0 +1,56 @@
+rules:
+  # ============================================================
+  # Django 路由提取规则（非漏洞，仅供 LogicAuditor 顶级入口扫描）。
+  # Django 用 urlpatterns + path()/re_path() 注册路由，handler 在 views.py 里定义。
+  # check_id 含 "api" 让下游 semgrep_scanner._parse_route_result 判定为路由。
+  # ============================================================
+
+  - id: python-django-api-route-path
+    message: "发现 API (Django path) -> 路由: $RULE, 视图: $VIEW"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: path($RULE, $VIEW, ...)
+      - pattern: django.urls.path($RULE, $VIEW, ...)
+
+  - id: python-django-api-route-re-path
+    message: "发现 API (Django re_path) -> 路由: $RULE, 视图: $VIEW"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: re_path($RULE, $VIEW, ...)
+      - pattern: django.urls.re_path($RULE, $VIEW, ...)
+      - pattern: url($RULE, $VIEW, ...)
+      - pattern: django.conf.urls.url($RULE, $VIEW, ...)
+
+  - id: python-django-api-route-include
+    message: "发现 API (Django include) -> 子路由: $RULE, include: $TARGET"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: path($RULE, include($TARGET), ...)
+      - pattern: django.urls.path($RULE, include($TARGET), ...)
+
+  # Django class-based views：as_view() 调用
+  - id: python-django-api-route-classbased
+    message: "发现 API (Django class-based view) -> 路由: $RULE, 类视图: $VIEW"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: path($RULE, $VIEW.as_view(), ...)
+      - pattern: re_path($RULE, $VIEW.as_view(), ...)
+
+  # Django REST framework @api_view 装饰器
+  - id: python-django-api-route-drf-apiview
+    message: "发现 API (Django REST @api_view) -> 方法: $METHODS, 函数: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @api_view($METHODS)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @rest_framework.decorators.api_view($METHODS)
+          def $FUNC(...):
+              ...

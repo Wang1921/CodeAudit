@@ -1,0 +1,42 @@
+rules:
+  - id: python-sensitive-data-in-log
+    message: |
+      🚨 Sensitive Data in Log (CWE-532) Sink: 日志中输出敏感信息。
+      日志参数里直接出现敏感变量（password / secret / token / api_key / credit_card），
+      凭证会落入日志文件 / 集中化日志系统（ELK / Loki），放大泄露面。
+
+      该告警**无须污点链**，走 fast path 交给 ConfigValidator 结合上下文定性：
+      - 若变量是 .size() / .length() 等元数据访问 → DEFENDED
+      - 若变量是 get_id() / get_status() 等非敏感 getter → DEFENDED
+
+      修复建议：
+      1. 日志中脱敏：logger.info("user=%s", mask(user.password))；
+      2. 敏感字段在 __repr__ / __str__ 中标记 redacted；
+      3. logging 配置过滤器自动过滤 password=xxx 形态。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in Log"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+    patterns:
+      - pattern-either:
+          - pattern: logging.debug($X, ...)
+          - pattern: logging.info($X, ...)
+          - pattern: logging.warning($X, ...)
+          - pattern: logging.error($X, ...)
+          - pattern: logging.critical($X, ...)
+          - pattern: $LOGGER.debug($X, ...)
+          - pattern: $LOGGER.info($X, ...)
+          - pattern: $LOGGER.warning($X, ...)
+          - pattern: $LOGGER.error($X, ...)
+          - pattern: $LOGGER.critical($X, ...)
+      # message 字符串里出现敏感关键字
+      - metavariable-regex:
+          metavariable: $X
+          regex: '(?i).*(["][^"]*(password|passwd|pwd|secret|token|api_?key|access_?key|private_?key|credit_?card|cvv|ssn|social_?security)[^"]*["]).*'

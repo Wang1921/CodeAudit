@@ -1,0 +1,111 @@
+rules:
+  - id: python-weak-cryptography-hashlib
+    message: |
+      🚨 Weak Cryptography (CWE-327 / CWE-328) Sink: hashlib 使用弱哈希算法。
+      MD5 / SHA-1 存在碰撞攻击，禁止用于签名、数据完整性、口令哈希。
+
+      该告警**无须污点链**（算法由代码本地决定），走 fast path 交给 BlueValidator 做静态定性。
+
+      修复建议：
+      1. 哈希（非口令）：SHA-256 / SHA-3 / hashlib.blake2b；
+      2. 口令哈希：bcrypt / argon2-cffi / hashlib.pbkdf2_hmac()；
+      3. HMAC：hmac.new(key, msg, hashlib.sha256)。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+        - "CWE-328: Use of Weak Hash"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/327.html
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.new("md5", ...)
+          - pattern: hashlib.new("MD5", ...)
+          - pattern: hashlib.sha1(...)
+          - pattern: hashlib.new("sha1", ...)
+          - pattern: hashlib.new("SHA1", ...)
+          - pattern: hashlib.new("md4", ...)
+          - pattern: hashlib.new("MD4", ...)
+
+  - id: python-weak-cryptography-pycrypto
+    message: |
+      🚨 Weak Cryptography (CWE-327) Sink: pycryptodome 使用弱算法。
+      DES / ARC2 / ARC4 / Blowfish 已被破解或不再安全。
+
+      该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。
+
+      修复建议：对称加密用 AES-GCM（Crypto.Cipher.AES mode=GCM）。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+    patterns:
+      - pattern-either:
+          - pattern: Crypto.Cipher.DES.new(...)
+          - pattern: Crypto.Cipher.DES2.new(...)
+          - pattern: Crypto.Cipher.DES3.new(..., mode=..., ...)
+          - pattern: Crypto.Cipher.ARC2.new(...)
+          - pattern: Crypto.Cipher.ARC4.new(...)
+          - pattern: Crypto.Cipher.Blowfish.new(...)
+          - pattern: Crypto.Cipher.PKCS1_v1_5.new(...)
+          # 旧 pycrypto 包名
+          - pattern: Crypto.Hash.MD5.new(...)
+          - pattern: Crypto.Hash.SHA.new(...)
+          - pattern: Crypto.Hash.MD2.new(...)
+          - pattern: Crypto.Hash.MD4.new(...)
+      # DES3 在某些遗留场景合法，但默认仍判高危，由 BlueValidator 结合上下文定性
+
+  - id: python-weak-cryptography-pycrypto-ecb
+    message: |
+      🚨 Weak Cryptography (CWE-327) Sink: AES ECB 模式不具备语义安全。
+      相同明文块 → 相同密文块（ECB penguin），泄露明文模式。
+
+      修复建议：用 AES-GCM 或 AES-CBC + 随机 IV。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+    patterns:
+      - pattern: Crypto.Cipher.AES.new(..., mode=Crypto.Cipher.AES.MODE_ECB, ...)
+      - pattern: Crypto.Cipher.AES.new(..., mode=AES.MODE_ECB, ...)
+
+  - id: python-weak-cryptography-hardcoded-key
+    message: |
+      🚨 Weak Cryptography (CWE-321) Sink: 硬编码密钥用于加密。
+      密钥写死在源码里，源码泄露即等价于密钥泄露。
+
+      该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。
+
+      修复建议：密钥经环境变量 / 密钥管理服务（Vault / KMS）下发。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-321: Use of Hard-coded Cryptographic Key"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Weak Cryptography"
+      confidence: HIGH
+      taint_required: false
+    patterns:
+      - pattern-either:
+          - pattern: $CIPHER.new($KEY, ...)
+          - pattern: hashlib.pbkdf2_hmac($ALG, $PASS, $SALT, ...)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: '^"[^"]{6,}"$'

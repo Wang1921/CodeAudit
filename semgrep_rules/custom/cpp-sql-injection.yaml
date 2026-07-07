@@ -1,0 +1,58 @@
+rules:
+  - id: cpp-sql-injection-string-concat
+    message: |
+      🚨 SQL Injection (CWE-89) Sink: SQL 语句通过字符串拼接构造。
+      C/C++ 中没有 ORM，SQL 拼接是常见模式，用户输入拼入即构成注入。
+
+      常见 bug 模式：
+        char sql[256];
+        sprintf(sql, "SELECT * FROM users WHERE id='%s'", user_id);  // 漏洞
+        std::string sql = "SELECT * FROM u WHERE name='" + name + "'"; // 漏洞
+        mysql_query(conn, sql.c_str());                                  // 漏洞
+
+      涉及库：MySQL (mysql_query)、PostgreSQL (PQexec)、SQLite (sqlite3_exec)、
+      ODBC (SQLExecDirect)、Oracle (OCIStmtExecute)。
+
+      修复建议：
+      1. 用参数化查询（prepared statement）：
+         - MySQL: mysql_stmt_prepare + mysql_stmt_bind_param
+         - PostgreSQL: PQexecParams
+         - SQLite: sqlite3_prepare_v2 + sqlite3_bind_text
+      2. 禁止 sprintf / std::string 拼接 SQL；
+      3. C++ 用 sqlpp11 / SOCI 等 ORM 库。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "SQL Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+    patterns:
+      - pattern-either:
+          # MySQL
+          - pattern: mysql_query($CONN, $SQL)
+          - pattern: mysql_real_query($CONN, $SQL, $LEN)
+          # PostgreSQL
+          - pattern: PQexec($CONN, $SQL)
+          - pattern: PQexecParams($CONN, $SQL, ...)
+          # SQLite
+          - pattern: sqlite3_exec($DB, $SQL, ...)
+          - pattern: sqlite3_prepare_v2($DB, $SQL, ...)
+          - pattern: sqlite3_prepare($DB, $SQL, ...)
+          # ODBC
+          - pattern: SQLExecDirect($STMT, $SQL, $LEN)
+          - pattern: SQLExecDirectA($STMT, $SQL, $LEN)
+          - pattern: SQLExecDirectW($STMT, $SQL, $LEN)
+          # Oracle OCI
+          - pattern: OCIStmtExecute($SVC, $STMT, ...)
+      # 字面量 SQL 不算外部输入
+      - pattern-not: mysql_query($CONN, "...")
+      - pattern-not: mysql_real_query($CONN, "...", $LEN)
+      - pattern-not: PQexec($CONN, "...")
+      - pattern-not: sqlite3_exec($DB, "...", ...)
+      - pattern-not: sqlite3_prepare_v2($DB, "...", ...)
+      - pattern-not: sqlite3_prepare($DB, "...", ...)
+      - pattern-not: SQLExecDirect($STMT, "...", $LEN)

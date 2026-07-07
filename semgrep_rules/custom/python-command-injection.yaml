@@ -1,0 +1,99 @@
+rules:
+  - id: python-command-injection-os-system
+    message: |
+      🚨 Command Injection (CWE-78) Sink: os.system() 接收非字面量命令。
+      os.system() 通过 shell 执行命令，用户输入中的 `;` / `|` / `$(...)` / `` ` ``
+      元字符都会触发任意命令执行 (RCE)。
+
+      修复建议：
+      1. 改用 subprocess.run([...], shell=False) 传参数列表，不经 shell；
+      2. 必须经 shell 时用 shlex.quote() 转义参数（但仍不推荐）；
+      3. 对命令名/参数做严格白名单。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://owasp.org/www-community/attacks/Command_Injection
+    patterns:
+      - pattern-either:
+          - pattern: os.system($CMD)
+          - pattern: os.popen($CMD)
+          - pattern: os.popen2($CMD)
+          - pattern: os.popen3($CMD)
+          - pattern: os.popen4($CMD)
+      - pattern-not: os.system("...")
+      - pattern-not: os.popen("...")
+
+  - id: python-command-injection-subprocess-shell
+    message: |
+      🚨 Command Injection (CWE-78) Sink: subprocess 模块以 shell=True 执行非字面量命令。
+      shell=True 时命令经 /bin/sh -c 解释，用户输入中的 shell 元字符会触发 RCE。
+
+      常见 bug 模式：
+        subprocess.run("ls " + user_input, shell=True)        # 漏洞
+        subprocess.call(f"grep {kw} /etc/passwd", shell=True) # 漏洞
+        subprocess.getoutput(user_input)                       # 漏洞（内部 shell=True）
+
+      修复建议：
+      1. 用 shell=False + 参数列表：subprocess.run(["ls", user_input])；
+      2. 必须用 shell=True 时用 shlex.quote() 转义每个用户参数；
+      3. getoutput/getstatusoutput 内部恒 shell=True，禁止接收用户输入。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          # shell=True 的显式调用
+          - pattern: subprocess.run($CMD, ..., shell=True, ...)
+          - pattern: subprocess.call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_call($CMD, ..., shell=True, ...)
+          - pattern: subprocess.check_output($CMD, ..., shell=True, ...)
+          - pattern: subprocess.Popen($CMD, ..., shell=True, ...)
+          # getoutput / getstatusoutput 内部恒 shell=True
+          - pattern: subprocess.getoutput($CMD)
+          - pattern: subprocess.getstatusoutput($CMD)
+          # commands 模块（Python2 遗留，内部 shell=True）
+          - pattern: commands.getoutput($CMD)
+          - pattern: commands.getstatusoutput($CMD)
+      # 字面量命令不算外部输入（虽 shell=True 但无注入面）
+      - pattern-not: subprocess.run("...", ..., shell=True, ...)
+      - pattern-not: subprocess.call("...", ..., shell=True, ...)
+      - pattern-not: subprocess.check_call("...", ..., shell=True, ...)
+      - pattern-not: subprocess.check_output("...", ..., shell=True, ...)
+      - pattern-not: subprocess.Popen("...", ..., shell=True, ...)
+      - pattern-not: subprocess.getoutput("...")
+      - pattern-not: subprocess.getstatusoutput("...")
+
+  - id: python-command-injection-pexpect
+    message: |
+      🚨 Command Injection (CWE-78) Sink: pexpect / pty.spawn 接收非字面量命令。
+      这些接口内部经 shell 执行，用户输入的 shell 元字符会触发 RCE。
+
+      修复建议：用参数列表形式的接口，或对输入做 shlex.quote() 转义。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Command Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: pexpect.run($CMD)
+          - pattern: pexpect.spawn($CMD)
+          - pattern: pty.spawn($CMD)
+      - pattern-not: pexpect.run("...")
+      - pattern-not: pexpect.spawn("...")
+      - pattern-not: pty.spawn("...")

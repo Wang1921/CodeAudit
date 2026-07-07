@@ -3,9 +3,7 @@ Claude Agent SDK 实现
 
 使用 claude-agent-sdk 调用本地 Claude Code CLI
 """
-import json
 import logging
-import platform
 import time
 from typing import Any
 
@@ -22,10 +20,13 @@ from claude_agent_sdk import (
     ResultMessage,
 )
 
+from src.agents.base import BaseAgent, try_extract_json
+from src.agents.platform_utils import build_codegraph_mcp_config_for_claude_sdk, is_codegraph_available
+
 logger = logging.getLogger(__name__)
 
 
-class ClaudeAgent:
+class ClaudeAgent(BaseAgent):
     """使用 Claude Agent SDK 的 Agent"""
 
     def __init__(self, cwd: str):
@@ -43,44 +44,39 @@ class ClaudeAgent:
 
     def _build_options(self, allowed_tools: str, output_schema: dict | None) -> ClaudeAgentOptions:
         """构建 ClaudeAgentOptions"""
-        # CodeGraph MCP 工具列表
-        codegraph_tools = [
-            "mcp__codegraph__codegraph_explore",
-            "mcp__codegraph__codegraph_search",
-            "mcp__codegraph__codegraph_callers",
-            "mcp__codegraph__codegraph_callees",
-            "mcp__codegraph__codegraph_impact",
-            "mcp__codegraph__codegraph_node",
-            "mcp__codegraph__codegraph_files",
-            "mcp__codegraph__codegraph_status",
-        ]
-
         # 基础工具列表
         base_tools = ["read", "bash", "glob", "grep", "skill", "write"]
 
-        # CodeGraph MCP 配置 - 根据操作系统选择命令
-        if platform.system() == "Windows":
-            mcp_command = "cmd"
-            mcp_args = ["/c", "codegraph", "serve", "--mcp"]
-        else:
-            mcp_command = "codegraph"
-            mcp_args = ["serve", "--mcp"]
+        options_kwargs: dict[str, Any] = {
+            "tools": ['Read', 'Bash', 'Glob', 'Grep', 'Skill', 'Write'],
+            "skills": ['blue-validator', 'red-validator', 'logic-auditor',
+                       'reverse-tracer', 'config-validator'],
+            "setting_sources": ["user", "project"],
+            "cwd": self.cwd,
+            "permission_mode": "bypassPermissions",
+            "allowed_tools": list(base_tools),
+        }
 
-        options = ClaudeAgentOptions(
-            tools=['Read', 'Bash', 'Glob', 'Grep', 'Skill', 'Write'],
-            skills=['blue-validator', 'red-validator', 'logic-auditor', 'reverse-tracer', 'config-validator'],
-            setting_sources=["user", "project"],
-            cwd=self.cwd,
-            permission_mode="bypassPermissions",
-            # CodeGraph MCP 配置
-            mcp_servers={
-                "codegraph": {
-                    "command": mcp_command,
-                    "args": mcp_args,
-                }
-            },
-            allowed_tools=base_tools + codegraph_tools,
-        )
+        # CodeGraph MCP 配置（仅在 codegraph 可用时挂载）
+        if is_codegraph_available():
+            codegraph_tools = [
+                "mcp__codegraph__codegraph_explore",
+                "mcp__codegraph__codegraph_search",
+                "mcp__codegraph__codegraph_callers",
+                "mcp__codegraph__codegraph_callees",
+                "mcp__codegraph__codegraph_impact",
+                "mcp__codegraph__codegraph_node",
+                "mcp__codegraph__codegraph_files",
+                "mcp__codegraph__codegraph_status",
+            ]
+            options_kwargs["allowed_tools"] = list(base_tools) + codegraph_tools
+            options_kwargs["mcp_servers"] = {
+                "codegraph": build_codegraph_mcp_config_for_claude_sdk(),
+            }
+        else:
+            logger.info("codegraph 未安装，Claude 后端跳过 MCP 挂载")
+
+        options = ClaudeAgentOptions(**options_kwargs)
 
         if output_schema:
             options.output_format = {
@@ -95,11 +91,19 @@ class ClaudeAgent:
         prompt: str,
         allowed_tools: str = "read,grep,lsp,codesearch",
         output_schema: dict | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """
         执行 prompt，返回结果
 
         返回格式: {"response": str, "usage": dict, "_tokens": int, "structured_output": dict|None}
+
+        Args:
+            prompt: 提示词
+            allowed_tools: 允许的工具（Claude 后端会忽略此参数，使用内置工具集）
+            output_schema: 输出 JSON Schema
+            timeout: 单次调用超时（秒）。Claude 后端当前不支持 per-call 超时，
+                     由 SDK 默认行为控制；参数保留以兼容接口。
         """
         options = self._build_options(allowed_tools, output_schema)
 
@@ -247,33 +251,8 @@ class ClaudeAgent:
         }
 
     def _try_extract_json(self, text: str, schema: dict) -> dict | None:
-        """尝试从文本中提取 JSON"""
-        # 查找 JSON 块
-        start = text.find("```json")
-        if start == -1:
-            start = text.find("```")
-        if start != -1:
-            start = text.find("}", start) + 1
-            end = text.find("```", start)
-            if end != -1:
-                json_str = text[start:end].strip()
-                try:
-                    data = json.loads(json_str)
-                    # 验证 schema
-                    jsonschema.validate(data, schema)
-                    return data
-                except (json.JSONDecodeError, jsonschema.ValidationError):
-                    pass
-
-        # 直接尝试解析
-        try:
-            data = json.loads(text)
-            jsonschema.validate(data, schema)
-            return data
-        except (json.JSONDecodeError, jsonschema.ValidationError):
-            pass
-
-        return None
+        """尝试从文本中提取符合 schema 的 JSON（委托给 agents.base 公共工具）。"""
+        return try_extract_json(text, schema)
 
     def _format_messages_for_frontend(self, messages: list[Message]) -> list:
         """将消息格式化为前端可读的格式"""

@@ -1,0 +1,86 @@
+rules:
+  - id: python-template-injection-jinja2
+    message: |
+      🚨 Template Injection / SSTI (CWE-1336) Sink: Jinja2 渲染接收非字面量模板字符串。
+      render_template_string(user_input) / Template(user_input) 让用户控制模板，
+      攻击者可注入 `{{ ''.__class__.__mro__[1].__subclasses__() }}` 等 payload 达成 RCE。
+
+      常见 bug 模式：
+        render_template_string(request.args['tpl'])        # 漏洞（RCE）
+        Template(user_input).render(...)                   # 漏洞
+        jinja2.environment.Template(user_input)            # 漏洞
+
+      修复建议：
+      1. 模板字符串用字面量，用户数据作为上下文变量传入：
+         render_template_string("Hello {{ name }}", name=user_name)；
+      2. 永远不要把用户输入作为模板源码；
+      3. 启用 Jinja2 沙盒：SandboxedEnvironment（仍不推荐渲染用户模板）。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Template Injection"
+      confidence: HIGH
+      references:
+        - https://owasp.org/www-community/attacks/Server_Side_Template_Injection
+        - https://book.hacktricks.xyz/pentesting-web/ssti-server-side-template-injection
+    patterns:
+      - pattern-either:
+          - pattern: flask.render_template_string($TPL, ...)
+          - pattern: render_template_string($TPL, ...)
+          - pattern: jinja2.Template($TPL)
+          - pattern: jinja2.Environment(...).from_string($TPL)
+          - pattern: $ENV.from_string($TPL)
+          - pattern: $ENV.from_template($TPL)
+      - pattern-not: render_template_string("...", ...)
+      - pattern-not: flask.render_template_string("...", ...)
+      - pattern-not: jinja2.Template("...")
+      - pattern-not: $ENV.from_string("...")
+
+  - id: python-template-injection-mako
+    message: |
+      🚨 Template Injection / SSTI (CWE-1336) Sink: Mako 模板接收非字面量模板字符串。
+      Mako 默认可执行任意 Python 代码（<% %> 标签），用户控制模板即 RCE。
+
+      修复建议：模板字面量化，用户数据作为 context 传入。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Template Injection"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: mako.template.Template($TPL)
+          - pattern: mako.template.Template($TPL).render(...)
+          - pattern: mako.template.Template($TPL).render_context(...)
+          - pattern: mako.runtime.Template($TPL)
+          - pattern: mako.lookup.TemplateLookup(...).get_template($TPL)
+      - pattern-not: mako.template.Template("...")
+
+  - id: python-template-injection-django
+    message: |
+      🚨 Template Injection / SSTI (CWE-1336) Sink: Django Template 接收非字面量模板字符串。
+      Django 模板引擎本身较安全（沙盒），但 admin/自定义视图中若用
+      Template(user_input).render(ctx) 仍可能泄露敏感数据或触发有限代码执行。
+
+      修复建议：模板字符串字面量化，用户数据作为 context 传入。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Template Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: django.template.Template($TPL)
+          - pattern: django.template.engine.Engine(...).from_string($TPL)
+          - pattern: $ENGINE.from_string($TPL)
+      - pattern-not: django.template.Template("...")
+      - pattern-not: $ENGINE.from_string("...")

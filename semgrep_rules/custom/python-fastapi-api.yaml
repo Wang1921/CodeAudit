@@ -1,0 +1,117 @@
+rules:
+  # ============================================================
+  # FastAPI 路由提取规则（非漏洞，仅供 LogicAuditor 顶级入口扫描）。
+  # check_id 含 "api" 让下游 semgrep_scanner._parse_route_result 的
+  # `"api" in check_id.lower()` 判定为路由。
+  # ============================================================
+
+  - id: python-fastapi-api-route-get
+    message: "发现 API (FastAPI GET) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.get($RULE)
+          def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-get-async
+    message: "发现 API (FastAPI GET async) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.get($RULE)
+          async def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-post
+    message: "发现 API (FastAPI POST) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.post($RULE)
+          def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-post-async
+    message: "发现 API (FastAPI POST async) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.post($RULE)
+          async def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-put
+    message: "发现 API (FastAPI PUT) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.put($RULE)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @$APP.put($RULE)
+          async def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-delete
+    message: "发现 API (FastAPI DELETE) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.delete($RULE)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @$APP.delete($RULE)
+          async def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-patch
+    message: "发现 API (FastAPI PATCH) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$APP.patch($RULE)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @$APP.patch($RULE)
+          async def $FUNC(...):
+              ...
+
+  # APIRouter 装饰器（router.get / router.post ...）
+  - id: python-fastapi-api-route-router-get
+    message: "发现 API (FastAPI Router GET) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$ROUTER.get($RULE)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @$ROUTER.get($RULE)
+          async def $FUNC(...):
+              ...
+
+  - id: python-fastapi-api-route-router-post
+    message: "发现 API (FastAPI Router POST) -> 路由: $RULE, 函数名: $FUNC"
+    languages: [python]
+    severity: INFO
+    patterns:
+      - pattern: |
+          @$ROUTER.post($RULE)
+          def $FUNC(...):
+              ...
+      - pattern: |
+          @$ROUTER.post($RULE)
+          async def $FUNC(...):
+              ...

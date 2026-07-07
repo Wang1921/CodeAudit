@@ -1,0 +1,41 @@
+rules:
+  - id: cpp-sensitive-data-in-log
+    message: |
+      🚨 Sensitive Data in Log (CWE-532) Sink: 日志中输出敏感信息。
+      printf / syslog / std::cout 输出含 password / secret / token 的字符串，
+      凭证会落入日志文件 / syslog 集中系统，放大泄露面。
+
+      该告警**无须污点链**，走 fast path 交给 ConfigValidator 结合上下文定性。
+
+      修复建议：
+      1. 日志中脱敏：printf("user=%s\n", mask(password))；
+      2. 敏感字段在结构体中标记 redacted，自定义 print 不输出；
+      3. syslog 配置过滤器自动过滤 password=xxx 形态。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in Log"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/532.html
+    patterns:
+      - pattern-either:
+          - pattern: printf($FMT, ...)
+          - pattern: fprintf($STREAM, $FMT, ...)
+          - pattern: syslog($PRI, $FMT, ...)
+          - pattern: $LOG << $X
+          - pattern: std::cout << $X
+          - pattern: std::cerr << $X
+          - pattern: std::clog << $X
+          - pattern: $LOGGER->info($FMT, ...)
+          - pattern: $LOGGER->debug($FMT, ...)
+          - pattern: $LOGGER->warn($FMT, ...)
+          - pattern: $LOGGER->error($FMT, ...)
+      # fmt 字符串里出现敏感关键字
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: '(?i).*(["][^"]*(password|passwd|pwd|secret|token|api_?key|access_?key|private_?key|credit_?card|cvv|ssn)[^"]*["]).*'

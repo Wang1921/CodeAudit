@@ -1,0 +1,44 @@
+rules:
+  - id: python-open-redirect
+    message: |
+      🚨 Open Redirect (CWE-601) Sink: HTTP 重定向目标来自用户输入。
+      Flask redirect() / Django HttpResponseRedirect / redirect() 接收用户可控 URL，
+      可被 `//attacker.com` / `https:attacker.com` 等形态劫持跳转到钓鱼站。
+
+      常见 bug 模式：
+        return redirect(request.args.get('next'))        # 漏洞
+        return HttpResponseRedirect(user_url)            # 漏洞
+
+      修复建议：
+      1. 仅允许相对路径重定向（url.startswith('/') 且不以 '//' 开头）；
+      2. 白名单允许的 host；
+      3. 禁止 scheme:// 形态的用户 URL 作为重定向目标。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Open Redirect"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: flask.redirect($URL)
+          - pattern: flask.redirect($URL, ...)
+          - pattern: redirect($URL)
+          - pattern: redirect($URL, ...)
+          - pattern: django.http.HttpResponseRedirect($URL)
+          - pattern: HttpResponseRedirect($URL)
+          - pattern: django.http.HttpResponsePermanentRedirect($URL)
+          - pattern: HttpResponsePermanentRedirect($URL)
+          - pattern: django.shortcuts.redirect($URL)
+          - pattern: werkzeug.utils.redirect($URL)
+          - pattern: tornado.web.RedirectHandler.get($X, $URL)
+      - pattern-not: flask.redirect("...")
+      - pattern-not: redirect("...")
+      - pattern-not: HttpResponseRedirect("...")
+      - pattern-not: HttpResponsePermanentRedirect("...")
+      - pattern-not: django.shortcuts.redirect("...")
+      - pattern-not: werkzeug.utils.redirect("...")

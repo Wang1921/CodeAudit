@@ -1,0 +1,116 @@
+rules:
+  - id: python-unsafe-deserialization-pickle
+    message: |
+      🚨 Unsafe Deserialization (CWE-502) Sink: pickle / cPickle 反序列化不可信数据。
+      pickle.loads() 在反序列化时可执行任意代码（__reduce__ 魔术方法），
+      接收用户输入的 pickle payload 等同 RCE。
+
+      常见 bug 模式：
+        pickle.loads(request.body)            # 漏洞（RCE）
+        pickle.load(user_supplied_file)       # 漏洞
+        cPickle.loads(cookie_value)           # 漏洞
+
+      修复建议：
+      1. 禁止 pickle 反序列化用户可控数据；
+      2. 改用 JSON / msgpack（无代码执行语义）；
+      3. 必须用 pickle 时，用 hmac 签名校验数据完整性 + 限定可信来源。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: HIGH
+      references:
+        - https://docs.python.org/3/library/pickle.html#module-pickle
+        - https://cwe.mitre.org/data/definitions/502.html
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load($X)
+          - pattern: pickle.loads($X)
+          - pattern: pickle.Unpickler($X).load()
+          - pattern: cPickle.load($X)
+          - pattern: cPickle.loads($X)
+          - pattern: _pickle.load($X)
+          - pattern: _pickle.loads($X)
+
+  - id: python-unsafe-deserialization-yaml
+    message: |
+      🚨 Unsafe Deserialization (CWE-502) Sink: yaml.load() 未指定 SafeLoader。
+      PyYAML 的 yaml.load() 默认使用 FullLoader（Python 3.7+）或 unsafe loader，
+      可构造 `!!python/object/apply:os.system [...]` 等 tag 执行任意代码。
+
+      常见 bug 模式：
+        yaml.load(user_input)                       # 漏洞（默认 unsafe / FullLoader 可 RCE）
+        yaml.load(user_input, Loader=yaml.Loader)   # 漏洞（Loader 不安全）
+        yaml.unsafe_load(user_input)                # 漏洞（显式 unsafe）
+
+      修复建议：
+      1. 永远用 yaml.safe_load() 或 yaml.load(..., Loader=yaml.SafeLoader)；
+      2. 禁止 yaml.unsafe_load / yaml.full_load 接收用户输入；
+      3. ruamel.yaml 的 YAML(typ='safe') 同理。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: HIGH
+      references:
+        - https://github.com/yaml/pyyaml/wiki/PyYAML-yaml.load(input)-Deprecation
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($X)
+          - pattern: yaml.load($X, Loader=yaml.Loader)
+          - pattern: yaml.load($X, Loader=yaml.FullLoader)
+          - pattern: yaml.load($X, Loader=yaml.UnsafeLoader)
+          - pattern: yaml.unsafe_load($X)
+          - pattern: yaml.full_load($X)
+          - pattern: yaml.load_all($X)
+          - pattern: yaml.unsafe_load_all($X)
+          - pattern: yaml.full_load_all($X)
+      # 显式 SafeLoader 是安全的
+      - pattern-not: yaml.load($X, Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load($X, Loader=SafeLoader)
+      - pattern-not: yaml.safe_load($X)
+      - pattern-not: yaml.safe_load_all($X)
+      - pattern-not: yaml.load_all($X, Loader=yaml.SafeLoader)
+
+  - id: python-unsafe-deserialization-marshal-shelve
+    message: |
+      🚨 Unsafe Deserialization (CWE-502) Sink: marshal / shelve 反序列化不可信数据。
+      marshal.loads() 和 shelve（基于 pickle）都可执行任意代码。
+
+      修复建议：禁止用于不可信数据，改用 JSON。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: marshal.load($X)
+          - pattern: marshal.loads($X)
+          - pattern: shelve.open($X)
+
+  - id: python-unsafe-deserialization-jsonpickle
+    message: |
+      🚨 Unsafe Deserialization (CWE-502) Sink: jsonpickle.decode() 可执行任意代码。
+      jsonpickle 通过 __reduce__ 等机制支持 Python 对象反序列化，等同于 pickle 的 RCE 风险。
+
+      修复建议：禁止对不可信数据用 jsonpickle.decode，改用标准 json.loads。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      vuln_class: "Unsafe Deserialization"
+      confidence: HIGH
+    patterns:
+      - pattern: jsonpickle.decode($X)

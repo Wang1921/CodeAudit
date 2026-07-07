@@ -1,0 +1,53 @@
+rules:
+  - id: python-insecure-temp-file
+    message: |
+      🚨 Insecure Temp File (CWE-377) Sink: tempfile.mktemp 产生可预测文件名。
+      tempfile.mktemp() 返回文件名但不创建文件，攻击者可在 mktemp 返回与
+      程序实际 open 之间用 symlink 抢注该路径，导致写入任意文件（symlink attack）。
+
+      该告警**无须污点链**（API 调用即漏洞），走 fast path 交给 BlueValidator 定性。
+
+      修复建议：
+      1. tempfile.mkstemp() —— 原子创建 + O_EXCL，返回 fd + path；
+      2. tempfile.NamedTemporaryFile() —— 默认 delete=True，自动清理；
+      3. 禁止 tempfile.mktemp()，Python 3.x 已标 deprecated warning。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Temp File"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+        - https://docs.python.org/3/library/tempfile.html#tempfile.mktemp
+    patterns:
+      - pattern-either:
+          - pattern: tempfile.mktemp(...)
+          - pattern: mktemp(...)
+
+  - id: python-insecure-temp-file-named-predictable
+    message: |
+      🚨 Insecure Temp File (CWE-377) Sink: 用固定文件名在 /tmp 下创建文件。
+      open("/tmp/myapp_cache") 等固定路径在共享主机上可被其他用户抢注（symlink attack）。
+
+      该告警**无须污点链**，走 fast path 交给 BlueValidator 定性。
+
+      修复建议：用 tempfile.mkstemp() 或 NamedTemporaryFile，避免固定路径。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Temp File"
+      confidence: MEDIUM
+      taint_required: false
+    patterns:
+      - pattern-either:
+          - pattern: open("/tmp/...", ...)
+          - pattern: open("/var/tmp/...", ...)
+          - pattern: os.open("/tmp/...", ...)
+          - pattern: os.open("/var/tmp/...", ...)

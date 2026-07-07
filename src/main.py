@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 
+from src.agent_factory import OpenCodeConfig, list_available_backends, validate_backend
 from src.engine import AuditEngine
 
 
@@ -26,7 +27,45 @@ async def main():
         default=None,
         help="Semgrep 规则路径，支持多个（逗号分隔）：例如 '/path/to/vuln_rules,/path/to/api_routes'，默认使用内置规则目录",
     )
+    parser.add_argument(
+        "--agent-backend",
+        choices=["claude", "opencode"],
+        default="claude",
+        help="LLM Agent 后端：claude (Claude Agent SDK 调本地 Claude Code CLI) 或 opencode (OpenCode HTTP server 子进程池)。默认 claude",
+    )
+    # OpenCode 后端专属参数
+    parser.add_argument(
+        "--opencode-model",
+        default="volcengine/glm-5.2",
+        help="OpenCode 后端的模型标识，格式 providerID/modelID。默认 volcengine/glm-5.2",
+    )
+    parser.add_argument(
+        "--opencode-host",
+        default="127.0.0.1",
+        help="OpenCode server 监听地址。默认 127.0.0.1",
+    )
+    parser.add_argument(
+        "--opencode-port-start",
+        type=int,
+        default=4096,
+        help="OpenCode server 端口分配起始值（每个微服务占一个端口递增）。默认 4096",
+    )
+    parser.add_argument(
+        "--opencode-timeout",
+        type=float,
+        default=300.0,
+        help="OpenCode Agent 单次请求默认超时（秒）。默认 300",
+    )
     args = parser.parse_args()
+
+    # 校验后端依赖
+    available = list_available_backends()
+    logging.info(f"当前环境可用后端: {available}")
+    ok, reason = validate_backend(args.agent_backend)
+    if not ok:
+        logging.error(f"后端 {args.agent_backend!r} 不可用: {reason}")
+        sys.exit(1)
+    logging.info(f"使用后端: {args.agent_backend} ({reason})")
 
     target_dir = os.path.abspath(args.target_dir)
     if not os.path.isdir(target_dir):
@@ -63,7 +102,23 @@ async def main():
             logging.warning(f"清理 reports 目录失败: {e}")
 
     logging.info(f"正在初始化项目代码审计引擎: {target_dir}")
-    engine = AuditEngine(target_dir, semgrep_rules=args.semgrep_rules)
+
+    # 按后端组装配置
+    opencode_config = None
+    if args.agent_backend == "opencode":
+        opencode_config = OpenCodeConfig(
+            model=args.opencode_model,
+            hostname=args.opencode_host,
+            port_start=args.opencode_port_start,
+            default_timeout=args.opencode_timeout,
+        )
+
+    engine = AuditEngine(
+        target_dir,
+        semgrep_rules=args.semgrep_rules,
+        backend=args.agent_backend,
+        opencode_config=opencode_config,
+    )
 
     try:
         await engine.run()

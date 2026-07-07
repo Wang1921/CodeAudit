@@ -1,0 +1,62 @@
+rules:
+  - id: python-xss-response-write
+    message: |
+      🚨 XSS (CWE-79) Sink: HTTP 响应直接输出非字面量内容未转义。
+      Flask/Django 中直接把用户输入写入响应体（Response/write/mark_safe）会触发反射/存储型 XSS。
+
+      常见 bug 模式：
+        return HttpResponse(user_input)                    # 漏洞
+        return flask.Response(request.args['x'])           # 漏洞
+        self.write(user_input)                             # 漏洞（Tornado）
+        mark_safe(user_input)                              # 漏洞（关闭 Django 转义）
+
+      修复建议：
+      1. 模板引擎默认转义（Django/Jinja2 默认 autoescape），把数据作为上下文变量传入；
+      2. mark_safe() 仅用于已校验/已转义内容，禁止对用户输入直接调用；
+      3. JSON API 返回 application/json，不要返回 HTML。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "XSS"
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/79.html
+    patterns:
+      - pattern-either:
+          - pattern: flask.Response($X, ...)
+          - pattern: flask.make_response($X, ...)
+          - pattern: django.http.HttpResponse($X, ...)
+          - pattern: django.http.HttpResponse($X)
+          - pattern: django.utils.safestring.mark_safe($X)
+          - pattern: mark_safe($X)
+          - pattern: $SELF.write($X)
+          - pattern: $RESPONSE.write($X)
+      # 字面量不算 XSS
+      - pattern-not: flask.Response("...", ...)
+      - pattern-not: flask.make_response("...", ...)
+      - pattern-not: django.http.HttpResponse("...", ...)
+      - pattern-not: django.http.HttpResponse("...")
+      - pattern-not: mark_safe("...")
+      - pattern-not: $SELF.write("...")
+
+  - id: python-xss-flask-render-raw
+    message: |
+      🚨 XSS (CWE-79) Sink: Flask render_template_string 模板里直接输出未转义变量。
+      Jinja2 默认 autoescape，但用 |safe 过滤器或 {% autoescape false %} 会关闭转义。
+
+      修复建议：保持默认 autoescape，不要对用户输入加 |safe。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "XSS"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: render_template_string("...{{ $X | safe }}...")
+          - pattern: render_template_string("...{% autoescape false %}...")

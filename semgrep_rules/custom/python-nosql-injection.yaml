@@ -1,0 +1,75 @@
+rules:
+  - id: python-nosql-injection-pymongo-where
+    message: |
+      🚨 NoSQL Injection (CWE-943) Sink: MongoDB $where 接收非字面量 JavaScript。
+      PyMongo 的 $where 字段允许在 server 端执行 JS，拼接用户输入可 RCE 或 DoS。
+
+      常见 bug 模式：
+        db.users.find({"$where": f"this.name == '{user}'"})    # 漏洞
+        db.col.find({"$where": user_input})                    # 漏洞
+
+      修复建议：
+      1. 禁止 $where 接收用户输入；
+      2. 用结构化查询操作符 $eq / $in / $regex；
+      3. 必须用 $where 时，参数必须字面量。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "NoSQL Injection"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/943.html
+        - https://docs.mongodb.com/manual/reference/operator/query/where/
+    patterns:
+      - pattern-either:
+          - pattern: '$DB.find({"$where": $EXPR}, ...)'
+          - pattern: '$DB.find_one({"$where": $EXPR}, ...)'
+          - pattern: '$DB.find({"$where": $EXPR})'
+          - pattern: '$DB.aggregate([{"$match": {"$where": $EXPR}}], ...)'
+      - pattern-not: '$DB.find({"$where": "..."}, ...)'
+      - pattern-not: '$DB.find_one({"$where": "..."}, ...)'
+
+  - id: python-nosql-injection-pymongo-eval
+    message: |
+      🚨 NoSQL Injection (CWE-943) Sink: MongoDB db.eval() 执行非字面量 JS。
+      db.eval() 在服务端执行任意 JS，拼接用户输入即 RCE 等价物。
+
+      修复建议：禁止 eval 接收用户输入，用聚合管道替代。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "NoSQL Injection"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: $DB.eval($CODE, ...)
+          - pattern: '$DB.command("$eval", $CODE, ...)'
+          - pattern: '$DB.command("eval", $CODE, ...)'
+      - pattern-not: $DB.eval("...", ...)
+
+  - id: python-nosql-injection-redis-lua
+    message: |
+      🚨 NoSQL Injection (CWE-943) Sink: Redis EVAL 执行非字面量 Lua 脚本。
+      redis-py 的 eval() 接收拼接的 Lua 代码可执行任意服务端逻辑。
+
+      修复建议：Lua 脚本字面量化，用户数据通过 KEYS/ARGV 传入。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "NoSQL Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $R.eval($SCRIPT, ...)
+          - pattern: $R.register_script($SCRIPT)
+      - pattern-not: $R.eval("...", ...)
+      - pattern-not: $R.register_script("...")

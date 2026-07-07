@@ -1,0 +1,72 @@
+rules:
+  - id: cpp-xxe-libxml2
+    message: |
+      🚨 XXE (CWE-611) Sink: libxml2 解析 XML 未禁用外部实体。
+      libxml2 的 xmlReadFile / xmlReadMemory 默认解析外部实体，
+      攻击者可通过 `<!ENTITY xxe SYSTEM "file:///etc/passwd">` 读取任意文件、SSRF。
+
+      常见 bug 模式：
+        xmlDocPtr doc = xmlReadFile(user_file, NULL, 0);     // 漏洞
+        xmlDocPtr doc = xmlReadMemory(user_xml, len,         // 漏洞
+                                       "noname.xml", NULL, 0);
+
+      修复建议：
+      1. 传入 XML_PARSE_NOENT 选项时仍需配合 XML_PARSE_NONET / XML_PARSE_DTDLOAD 关闭；
+      2. 用 xmlCtxtReadFile(ctxt, ..., opts) 配合 XML_PARSE_NOENT=0；
+      3. 最佳实践：xmlSAXDefaultExternalEntityLoader = 自定义 loader 拒绝外部实体；
+      4. 优先用 schema 验证 + 禁用 DTD。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: MEDIUM
+      references:
+        - http://xmlsoft.org/xmlreader.html#Validation
+    patterns:
+      - pattern-either:
+          - pattern: xmlReadFile($URL, $ENC, $OPTS)
+          - pattern: xmlReadMemory($BUF, $SIZE, $URL, $ENC, $OPTS)
+          - pattern: xmlCtxtReadFile($CTX, $URL, $ENC, $OPTS)
+          - pattern: xmlCtxtReadMemory($CTX, $BUF, $SIZE, $URL, $ENC, $OPTS)
+          - pattern: xmlSAXParseFile($SAX, $URL, $RECOVERY)
+          - pattern: xmlSAXParseMemory($SAX, $BUF, $SIZE, $RECOVERY)
+          - pattern: xmlParseFile($URL)
+          - pattern: xmlParseMemory($BUF, $SIZE)
+          - pattern: xmlParseDoc($CUR)
+      # 显式禁用实体的安全调用排除（XML_PARSE_NOENT=0 + XML_PARSE_DTDLOAD=0）
+      # semgrep 无法精确匹配位运算组合，这里仍报，由 BlueValidator 结合上下文定性
+
+  - id: cpp-xxe-pugixml-tinyxml
+    message: |
+      🚨 XXE (CWE-611) Sink: pugixml / tinyxml 解析 XML 默认行为可能解析外部实体。
+      pugixml 默认不解析 DTD/外部实体（相对安全），但若显式开启 parse_full /
+      parse_dtd 标志仍可被利用。tinyxml2 默认安全但需确认 ProcessEntities 设置。
+
+      修复建议：
+      1. pugixml: 不使用 parse_full / parse_dtd 标志；
+      2. tinyxml2: doc.SetProcessEntities(false)；
+      3. 优先用 schema 验证。
+    severity: WARNING
+    languages: [cpp]
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "XXE"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $DOC.load_file($PATH, $OPTS)
+          - pattern: $DOC.load_file($PATH)
+          - pattern: $DOC.load($BUF, $SIZE, $OPTS)
+          - pattern: $DOC.load($BUF, $SIZE)
+          - pattern: $DOC.Parse($BUF, $SIZE)
+          - pattern: $DOC.Parse($BUF)
+          - pattern: $DOC.LoadFile($PATH)
+      # 字面量路径相对安全
+      - pattern-not: $DOC.load_file("...", $OPTS)
+      - pattern-not: $DOC.load_file("...")
+      - pattern-not: $DOC.LoadFile("...")

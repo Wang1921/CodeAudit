@@ -1,0 +1,58 @@
+rules:
+  - id: cpp-format-string-printf
+    message: |
+      🚨 Format String (CWE-134) Sink: printf 系列接收非字面量格式字符串。
+      若格式字符串来自用户输入，攻击者可注入 %s / %x / %n 读取栈内存
+      或写入任意地址（%n 写入已格式化的字符数），达成信息泄露或 RCE。
+
+      常见 bug 模式：
+        printf(user_input);                     // 漏洞
+        fprintf(stderr, user_msg);              // 漏洞
+        sprintf(buf, user_fmt, arg);            // 漏洞
+        syslog(LOG_INFO, user_msg);             // 漏洞
+
+      修复建议：
+      1. 格式字符串必须是字面量：printf("%s", user_input)；
+      2. 编译期开启 -Wformat-security（GCC/Clang）拒绝非字面量 fmt；
+      3. C++ 用 std::cout / std::format 替代 printf。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-134: Use of Externally-Controlled Format String"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Format String"
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/134.html
+    patterns:
+      - pattern-either:
+          - pattern: printf($FMT)
+          - pattern: printf($FMT, ...)
+          - pattern: fprintf($STREAM, $FMT)
+          - pattern: fprintf($STREAM, $FMT, ...)
+          - pattern: sprintf($BUF, $FMT)
+          - pattern: sprintf($BUF, $FMT, ...)
+          - pattern: snprintf($BUF, $SIZE, $FMT)
+          - pattern: snprintf($BUF, $SIZE, $FMT, ...)
+          - pattern: vprintf($FMT, $ARGS)
+          - pattern: vfprintf($STREAM, $FMT, $ARGS)
+          - pattern: vsprintf($BUF, $FMT, $ARGS)
+          - pattern: vsnprintf($BUF, $SIZE, $FMT, $ARGS)
+          - pattern: syslog($PRI, $FMT)
+          - pattern: syslog($PRI, $FMT, ...)
+          - pattern: err($STATUS, $FMT, ...)
+          - pattern: errx($STATUS, $FMT, ...)
+          - pattern: warn($FMT, ...)
+          - pattern: warnx($FMT, ...)
+      # 字面量格式字符串不算漏洞
+      - pattern-not: printf("...")
+      - pattern-not: printf("...", ...)
+      - pattern-not: fprintf($STREAM, "...")
+      - pattern-not: fprintf($STREAM, "...", ...)
+      - pattern-not: sprintf($BUF, "...")
+      - pattern-not: sprintf($BUF, "...", ...)
+      - pattern-not: snprintf($BUF, $SIZE, "...")
+      - pattern-not: snprintf($BUF, $SIZE, "...", ...)
+      - pattern-not: syslog($PRI, "...")
+      - pattern-not: syslog($PRI, "...", ...)
