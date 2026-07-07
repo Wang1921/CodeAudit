@@ -1,0 +1,62 @@
+rules:
+  # --------- 显式 secure=False ---------
+  - id: python-insecure-cookie-explicit-false
+    message: |
+      🚨 Insecure Cookie (CWE-614 / CWE-1004) Sink: Cookie 显式关闭安全属性。
+
+      - `secure=False` 让 Cookie 在 HTTP 明文信道传输，中间人可嗅探；
+      - `httponly=False` 让 JavaScript 可读 Cookie，XSS 能直接窃取会话。
+
+      修复建议：
+      1. 敏感 Cookie（session、token、CSRF）必须 `secure=True` 且 `httponly=True`；
+      2. Flask 全局设 `SESSION_COOKIE_SECURE=True` / `SESSION_COOKIE_HTTPONLY=True`；
+      3. Django 全局设 `SESSION_COOKIE_SECURE=True` / `CSRF_COOKIE_SECURE=True`；
+      4. 再加 `samesite='Strict'` 或 `'Lax'` 防 CSRF；
+      5. 生产环境 HTTPS 强制启用（HSTS + 301 跳转）。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
+        - "CWE-1004: Sensitive Cookie Without 'HttpOnly' Flag"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Cookie"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/614.html
+        - https://owasp.org/www-community/controls/SecureCookieAttribute
+    pattern-either:
+      - pattern: $RESP.set_cookie(..., secure=False)
+      - pattern: $RESP.set_cookie(..., httponly=False)
+      - pattern: $RESP.set_cookie(..., secure=False, ...)
+      - pattern: $RESP.set_cookie(..., httponly=False, ...)
+
+  # --------- 缺失 secure 参数（WARNING） ---------
+  - id: python-insecure-cookie-missing-secure
+    message: |
+      🚨 Insecure Cookie (CWE-614) Sink: `set_cookie()` 调用未指定 `secure=True`。
+
+      Flask/Django 默认 `secure=False`，下发的 Cookie 可被中间人嗅探。
+      会话相关 Cookie 必须显式 `secure=True`。
+
+      修复建议：
+      1. `set_cookie(key, value, secure=True, httponly=True, samesite='Lax')`；
+      2. Flask 全局 `SESSION_COOKIE_SECURE=True`；
+      3. Django 全局 `SESSION_COOKIE_SECURE=True` / `CSRF_COOKIE_SECURE=True`；
+      4. 非敏感 Cookie（前端 UI 偏好）可放宽，但 session/auth cookie 必须严格。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Cookie"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/614.html
+    patterns:
+      - pattern: $RESP.set_cookie(...)
+      - pattern-not: $RESP.set_cookie(..., secure=True, ...)
+      - pattern-not: $RESP.set_cookie(..., secure=True)

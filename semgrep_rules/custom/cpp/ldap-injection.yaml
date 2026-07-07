@@ -1,0 +1,33 @@
+rules:
+  - id: cpp-ldap-injection
+    message: |
+      🚨 LDAP Injection (CWE-90) Sink: OpenLDAP 查询接口接收非字面量 filter。
+
+      若 filter 拼接了用户输入（如 `(&(uid=` + user + `)(pass=` + pass + `))`），
+      攻击者可注入 `*)(uid=*` 等通配符绕过鉴权或枚举账户。
+
+      常见 bug 模式：
+        char filter[256];
+        snprintf(filter, sizeof(filter), "(uid=%s)", user_input);
+        ldap_search_ext_s(ld, base, scope, filter, ...);
+
+      修复建议：
+      1. 对用户输入做 LDAP filter 转义（`\*` `\(` `\)` `\\` 等）；
+      2. 用 `ldap_create_filter()` 等库函数构造 filter；
+      3. DN / filter 字段用白名单校验（仅字母数字）。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "LDAP Injection"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    pattern-either:
+      - pattern: ldap_search_ext_s($LD, $BASE, $SCOPE, $FILTER, ...)
+      - pattern: ldap_search_s($LD, $BASE, $SCOPE, $FILTER, ...)
+      - pattern: ldap_search_ext($LD, $BASE, $SCOPE, $FILTER, ...)
+      - pattern: ldap_search($LD, $BASE, $SCOPE, $FILTER, ...)

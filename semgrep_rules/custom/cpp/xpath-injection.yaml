@@ -1,0 +1,33 @@
+rules:
+  - id: cpp-xpath-injection
+    message: |
+      🚨 XPath Injection (CWE-643) Sink: libxml2 XPath 查询接收非字面量表达式。
+
+      若表达式拼接了用户输入（如 `"//user[name='" + name + "']"`），
+      攻击者可注入 `' or '1'='1` 绕过鉴权或枚举 XML 数据。
+
+      常见 bug 模式：
+        char expr[256];
+        snprintf(expr, sizeof(expr), "//user[name='%s']", user_input);
+        xmlXPathEvalExpression(xpath_ctx, (const xmlChar*)expr);
+
+      修复建议：
+      1. 对用户输入做 XPath 转义（单引号 `'` → `&apos;` 等）；
+      2. 用参数化 XPath 查询（libxml2 `xmlXPathCompiledEval` + 变量绑定）；
+      3. 输入字段用白名单校验。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-643: Improper Neutralization of Data within XPath Expressions"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "XPath Injection"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-either:
+      - pattern: xmlXPathEvalExpression($CTX, $EXPR)
+      - pattern: xmlXPathCompile($EXPR)
+      - pattern: xmlXPathCompileExpr($EXPR)
+      - pattern: xmlXPathCtxtCompile($CTX, $EXPR)

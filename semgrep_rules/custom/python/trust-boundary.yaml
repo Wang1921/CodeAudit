@@ -1,0 +1,39 @@
+rules:
+  - id: python-trust-boundary-session-assign
+    message: |
+      🚨 Trust Boundary Violation (CWE-501) Sink: 外部输入直接写入 session。
+
+      session 是服务端信任边界内的状态容器。把未校验的外部输入（query / form / JSON body）
+      直接 `session[key] = request.args[key]`，等于让攻击者控制服务端信任数据：
+      - 写 `session['role'] = request.args['role']` → 提权；
+      - 写 `session['user_id'] = request.args['uid']` → 越权；
+      - 写 `session['is_admin'] = ...` → 后台绕过。
+
+      修复建议：
+      1. session 只存服务端权威计算的结果（登录后从 DB 查出的 role / uid），
+         绝不存 request 原文；
+      2. 必须存外部输入时先做严格白名单校验；
+      3. Flask-Login / Django auth 的 session 写入点由框架管，别自己散写。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-501: Trust Boundary Violation"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Trust Boundary Violation"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/501.html
+    pattern-either:
+      - pattern: session[$KEY] = $REQUEST.args[$K2]
+      - pattern: session[$KEY] = $REQUEST.form[$K2]
+      - pattern: session[$KEY] = $REQUEST.values[$K2]
+      - pattern: session[$KEY] = $REQUEST.json[$K2]
+      - pattern: session[$KEY] = $REQUEST.get_json()[$K2]
+      - pattern: session[$KEY] = $REQUEST.POST[$K2]
+      - pattern: session[$KEY] = $REQUEST.GET[$K2]
+      - pattern: $REQUEST.session[$KEY] = $REQUEST.POST[$K2]
+      - pattern: $REQUEST.session[$KEY] = $REQUEST.GET[$K2]
+      - pattern: $REQUEST.session[$KEY] = $REQUEST.body[$K2]
+      - pattern: $REQUEST.session[$KEY] = $REQUEST.data[$K2]

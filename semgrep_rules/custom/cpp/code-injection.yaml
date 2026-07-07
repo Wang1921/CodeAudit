@@ -1,0 +1,37 @@
+rules:
+  - id: cpp-code-injection-dlopen
+    message: |
+      🚨 Code Injection (CWE-94) Sink: `dlopen()` / `LoadLibrary()` 接收非字面量路径。
+
+      若路径来自外部输入，攻击者可加载任意共享库 / DLL，库的构造函数立即执行
+      （RCE）。这是 C/C++ 中"动态插件"机制最常见的安全问题。
+
+      常见 bug 模式：
+        void *handle = dlopen(user_input, RTLD_NOW);    // 漏洞
+        HMODULE h = LoadLibrary(user_input);             // 漏洞（Windows）
+
+      修复建议：
+      1. 插件路径用白名单校验（仅允许固定目录 + 已签名库）；
+      2. 绝不直接 dlopen 用户输入，先校验路径前缀；
+      3. Windows 用 `LoadLibraryEx` + `LOAD_LIBRARY_SEARCH_APPLICATION_DIR` 限制搜索路径；
+      4. 考虑用进程隔离 / 沙箱运行不可信插件。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-94: Improper Control of Generation of Code"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Code Injection"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/94.html
+    pattern-either:
+      - pattern: dlopen($PATH, ...)
+      - pattern: dlopen($PATH)
+      - pattern: LoadLibrary($PATH)
+      - pattern: LoadLibraryA($PATH)
+      - pattern: LoadLibraryW($PATH)
+      - pattern: LoadLibraryEx($PATH, ...)
+      - pattern: LoadLibraryExA($PATH, ...)
+      - pattern: LoadLibraryExW($PATH, ...)

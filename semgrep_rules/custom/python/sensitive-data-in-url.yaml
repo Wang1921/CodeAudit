@@ -1,0 +1,49 @@
+rules:
+  - id: python-sensitive-data-in-url
+    message: |
+      🚨 Sensitive Data in URL (CWE-598) Sink: URL / query string 被记录到日志。
+
+      URL 的 query 参数常含敏感信息（token、session、password、api_key），
+      记录到日志后会落入日志文件 / 日志集中系统（ELK / Loki），放大泄露面。
+      - 浏览器历史 / 代理缓存 / Referer header 都会保留 URL；
+      - HTTP access log 默认记录完整 URL；
+      - 日志聚合系统权限通常比数据库宽。
+
+      修复建议：
+      1. 敏感参数放 POST body / header（Authorization / Cookie），绝不放 URL query；
+      2. 日志里记录 URL 时脱敏（替换 token=xxx 为 token=***）；
+      3. Flask/Django 用 `request.path`（不含 query）替代 `request.url` / `request.full_path`；
+      4. 用结构化日志 + 字段级脱敏中间件。
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-598: Use of GET Request Method With Sensitive Query Strings"
+        - "CWE-532: Insertion of Sensitive Information into Log File"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      vuln_class: "Sensitive Data in URL"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/598.html
+        - https://owasp.org/www-community/vulnerabilities/Information_exposure_through_query_strings_in_url
+    pattern-either:
+      - pattern: logging.info(..., $REQUEST.url)
+      - pattern: logging.info(..., $REQUEST.full_path)
+      - pattern: logging.info(..., $REQUEST.query_string)
+      - pattern: logging.debug(..., $REQUEST.url)
+      - pattern: logging.debug(..., $REQUEST.full_path)
+      - pattern: logging.debug(..., $REQUEST.query_string)
+      - pattern: logging.warning(..., $REQUEST.url)
+      - pattern: logging.warning(..., $REQUEST.query_string)
+      - pattern: $LOGGER.info(..., $REQUEST.url)
+      - pattern: $LOGGER.info(..., $REQUEST.full_path)
+      - pattern: $LOGGER.info(..., $REQUEST.query_string)
+      - pattern: $LOGGER.debug(..., $REQUEST.url)
+      - pattern: $LOGGER.debug(..., $REQUEST.query_string)
+      - pattern: $LOGGER.warning(..., $REQUEST.url)
+      - pattern: $LOGGER.warning(..., $REQUEST.query_string)
+      - pattern: $LOGGER.info(f"...{$REQUEST.url}...")
+      - pattern: $LOGGER.debug(f"...{$REQUEST.url}...")
+      - pattern: $LOGGER.info(f"...{$REQUEST.query_string}...")
+      - pattern: $LOGGER.debug(f"...{$REQUEST.query_string}...")

@@ -1,0 +1,32 @@
+rules:
+  - id: cpp-ssrf-curl
+    message: |
+      🚨 SSRF (CWE-918) Sink: libcurl 使用非字面量 URL 发起出站请求。
+
+      若 URL 来自外部输入，攻击者可指向内网服务、云元数据接口
+      (http://169.254.169.254/、http://localhost:8500/、file:///etc/passwd)
+      读取敏感信息或攻击内部服务。
+
+      常见 bug 模式：
+        curl_easy_setopt(curl, CURLOPT_URL, user_url);
+        curl_easy_perform(curl);
+
+      修复建议：
+      1. URL 白名单校验：解析 host 后与允许列表比对；
+      2. 禁止内网 IP（10.x / 172.16-31.x / 169.254.x / 127.x）；
+      3. 禁用 file:// / gopher:// / dict:// 协议，只允许 http/https；
+      4. DNS 解析后再次校验 IP（防 DNS rebinding）。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery"
+      owasp: "A10:2021 - Server-Side Request Forgery"
+      vuln_class: "SSRF"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/918.html
+    pattern-either:
+      - pattern: curl_easy_setopt($C, CURLOPT_URL, $URL)
+      - pattern: curl_easy_setopt($C, CURLOPT_URL, ...)

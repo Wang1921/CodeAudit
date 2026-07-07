@@ -1,0 +1,62 @@
+rules:
+  # ---------------- tmpnam / mktemp ----------------
+  - id: cpp-insecure-temp-file-tmpnam
+    message: |
+      🚨 Insecure Temp File (CWE-377) Sink: `tmpnam()` / `mktemp()` 生成可预测临时文件名。
+
+      `tmpnam()` / `mktemp()` 只保证文件名"当前不存在"，不保证原子创建。
+      攻击者可在调用与 `open()` 之间抢建同名文件（symlink 攻击），实现：
+      - 覆盖任意文件（/etc/passwd、配置）；
+      - 读取应用写入的敏感数据；
+      - 拒绝服务（占满磁盘）。
+
+      修复建议：
+      1. 用 `mkstemp()` / `mkostemp()`（POSIX，原子创建 + 返回 fd）；
+      2. Windows 用 `GetTempFileName()` + `CREATE_NEW` 标志；
+      3. C++17 用 `std::filesystem::temp_directory_path()` + 随机文件名 + `O_EXCL`；
+      4. 绝不用 `tmpnam()` / `mktemp()` / `tempnam()`。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Temp File"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+    pattern-either:
+      - pattern: tmpnam(...)
+      - pattern: tmpnam_r(...)
+      - pattern: mktemp(...)
+      - pattern: tempnam(...)
+
+  # ---------------- 硬编码临时文件路径 ----------------
+  - id: cpp-insecure-temp-file-hardcoded-path
+    message: |
+      🚨 Insecure Temp File (CWE-377) Sink: 使用固定路径的临时文件。
+
+      `/tmp/app.pid` / `/var/run/app.lock` 等固定路径可被攻击者提前抢建（symlink 攻击），
+      实现覆盖任意文件或读取应用数据。
+
+      修复建议：
+      1. 用 `mkstemp()` 模板 `"/tmp/appXXXXXX"`（XXXXXX 由函数随机填充）；
+      2. 用 `O_CREAT | O_EXCL` 原子创建，失败即退出；
+      3. 避免硬编码 `/tmp/` 前缀，用 `tmpfile()` / `std::filesystem::temp_directory_path()`。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-377: Insecure Temporary File"
+      owasp: "A05:2021 - Security Misconfiguration"
+      vuln_class: "Insecure Temp File"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/377.html
+    pattern-either:
+      - pattern: fopen("/tmp/...", ...)
+      - pattern: open("/tmp/...", ...)
+      - pattern: fopen("/var/tmp/...", ...)
+      - pattern: open("/var/tmp/...", ...)

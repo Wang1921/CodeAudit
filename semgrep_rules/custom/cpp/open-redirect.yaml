@@ -1,0 +1,35 @@
+rules:
+  - id: cpp-open-redirect
+    message: |
+      🚨 Open Redirect (CWE-601) Sink: HTTP 重定向目标接受非字面量 URL。
+
+      若 URL 来自外部输入，攻击者可构造 `https://attacker.com/phish` 作为 next 参数，
+      被诱导的用户访问后看到的域名还是"合法站点"，但跳转落点在攻击者控制的页面，
+      用于钓鱼 / 凭证窃取。
+
+      常见 bug 模式（Crow / cpphttplib）：
+        response.redirect(user_url);
+        res.set_header("Location", user_url);
+
+      修复建议：
+      1. 重定向 URL 用白名单（仅允许已知合法 host）；
+      2. 只允许相对路径跳转（`/dashboard`），拒绝 `//host` / `http://` / `https://`；
+      3. 校验 Referer；
+      4. 用户可配跳转目标时，中间页提示"即将跳转到外部站点"。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Open Redirect"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    pattern-either:
+      - pattern: $RESP.redirect($URL)
+      - pattern: $RESP.set_header("Location", $URL)
+      - pattern: $RESP.set_header("location", $URL)
+      - pattern: 'fprintf($F, "Location: %s\r\n", $URL)'
+      - pattern: 'snprintf($BUF, $N, "Location: %s", $URL)'

@@ -1,0 +1,62 @@
+rules:
+  # ---------------- 静态 IV ----------------
+  - id: cpp-static-iv
+    message: |
+      🚨 Static / Hardcoded IV (CWE-329) Sink:
+      AES-CBC / CTR 模式使用硬编码字面量 IV。
+
+      IV 的安全性依赖每次加密都是随机不重复的。固定 IV 导致：
+      - CBC: 相同明文加密出相同密文，模式泄露；
+      - CTR: IV+计数器重复等同于 keystream 重用 → 两份密文异或即还原明文。
+
+      修复建议：
+      1. 每次加密用 `RAND_bytes(iv, 16)` 生成新 IV；
+      2. 把 IV 随密文一起存储 / 传输（IV 不是秘密，但必须唯一）；
+      3. 优先用 AES-GCM（AEAD，自带认证）。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-329: Generation of Predictable IV with CBC Mode"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Static IV"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/329.html
+    pattern-either:
+      - pattern: unsigned char $IV[] = {...};
+      - pattern: static unsigned char $IV[] = {...};
+      - pattern: const unsigned char $IV[] = {...};
+      - pattern: unsigned char $IV[N] = "...";
+      - pattern: EVP_EncryptInit_ex($CTX, $CIPHER, NULL, $KEY, $LITERAL_IV)
+
+  # ---------------- 常量 Salt ----------------
+  - id: cpp-constant-salt
+    message: |
+      🚨 Constant Salt (CWE-760) Sink: 口令派生或哈希使用硬编码 salt。
+
+      salt 的作用是让相同口令产生不同哈希，阻断"彩虹表"攻击。写死的 salt 让所有用户
+      共享一个彩虹表前缀，等于没盐 —— 一旦泄露，批量爆破效率极高。
+
+      修复建议：
+      1. 每次派生独立生成 salt：`RAND_bytes(salt, 16)`；
+      2. salt 长度 ≥ 16 字节；
+      3. 与哈希值一起存储（salt 非秘密）；
+      4. 用现成的口令哈希库（libsodium `crypto_pwhash`）内置随机 salt。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-760: Use of a One-Way Hash with a Predictable Salt"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Constant Salt"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/760.html
+    pattern-either:
+      - pattern: unsigned char $SALT[] = {...};
+      - pattern: static unsigned char $SALT[] = {...};
+      - pattern: const unsigned char $SALT[] = {...};
+      - pattern: unsigned char $SALT[N] = "...";

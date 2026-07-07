@@ -1,0 +1,43 @@
+rules:
+  - id: cpp-zip-slip
+    message: |
+      🚨 Zip Slip (CWE-22) Sink: minizip 解压时直接用 entry name 拼接目标路径。
+
+      攻击者在恶意压缩包里构造包含 `../../../etc/passwd` 的 entry name，
+      解压后可写入任意目录（覆盖系统文件、投放 webshell）。
+
+      常见 bug 模式：
+        char filename[256];
+        unzGetCurrentFileInfo(uf, &info, filename, sizeof(filename), ...);
+        FILE *f = fopen(filename, "wb");  // 漏洞：未校验路径跳出
+
+      修复建议：
+      1. 解压前规范化路径（`realpath()` / `std::filesystem::weakly_canonical`）；
+      2. 校验规范化后路径仍以目标目录为前缀；
+      3. 拒绝含 `..` / 绝对路径的 entry name；
+      4. C++17 用 `std::filesystem::path` 比较 `relative_path`。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "Zip Slip"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+        - https://snyk.io/research/zip-slip-vulnerability
+    pattern-either:
+      - pattern: |
+          unzGetCurrentFileInfo($UF, $INFO, $FILENAME, ..., ...);
+          ...
+          fopen($FILENAME, ...);
+      - pattern: |
+          unzGetCurrentFileInfo($UF, $INFO, $FILENAME, ..., ...);
+          ...
+          open($FILENAME, ...);
+      - pattern: |
+          unzGetCurrentFileInfo($UF, $INFO, $FILENAME, ..., ...);
+          ...
+          std::ofstream $F($FILENAME, ...);

@@ -1,0 +1,103 @@
+rules:
+  # ---------------- requests verify=False ----------------
+  - id: python-insecure-tls-requests-verify-false
+    message: |
+      🚨 Insecure TLS (CWE-295) Sink: `requests` 请求关闭了证书校验。
+
+      `verify=False` 让客户端不校验服务器证书，中间人可冒充任意 HTTPS 站点
+      截获 / 篡改流量。在内网"自签名证书"场景也应用 `SESSION.verify = '/path/to/ca-bundle'`
+      指定信任根，而非关闭校验。
+
+      修复建议：
+      1. 保持默认 `verify=True`；
+      2. 自签名场景用 `verify='/path/to/ca-bundle.crt'` 指定 CA；
+      3. 生产环境绝不出现 `verify=False`；
+      4. 如需全局，设环境变量 `REQUESTS_CA_BUNDLE` 而非关校验。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-295: Improper Certificate Validation"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Insecure TLS"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+    pattern-either:
+      - pattern: requests.get(..., verify=False)
+      - pattern: requests.post(..., verify=False)
+      - pattern: requests.put(..., verify=False)
+      - pattern: requests.delete(..., verify=False)
+      - pattern: requests.patch(..., verify=False)
+      - pattern: requests.head(..., verify=False)
+      - pattern: requests.request(..., verify=False)
+      - pattern: requests.get(..., verify=False, ...)
+      - pattern: requests.post(..., verify=False, ...)
+      - pattern: requests.put(..., verify=False, ...)
+      - pattern: requests.delete(..., verify=False, ...)
+      - pattern: requests.request(..., verify=False, ...)
+      - pattern: $SESSION.verify = False
+      - pattern: $SESSION.get(..., verify=False)
+      - pattern: $SESSION.post(..., verify=False)
+
+  # ---------------- ssl 不安全 context ----------------
+  - id: python-insecure-tls-ssl-unverified
+    message: |
+      🚨 Insecure TLS (CWE-295) Sink: 使用不校验证书的 SSLContext。
+
+      - `ssl._create_unverified_context()` 创建的 context 不校验证书；
+      - `ctx.check_hostname = False` 关闭主机名校验；
+      - `ctx.verify_mode = ssl.CERT_NONE` 关闭证书校验。
+
+      任意一个都让中间人可冒充 HTTPS 站点。
+
+      修复建议：
+      1. 用 `ssl.create_default_context()` 创建安全 context（默认校验）；
+      2. 自签名场景用 `ctx.load_verify_locations('/path/to/ca-bundle.crt')` 加信任根；
+      3. 绝不设 `check_hostname=False` 或 `verify_mode=CERT_NONE`。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-295: Improper Certificate Validation"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Insecure TLS"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+    pattern-either:
+      - pattern: ssl._create_unverified_context()
+      - pattern: ssl._create_unverified_context(...)
+      - pattern: $CTX.check_hostname = False
+      - pattern: $CTX.verify_mode = ssl.CERT_NONE
+      - pattern: $CTX.verify_mode = 0
+
+  # ---------------- urllib 关闭证书校验 ----------------
+  - id: python-insecure-tls-urllib
+    message: |
+      🚨 Insecure TLS (CWE-295) Sink: `urllib` 使用不校验证书的 context 打开 URL。
+
+      `urllib.request.urlopen(url, context=ssl._create_unverified_context())`
+      等同于关闭 HTTPS 证书校验，中间人可冒充任意站点。
+
+      修复建议：
+      1. 用 `ssl.create_default_context()` 替代 `_create_unverified_context()`；
+      2. 自签名场景用 `ctx.load_verify_locations(cafile='/path/to/ca.crt')`；
+      3. 生产环境绝不传 `context=ssl._create_unverified_context()`。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-295: Improper Certificate Validation"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "Insecure TLS"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/295.html
+    pattern-either:
+      - pattern: urllib.request.urlopen(..., context=ssl._create_unverified_context())
+      - pattern: urllib.request.urlopen(..., context=ssl._create_unverified_context(...))
+      - pattern: urllib.request.urlopen(..., context=$CTX)

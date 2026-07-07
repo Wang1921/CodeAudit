@@ -1,0 +1,393 @@
+rules:
+  # ---------------- 整数溢出（malloc 乘法） ----------------
+  - id: cpp-integer-overflow-malloc
+    message: |
+      🚨 Integer Overflow (CWE-190 / CWE-191) Sink: `malloc` / `calloc` / `new[]` 参数含乘法。
+
+      `malloc(n * size)` 中若 `n * size` 溢出（如 n=0x100000001, size=4 → 实际分配 4 字节），
+      后续写入按 `n * size` 范围操作，直接堆溢出。这是无数 C/C++ CVE 的根源：
+      - CVE-2002-0391（Apache chunked encoding）
+      - OpenSSH CVE-2003-0127
+
+      常见 bug 模式：
+        char *buf = malloc(count * elem_size);     // 漏洞（count * elem_size 可能溢出）
+        char *buf = new char[count * elem_size];   // 漏洞
+        ptr = realloc(ptr, n * size);              // 漏洞
+
+      修复建议：
+      1. 用 `calloc(nmemb, size)` —— 多数 libc 实现内置溢出检查；
+      2. 手动校验：`if (count > SIZE_MAX / elem_size) return NULL;`
+      3. C++ 用 `std::vector` / `std::make_unique<char[]>(count)` 自动管理；
+      4. 编译期开 `-ftrapv`（有符号溢出 trap）/ UBSan。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-190: Integer Overflow or Wraparound"
+        - "CWE-191: Integer Underflow"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Integer Overflow"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/190.html
+    pattern-either:
+      - pattern: malloc($N * $SIZE)
+      - pattern: malloc($N * $SIZE + ...)
+      - pattern: calloc($N, $SIZE)
+      - pattern: realloc($P, $N * $SIZE)
+      - pattern: realloc($P, $N * $SIZE + ...)
+      - pattern: new char[$N * $SIZE]
+      - pattern: new unsigned char[$N * $SIZE]
+      - pattern: new $TYPE[$N * $SIZE]
+
+  # ---------------- Use-After-Free ----------------
+  - id: cpp-use-after-free
+    message: |
+      🚨 Use-After-Free (CWE-416) Sink: 释放后继续访问指针。
+
+      `free(p)` / `delete p` 后内存可能被回收复用，再次访问 `p->field` / `p[i]` 会：
+      - 读到攻击者控制的数据（UAF 利用，IE / Chrome / Linux kernel 无数 CVE）；
+      - 写入破坏堆元数据 → 任意写 → RCE。
+
+      常见 bug 模式：
+        free(p);
+        ...
+        p->next = x;          // 漏洞
+        p[0] = 'A';           // 漏洞
+
+      修复建议：
+      1. `free(p); p = NULL;` 释放后立即置空；
+      2. C++ 用 `std::unique_ptr` / `std::shared_ptr` 自动管理生命周期；
+      3. 用 AddressSanitizer (ASan) 编译期检测；
+      4. 绝不在 `free` / `delete` 后继续用原指针。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-416: Use After Free"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Use-After-Free"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/416.html
+    pattern-either:
+      - pattern: |
+          free($P);
+          ...
+          $P->$FIELD = ...;
+      - pattern: |
+          free($P);
+          ...
+          $X = $P->$FIELD;
+      - pattern: |
+          free($P);
+          ...
+          $P[$IDX] = ...;
+      - pattern: |
+          free($P);
+          ...
+          $X = $P[$IDX];
+      - pattern: |
+          delete $P;
+          ...
+          $P->$FIELD = ...;
+      - pattern: |
+          delete $P;
+          ...
+          $X = $P->$FIELD;
+      - pattern: |
+          delete[] $P;
+          ...
+          $P[$IDX] = ...;
+      - pattern: |
+          delete[] $P;
+          ...
+          $X = $P[$IDX];
+
+  # ---------------- Double Free ----------------
+  - id: cpp-double-free
+    message: |
+      🚨 Double Free (CWE-415) Sink: 同一指针被释放两次。
+
+      双重 free 破坏堆元数据，攻击者可构造特定堆布局实现任意地址写 → RCE。
+      glibc / jemalloc 都有 double-free 检测，但非默认启用。
+
+      常见 bug 模式：
+        free(p);
+        ...
+        free(p);    // 漏洞
+        delete p;
+        ...
+        delete p;   // 漏洞
+
+      修复建议：
+      1. `free(p); p = NULL;` 释放后立即置空（free(NULL) 是安全的 no-op）；
+      2. C++ 用智能指针（`unique_ptr` 独占所有权，天然防 double free）；
+      3. 用 ASan 编译期检测；
+      4. 明确所有权模型，避免裸指针跨函数传递。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-415: Double Free"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Double Free"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/415.html
+    pattern-either:
+      - pattern: |
+          free($P);
+          ...
+          free($P);
+      - pattern: |
+          delete $P;
+          ...
+          delete $P;
+      - pattern: |
+          delete[] $P;
+          ...
+          delete[] $P;
+
+  # ---------------- malloc 后未检查 NULL 即解引用 ----------------
+  - id: cpp-null-deref-after-malloc
+    message: |
+      🚨 Null Pointer Dereference (CWE-476) Sink: `malloc` / `calloc` 返回值未检查 NULL 即使用。
+
+      内存不足时 `malloc` 返回 NULL，直接 `p->field` / `*p` 解引用导致段错误（DoS）。
+      在内核态更可能导致 panic / 提权。
+
+      常见 bug 模式：
+        char *p = malloc(size);
+        p->next = x;           // 漏洞（未检查 p == NULL）
+        memcpy(p, src, n);     // 漏洞
+
+      修复建议：
+      1. `malloc` 后立即检查 `if (p == NULL) { ... return; }`；
+      2. C++ 用 `new`（失败抛 `std::bad_alloc`，不会返回 NULL）或 `new (nothrow)` + 检查；
+      3. 用 `xmalloc`（glibc 内部）等失败即 abort 的包装；
+      4. 内核态必须检查每一处分配。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-476: NULL Pointer Dereference"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Null Pointer Dereference"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/476.html
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $P = malloc(...);
+              ...
+              $P->$FIELD = ...;
+          - pattern: |
+              $P = malloc(...);
+              ...
+              $X = $P->$FIELD;
+          - pattern: |
+              $P = calloc(...);
+              ...
+              $P->$FIELD = ...;
+          - pattern: |
+              $P = realloc(...);
+              ...
+              $P->$FIELD = ...;
+      - pattern-not: |
+          $P = malloc(...);
+          ...
+          if ($P == NULL) { ... }
+          ...
+          $P->$FIELD = ...;
+      - pattern-not: |
+          $P = malloc(...);
+          ...
+          if (!$P) { ... }
+          ...
+          $P->$FIELD = ...;
+      - pattern-not: |
+          $P = malloc(...);
+          ...
+          if ($P == NULL) { ... }
+          ...
+          $X = $P->$FIELD;
+      - pattern-not: |
+          $P = malloc(...);
+          ...
+          if (!$P) { ... }
+          ...
+          $X = $P->$FIELD;
+
+  # ---------------- 数组越界（污点索引） ----------------
+  - id: cpp-array-index-oob
+    message: |
+      🚨 Array Index Out of Bounds (CWE-125 / CWE-787) Sink: 数组下标接收非字面量输入。
+
+      若下标来自外部输入且未做边界校验，`buf[idx]` 可越界读（信息泄露）或越界写（RCE）。
+      这是 C/C++ 中与缓冲区溢出并列的高频漏洞类型。
+
+      常见 bug 模式：
+        int idx = atoi(user_input);
+        buf[idx] = value;          // 漏洞（idx 可能 >= sizeof(buf)）
+        return secret[idx];        // 漏洞（越界读）
+
+      修复建议：
+      1. 访问前校验 `if (idx < 0 || idx >= sizeof(buf)/sizeof(buf[0])) return;`；
+      2. C++ 用 `std::vector::at()`（越界抛异常）/ `std::array::at()`；
+      3. 用 `std::span`（C++20）封装带边界的视图；
+      4. 编译期开 `-fsanitize=bounds`。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-125: Out-of-bounds Read"
+        - "CWE-787: Out-of-bounds Write"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Array Index Out of Bounds"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/125.html
+        - https://cwe.mitre.org/data/definitions/787.html
+    pattern-either:
+      - pattern: $BUF[$IDX] = $VAL;
+      - pattern: $X = $BUF[$IDX];
+      - pattern: return $BUF[$IDX];
+
+  # ---------------- Off-by-One ----------------
+  - id: cpp-off-by-one
+    message: |
+      🚨 Off-by-One Error (CWE-193 / CWE-787) Sink: 循环条件用 `<=` 而非 `<`。
+
+      `for (i = 0; i <= n; i++) buf[i] = ...` 会写 `buf[n]`，多写一个元素。
+      若 `buf` 长度恰为 `n`，则越界写一个字节 —— 经典 off-by-one 溢出。
+
+      常见 bug 模式：
+        for (int i = 0; i <= n; i++) buf[i] = data[i];   // 漏洞（应 i < n）
+        for (int i = 0; i <= sizeof(buf); i++) ...        // 漏洞
+
+      修复建议：
+      1. 循环条件用 `<` 而非 `<=`（半开区间 `[0, n)`）；
+      2. 用 `for (auto &x : buf)` 范围 for 循环避免手算边界；
+      3. C++ 用 `std::copy` / `std::fill` 替代手写循环；
+      4. 编译期开 `-fsanitize=address` 检测越界。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-193: Off-by-one Error"
+        - "CWE-787: Out-of-bounds Write"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Off-by-One"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/193.html
+    pattern-either:
+      - pattern: |
+          for ($I = 0; $I <= $N; $I++) {
+            ...
+            $BUF[$I] = ...;
+            ...
+          }
+      - pattern: |
+          for ($I = 0; $I <= $N; $I++) $BUF[$I] = ...;
+
+  # ---------------- 未初始化变量 ----------------
+  - id: cpp-uninitialized-variable
+    message: |
+      🚨 Uninitialized Variable (CWE-457) Sink: 栈上数组 / 缓冲区未初始化即传出。
+
+      `char buf[64];` 未赋值即 `send(sock, buf, 64)` 会把栈上残留数据（可能是
+      前一函数的密钥、指针、返回地址）发给攻击者，造成信息泄露。
+
+      常见 bug 模式：
+        char buf[64];
+        send(sock, buf, 64, 0);         // 漏洞（buf 含栈垃圾）
+        write(fd, buf, sizeof(buf));    // 漏洞
+
+      修复建议：
+      1. 声明即初始化：`char buf[64] = {0};`；
+      2. 用 `memset(buf, 0, sizeof(buf))` 显式清零；
+      3. C++ 用 `std::array<char, 64> buf{};`（值初始化）；
+      4. 编译期开 `-ftrivial-auto-var-init=zero`（GCC 12+ / Clang 8+）。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-457: Use of Uninitialized Variable"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Uninitialized Variable"
+      confidence: MEDIUM
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/457.html
+    pattern-either:
+      - pattern: |
+          char $BUF[$N];
+          ...
+          send($SOCK, $BUF, ..., ...);
+      - pattern: |
+          char $BUF[$N];
+          ...
+          write($FD, $BUF, ...);
+      - pattern: |
+          char $BUF[$N];
+          ...
+          fwrite($BUF, ..., ..., $F);
+      - pattern: |
+          unsigned char $BUF[$N];
+          ...
+          send($SOCK, $BUF, ..., ...);
+      - pattern: |
+          unsigned char $BUF[$N];
+          ...
+          write($FD, $BUF, ...);
+
+  # ---------------- TOCTOU (access → open 竞争) ----------------
+  - id: cpp-toctou-access-open
+    message: |
+      🚨 Race Condition / TOCTOU (CWE-362 / CWE-367) Sink: `access()` 与 `open()` 之间存在竞争。
+
+      `access(path, R_OK)` 检查权限后，`open(path)` 前攻击者可替换 `path` 指向的文件
+      （符号链接攻击），实现：
+      - 以应用权限读写任意文件；
+      - 提权（setuid 程序场景）。
+
+      常见 bug 模式：
+        if (access(filename, R_OK) == 0) {
+            fd = open(filename, O_RDONLY);   // 漏洞：access 与 open 间可能被替换
+        }
+
+      修复建议：
+      1. 用 `fopen` / `open` 后用 `fstat` 检查文件属性（而非 `access` 预检）；
+      2. 打开后用 `fstat` + `S_ISREG` 校验是普通文件而非 symlink；
+      3. 用 `O_NOFOLLOW` 拒绝符号链接；
+      4. setuid 程序用 `seteuid(getuid())` 降权后再打开用户文件。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-362: Race Condition"
+        - "CWE-367: Time-of-check Time-of-use (TOCTOU) Race Condition"
+      owasp: "A01:2021 - Broken Access Control"
+      vuln_class: "TOCTOU"
+      confidence: MEDIUM
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/367.html
+    pattern-either:
+      - pattern: |
+          access($PATH, ...);
+          ...
+          open($PATH, ...);
+      - pattern: |
+          access($PATH, ...);
+          ...
+          fopen($PATH, ...);

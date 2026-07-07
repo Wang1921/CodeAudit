@@ -1,6 +1,6 @@
 # Semgrep 规则清单
 
-> 自动生成于 2026-07-07 ｜ 规则总数: **146 条** / **66 个 yaml 文件** ｜ 覆盖语言: Java / Python / C / C++
+> 自动生成于 2026-07-07 ｜ 规则总数: **180 条** / **83 个 yaml 文件** ｜ 覆盖语言: Java / Python / C / C++
 
 > 目录结构: `semgrep_rules/custom/{java,python,cpp}/`
 
@@ -15,48 +15,56 @@
 | 语言 | 文件数 | 规则数 | 污点链类 | 配置类 | 路由提取 |
 |------|--------|--------|----------|--------|----------|
 | Java | 34 | 62 | 32 | 18 | 12 |
-| Python | 22 | 66 | 32 | 10 | 24 |
-| C/C++ | 10 | 18 | 9 | 9 | 0 |
-| **合计** | **66** | **146** | **73** | **37** | **36** |
+| Python | 28 | 78 | 32 | 22 | 24 |
+| C/C++ | 21 | 40 | 19 | 21 | 0 |
+| **合计** | **83** | **180** | **83** | **61** | **36** |
 
 ### 1.2 按漏洞类别 (vuln_class)
 
 | vuln_class | 规则数 | 涉及语言 |
 |------------|--------|---------|
 | SQL Injection | 13 | C/C++/Java/Python |
-| Weak Cryptography | 9 | C/C++/Java/Python |
+| Weak Cryptography | 10 | C/C++/Java/Python |
 | XXE | 8 | C/C++/Java/Python |
 | Command Injection | 7 | C/C++/Java/Python |
+| Insecure TLS | 6 | C/C++/Java/Python |
 | Path Traversal | 6 | C/C++/Java/Python |
 | Unsafe Deserialization | 6 | Java/Python |
-| Code Injection | 4 | Java/Python |
+| Buffer Overflow | 5 | C/C++ |
+| Code Injection | 5 | C/C++/Java/Python |
+| Insecure Temp File | 5 | C/C++/Java/Python |
+| Insecure Cookie | 4 | Java/Python |
 | NoSQL Injection | 4 | Java/Python |
+| SSRF | 4 | C/C++/Java/Python |
 | Sensitive Data in Log | 4 | C/C++/Java/Python |
 | Template Injection | 4 | Java/Python |
 | Unsafe Reflection | 4 | Java |
-| Buffer Overflow | 3 | C/C++ |
+| Constant Salt | 3 | C/C++/Java/Python |
 | Hardcoded Credentials | 3 | C/C++/Java/Python |
-| Insecure Temp File | 3 | Java/Python |
-| SSRF | 3 | Java/Python |
+| JWT None Algorithm | 3 | Java/Python |
+| LDAP Injection | 3 | C/C++/Java/Python |
+| Open Redirect | 3 | C/C++/Java/Python |
+| Static IV | 3 | C/C++/Java/Python |
 | Weak Random | 3 | C/C++/Java/Python |
+| XPath Injection | 3 | C/C++/Java/Python |
 | XSS | 3 | Java/Python |
-| Insecure Cookie | 2 | Java |
-| LDAP Injection | 2 | Java/Python |
-| Open Redirect | 2 | Java/Python |
+| Zip Slip | 3 | C/C++/Java/Python |
+| Sensitive Data in URL | 2 | Java/Python |
 | Stack Trace Exposure | 2 | Java/Python |
-| XPath Injection | 2 | Java/Python |
-| Zip Slip | 2 | Java/Python |
-| Constant Salt | 1 | Java |
+| Trust Boundary Violation | 2 | Java/Python |
+| Array Index Out of Bounds | 1 | C/C++ |
+| Double Free | 1 | C/C++ |
 | Format String | 1 | C/C++ |
-| Insecure TLS | 1 | Java |
+| Integer Overflow | 1 | C/C++ |
 | JDBC URL Injection | 1 | Java |
 | JNDI Injection | 1 | Java |
-| JWT None Algorithm | 1 | Java |
-| Sensitive Data in URL | 1 | Java |
+| Null Pointer Dereference | 1 | C/C++ |
+| Off-by-One | 1 | C/C++ |
 | SpEL Injection | 1 | Java |
-| Static IV | 1 | Java |
-| Trust Boundary Violation | 1 | Java |
+| TOCTOU | 1 | C/C++ |
+| Uninitialized Variable | 1 | C/C++ |
 | Unvalidated Forward | 1 | Java |
+| Use-After-Free | 1 | C/C++ |
 
 ## 2. Java 规则明细
 
@@ -142,7 +150,7 @@
 
 ## 3. Python 规则明细
 
-> 22 个 yaml / 66 条规则
+> 28 个 yaml / 78 条规则
 
 
 ### 3.1 污点链类 (taint_required: true)
@@ -186,11 +194,23 @@
 
 | 规则 ID | 文件 | 严重度 | 漏洞类别 | CWE | 语言 | 简介 |
 |---------|------|--------|----------|-----|------|------|
+| `python-constant-salt` | python/insecure-crypto-config.yaml | ERROR | Constant Salt | CWE-760 | python | Constant Salt (CWE-760) Sink: 口令派生或哈希使用硬编码 salt。<br>salt 的作用是让相同口令产生不同哈希，阻断"彩虹表"攻击。写死的 salt 让所有用户<br>共享一个彩虹表前缀，等于没盐 —— 一旦泄露，批量爆破效率极高。 |
 | `python-hardcoded-credentials` | python/hardcoded-credentials.yaml | ERROR | Hardcoded Credentials | CWE-798 +1 | python | Hardcoded Credentials (CWE-798 / CWE-259) Sink: 源码中硬编码了凭证或密钥。<br>变量名含 `password` / `secret` / `token` / `apikey` / `access_key` / `private_key`<br>且直接赋值为字符串字面量，视为硬编码凭证。 |
+| `python-insecure-cookie-explicit-false` | python/insecure-cookie.yaml | ERROR | Insecure Cookie | CWE-614 +1 | python | Insecure Cookie (CWE-614 / CWE-1004) Sink: Cookie 显式关闭安全属性。<br>- `secure=False` 让 Cookie 在 HTTP 明文信道传输，中间人可嗅探；<br>- `httponly=False` 让 JavaScript 可读 Cookie，XSS 能直接窃取会话。 |
+| `python-insecure-cookie-missing-secure` | python/insecure-cookie.yaml | WARNING | Insecure Cookie | CWE-614 | python | Insecure Cookie (CWE-614) Sink: `set_cookie()` 调用未指定 `secure=True`。<br>Flask/Django 默认 `secure=False`，下发的 Cookie 可被中间人嗅探。<br>会话相关 Cookie 必须显式 `secure=True`。 |
+| `python-insecure-tls-requests-verify-false` | python/insecure-tls.yaml | ERROR | Insecure TLS | CWE-295 | python | Insecure TLS (CWE-295) Sink: `requests` 请求关闭了证书校验。<br>`verify=False` 让客户端不校验服务器证书，中间人可冒充任意 HTTPS 站点<br>截获 / 篡改流量。在内网"自签名证书"场景也应用 `SESSION.verify = '/path/to/ca-bundle'` |
+| `python-insecure-tls-ssl-unverified` | python/insecure-tls.yaml | ERROR | Insecure TLS | CWE-295 | python | Insecure TLS (CWE-295) Sink: 使用不校验证书的 SSLContext。<br>- `ssl._create_unverified_context()` 创建的 context 不校验证书；<br>- `ctx.check_hostname = False` 关闭主机名校验； |
+| `python-insecure-tls-urllib` | python/insecure-tls.yaml | ERROR | Insecure TLS | CWE-295 | python | Insecure TLS (CWE-295) Sink: `urllib` 使用不校验证书的 context 打开 URL。<br>`urllib.request.urlopen(url, context=ssl._create_unverified_context())`<br>等同于关闭 HTTPS 证书校验，中间人可冒充任意站点。 |
 | `python-insecure-temp-file` | python/insecure-temp-file.yaml | ERROR | Insecure Temp File | CWE-377 | python | Insecure Temp File (CWE-377) Sink: tempfile.mktemp 产生可预测文件名。<br>tempfile.mktemp() 返回文件名但不创建文件，攻击者可在 mktemp 返回与<br>程序实际 open 之间用 symlink 抢注该路径，导致写入任意文件（symlink attack）。 |
 | `python-insecure-temp-file-named-predictable` | python/insecure-temp-file.yaml | WARNING | Insecure Temp File | CWE-377 | python | Insecure Temp File (CWE-377) Sink: 用固定文件名在 /tmp 下创建文件。<br>open("/tmp/myapp_cache") 等固定路径在共享主机上可被其他用户抢注（symlink attack）。<br>该告警**无须污点链**，走 fast path 交给 BlueValidator 定性。 |
+| `python-jwt-no-verify` | python/jwt-none.yaml | ERROR | JWT None Algorithm | CWE-347 | python | JWT Signature Verification Disabled (CWE-347) Sink:<br>`jwt.decode(token, verify=False)` 跳过签名校验。<br>旧版 PyJWT (< 2.0) 的 `verify=False` 参数等同于接受任意伪造 token， |
+| `python-jwt-none-algorithm` | python/jwt-none.yaml | ERROR | JWT None Algorithm | CWE-347 | python | JWT with None / Unsigned Algorithm (CWE-347) Sink:<br>PyJWT 解码时允许 `none` / `None` 算法，即"无签名"JWT。<br>`alg: none` 意味着 token 无签名，任何人都能伪造合法 JWT。JWT 常被当认证令牌用， |
 | `python-sensitive-data-in-log` | python/sensitive-data-in-log.yaml | WARNING | Sensitive Data in Log | CWE-532 | python | Sensitive Data in Log (CWE-532) Sink: 日志中输出敏感信息。<br>日志参数里直接出现敏感变量（password / secret / token / api_key / credit_card），<br>凭证会落入日志文件 / 集中化日志系统（ELK / Loki），放大泄露面。 |
+| `python-sensitive-data-in-url` | python/sensitive-data-in-url.yaml | WARNING | Sensitive Data in URL | CWE-598 +1 | python | Sensitive Data in URL (CWE-598) Sink: URL / query string 被记录到日志。<br>URL 的 query 参数常含敏感信息（token、session、password、api_key），<br>记录到日志后会落入日志文件 / 日志集中系统（ELK / Loki），放大泄露面。 |
 | `python-stack-trace-exposure` | python/stack-trace-exposure.yaml | WARNING | Stack Trace Exposure | CWE-209 | python | Stack Trace Exposure (CWE-209) Sink: 异常堆栈直接返回给用户。<br>traceback.format_exc() / traceback.format_exception() 把内部堆栈暴露给调用方，<br>会泄露文件路径、库版本、SQL 片段，便于攻击者构造后续攻击。 |
+| `python-static-iv` | python/insecure-crypto-config.yaml | ERROR | Static IV | CWE-329 | python | Static / Hardcoded IV (CWE-329) Sink:<br>AES-CBC / CTR / GCM 模式使用硬编码字面量 IV。<br>IV 的安全性依赖每次加密都是随机不重复的。固定 IV 导致： |
+| `python-trust-boundary-session-assign` | python/trust-boundary.yaml | WARNING | Trust Boundary Violation | CWE-501 | python | Trust Boundary Violation (CWE-501) Sink: 外部输入直接写入 session。<br>session 是服务端信任边界内的状态容器。把未校验的外部输入（query / form / JSON body）<br>直接 `session[key] = request.args[key]`，等于让攻击者控制服务端信任数据： |
+| `python-insufficient-key-size` | python/insecure-crypto-config.yaml | ERROR | Weak Cryptography | CWE-326 | python | Insufficient Asymmetric Key Size (CWE-326) Sink: RSA / DSA 密钥长度 < 2048 bit。<br>- NIST SP 800-131A 已弃用 RSA/DSA ≤ 1024 位；<br>- 2048 位是当前最低安全要求，长期保密建议 3072 或 4096； |
 | `python-weak-cryptography-hardcoded-key` | python/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-321 | python | Weak Cryptography (CWE-321) Sink: 硬编码密钥用于加密。<br>密钥写死在源码里，源码泄露即等价于密钥泄露。<br>该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。 |
 | `python-weak-cryptography-hashlib` | python/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-327 +1 | python | Weak Cryptography (CWE-327 / CWE-328) Sink: hashlib 使用弱哈希算法。<br>MD5 / SHA-1 存在碰撞攻击，禁止用于签名、数据完整性、口令哈希。<br>该告警**无须污点链**（算法由代码本地决定），走 fast path 交给 BlueValidator 做静态定性。 |
 | `python-weak-cryptography-pycrypto` | python/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-327 | python | Weak Cryptography (CWE-327) Sink: pycryptodome 使用弱算法。<br>DES / ARC2 / ARC4 / Blowfish 已被破解或不再安全。<br>该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。 |
@@ -228,22 +248,32 @@
 
 ## 4. C/C++ 规则明细
 
-> 10 个 yaml / 18 条规则
+> 21 个 yaml / 40 条规则
 
 
 ### 4.1 污点链类 (taint_required: true)
 
 | 规则 ID | 文件 | 严重度 | 漏洞类别 | CWE | 语言 | 简介 |
 |---------|------|--------|----------|-----|------|------|
+| `cpp-array-index-oob` | cpp/memory-safety.yaml | ERROR | Array Index Out of Bounds | CWE-125 +1 | c, cpp | Array Index Out of Bounds (CWE-125 / CWE-787) Sink: 数组下标接收非字面量输入。<br>若下标来自外部输入且未做边界校验，`buf[idx]` 可越界读（信息泄露）或越界写（RCE）。<br>这是 C/C++ 中与缓冲区溢出并列的高频漏洞类型。 |
+| `cpp-buffer-overflow-memcpy` | cpp/unbounded-memcpy.yaml | ERROR | Buffer Overflow | CWE-120 | c, cpp | Buffer Overflow (CWE-120) Sink: `memcpy()` / `memmove()` 的长度参数接收非字面量。<br>若长度来自外部输入且超过目标缓冲区大小，`memcpy` 不做边界检查，直接溢出。<br>这是 C/C++ 中堆/栈溢出的最常见来源之一。 |
+| `cpp-buffer-overflow-memset` | cpp/unbounded-memcpy.yaml | WARNING | Buffer Overflow | CWE-120 | c, cpp | Buffer Overflow (CWE-120) Sink: `memset()` 的长度参数接收非字面量。<br>若长度超过目标缓冲区大小，`memset` 会越界写入。<br>常见 bug 模式： |
+| `cpp-code-injection-dlopen` | cpp/code-injection.yaml | ERROR | Code Injection | CWE-94 | c, cpp | Code Injection (CWE-94) Sink: `dlopen()` / `LoadLibrary()` 接收非字面量路径。<br>若路径来自外部输入，攻击者可加载任意共享库 / DLL，库的构造函数立即执行<br>（RCE）。这是 C/C++ 中"动态插件"机制最常见的安全问题。 |
 | `cpp-command-injection-createprocess` | cpp/command-injection.yaml | WARNING | Command Injection | CWE-78 | cpp | Command Injection (CWE-78) Sink: CreateProcess 接收非字面量命令行。<br>Windows CreateProcess 的 lpCommandLine 若拼接用户输入且 bInheritHandles +<br>lpApplicationName=NULL，会经 shell 解析，存在命令注入风险。 |
 | `cpp-command-injection-exec` | cpp/command-injection.yaml | WARNING | Command Injection | CWE-78 | c, cpp | Command Injection (CWE-78) Sink: exec* / spawn* 接收非字面量程序路径。<br>execl/execlp/execv/execvp 等直接替换进程映像，若路径/参数来自用户输入<br>可导致执行任意程序。Windows 的 _wsystem / CreateProcess 同理。 |
 | `cpp-command-injection-system` | cpp/command-injection.yaml | ERROR | Command Injection | CWE-78 | c, cpp | Command Injection (CWE-78) Sink: system() / popen() 接收非字面量命令。<br>system() 通过 shell 执行命令，用户输入中的 `;` / `\|` / `$(...)` / `` ` ``<br>元字符都会触发任意命令执行 (RCE)。 |
 | `cpp-format-string-printf` | cpp/format-string.yaml | ERROR | Format String | CWE-134 | c, cpp | Format String (CWE-134) Sink: printf 系列接收非字面量格式字符串。<br>若格式字符串来自用户输入，攻击者可注入 %s / %x / %n 读取栈内存<br>或写入任意地址（%n 写入已格式化的字符数），达成信息泄露或 RCE。 |
+| `cpp-ldap-injection` | cpp/ldap-injection.yaml | ERROR | LDAP Injection | CWE-90 | c, cpp | LDAP Injection (CWE-90) Sink: OpenLDAP 查询接口接收非字面量 filter。<br>若 filter 拼接了用户输入（如 `(&(uid=` + user + `)(pass=` + pass + `))`），<br>攻击者可注入 `*)(uid=*` 等通配符绕过鉴权或枚举账户。 |
+| `cpp-open-redirect` | cpp/open-redirect.yaml | ERROR | Open Redirect | CWE-601 | c, cpp | Open Redirect (CWE-601) Sink: HTTP 重定向目标接受非字面量 URL。<br>若 URL 来自外部输入，攻击者可构造 `https://attacker.com/phish` 作为 next 参数，<br>被诱导的用户访问后看到的域名还是"合法站点"，但跳转落点在攻击者控制的页面， |
 | `cpp-path-traversal-cpp17-filesystem` | cpp/path-traversal.yaml | WARNING | Path Traversal | CWE-22 | cpp | Path Traversal (CWE-22) Sink: std::filesystem::path 接收非字面量路径。<br>C++17 filesystem::path 构造后配合 read/write 可读写任意文件。<br>修复建议：用 std::filesystem::weakly_canonical 解析后比较是否在 base 目录内。 |
 | `cpp-path-traversal-fopen` | cpp/path-traversal.yaml | ERROR | Path Traversal | CWE-22 | c, cpp | Path Traversal (CWE-22) Sink: 文件 I/O 接口接收非字面量路径。<br>fopen / ifstream / ofstream / fstream 接收用户输入路径，<br>若含 `../` 或绝对路径可读写任意文件。 |
 | `cpp-sql-injection-string-concat` | cpp/sql-injection.yaml | ERROR | SQL Injection | CWE-89 | c, cpp | SQL Injection (CWE-89) Sink: SQL 语句通过字符串拼接构造。<br>C/C++ 中没有 ORM，SQL 拼接是常见模式，用户输入拼入即构成注入。<br>常见 bug 模式： |
+| `cpp-ssrf-curl` | cpp/ssrf.yaml | ERROR | SSRF | CWE-918 | c, cpp | SSRF (CWE-918) Sink: libcurl 使用非字面量 URL 发起出站请求。<br>若 URL 来自外部输入，攻击者可指向内网服务、云元数据接口<br>(http://169.254.169.254/、http://localhost:8500/、file:///etc/passwd) |
+| `cpp-toctou-access-open` | cpp/memory-safety.yaml | WARNING | TOCTOU | CWE-362 +1 | c, cpp | Race Condition / TOCTOU (CWE-362 / CWE-367) Sink: `access()` 与 `open()` 之间存在竞争。<br>`access(path, R_OK)` 检查权限后，`open(path)` 前攻击者可替换 `path` 指向的文件<br>（符号链接攻击），实现： |
+| `cpp-xpath-injection` | cpp/xpath-injection.yaml | ERROR | XPath Injection | CWE-643 | c, cpp | XPath Injection (CWE-643) Sink: libxml2 XPath 查询接收非字面量表达式。<br>若表达式拼接了用户输入（如 `"//user[name='" + name + "']"`），<br>攻击者可注入 `' or '1'='1` 绕过鉴权或枚举 XML 数据。 |
 | `cpp-xxe-libxml2` | cpp/xxe.yaml | ERROR | XXE | CWE-611 | c, cpp | XXE (CWE-611) Sink: libxml2 解析 XML 未禁用外部实体。<br>libxml2 的 xmlReadFile / xmlReadMemory 默认解析外部实体，<br>攻击者可通过 `<!ENTITY xxe SYSTEM "file:///etc/passwd">` 读取任意文件、SSRF。 |
 | `cpp-xxe-pugixml-tinyxml` | cpp/xxe.yaml | WARNING | XXE | CWE-611 | cpp | XXE (CWE-611) Sink: pugixml / tinyxml 解析 XML 默认行为可能解析外部实体。<br>pugixml 默认不解析 DTD/外部实体（相对安全），但若显式开启 parse_full /<br>parse_dtd 标志仍可被利用。tinyxml2 默认安全但需确认 ProcessEntities 设置。 |
+| `cpp-zip-slip` | cpp/zip-slip.yaml | ERROR | Zip Slip | CWE-22 | c, cpp | Zip Slip (CWE-22) Sink: minizip 解压时直接用 entry name 拼接目标路径。<br>攻击者在恶意压缩包里构造包含 `../../../etc/passwd` 的 entry name，<br>解压后可写入任意目录（覆盖系统文件、投放 webshell）。 |
 
 ### 4.2 配置类 (taint_required: false)
 
@@ -252,8 +282,20 @@
 | `cpp-buffer-overflow-sprintf` | cpp/buffer-overflow.yaml | ERROR | Buffer Overflow | CWE-120 +1 | c, cpp | Buffer Overflow (CWE-120 / CWE-134) Sink: sprintf / vsprintf 无边界检查。<br>sprintf 把格式化结果写入固定大小缓冲区，输出超长即溢出。<br>vsprintf 同理。两者都不接受 size 参数。 |
 | `cpp-buffer-overflow-strcpy` | cpp/buffer-overflow.yaml | ERROR | Buffer Overflow | CWE-120 +1 | c, cpp | Buffer Overflow (CWE-120 / CWE-121) Sink: strcpy / strcat / gets 无边界检查。<br>strcpy / strcat 不检查目标缓冲区大小，源字符串过长即栈/堆溢出，<br>可覆盖返回地址达成 RCE。gets 同理（已被 C11 标准删除）。 |
 | `cpp-buffer-overflow-unsafe-runtime` | cpp/buffer-overflow.yaml | ERROR | Buffer Overflow | CWE-120 | c, cpp | Buffer Overflow (CWE-120) Sink: scanf 系列无字段宽度限制。<br>scanf / sscanf / fscanf 的 %s 不带宽度即等价 gets，可溢出缓冲区。<br>常见 bug 模式： |
+| `cpp-constant-salt` | cpp/insecure-crypto-config.yaml | ERROR | Constant Salt | CWE-760 | c, cpp | Constant Salt (CWE-760) Sink: 口令派生或哈希使用硬编码 salt。<br>salt 的作用是让相同口令产生不同哈希，阻断"彩虹表"攻击。写死的 salt 让所有用户<br>共享一个彩虹表前缀，等于没盐 —— 一旦泄露，批量爆破效率极高。 |
+| `cpp-double-free` | cpp/memory-safety.yaml | ERROR | Double Free | CWE-415 | c, cpp | Double Free (CWE-415) Sink: 同一指针被释放两次。<br>双重 free 破坏堆元数据，攻击者可构造特定堆布局实现任意地址写 → RCE。<br>glibc / jemalloc 都有 double-free 检测，但非默认启用。 |
 | `cpp-hardcoded-credentials` | cpp/hardcoded-credentials.yaml | ERROR | Hardcoded Credentials | CWE-798 +1 | cpp | Hardcoded Credentials (CWE-798 / CWE-259) Sink: 源码中硬编码凭证/密钥。<br>C/C++ 中常以字符串字面量形式硬编码密码、token、API key。<br>二进制反编译极易提取，源码泄露即等价于凭证泄露。 |
+| `cpp-insecure-tls-no-verify` | cpp/insecure-tls.yaml | ERROR | Insecure TLS | CWE-295 | c, cpp | Insecure TLS (CWE-295) Sink: OpenSSL 关闭了证书校验。<br>`SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL)` 让客户端不校验服务器证书，<br>中间人可冒充任意 HTTPS 站点截获 / 篡改流量。 |
+| `cpp-insecure-tls-weak-cipher` | cpp/insecure-tls.yaml | WARNING | Insecure TLS | CWE-327 | c, cpp | Insecure TLS (CWE-327) Sink: OpenSSL 允许弱密码套件。<br>`SSL_CTX_set_cipher_list(ctx, "ALL")` / `"eNULL"` / `"NULL"` / `"EXPORT"`<br>允许无加密或弱加密套件，中间人可降级或直接读取流量。 |
+| `cpp-insecure-temp-file-hardcoded-path` | cpp/insecure-temp-file.yaml | WARNING | Insecure Temp File | CWE-377 | c, cpp | Insecure Temp File (CWE-377) Sink: 使用固定路径的临时文件。<br>`/tmp/app.pid` / `/var/run/app.lock` 等固定路径可被攻击者提前抢建（symlink 攻击），<br>实现覆盖任意文件或读取应用数据。 |
+| `cpp-insecure-temp-file-tmpnam` | cpp/insecure-temp-file.yaml | ERROR | Insecure Temp File | CWE-377 | c, cpp | Insecure Temp File (CWE-377) Sink: `tmpnam()` / `mktemp()` 生成可预测临时文件名。<br>`tmpnam()` / `mktemp()` 只保证文件名"当前不存在"，不保证原子创建。<br>攻击者可在调用与 `open()` 之间抢建同名文件（symlink 攻击），实现： |
+| `cpp-integer-overflow-malloc` | cpp/memory-safety.yaml | ERROR | Integer Overflow | CWE-190 +1 | c, cpp | Integer Overflow (CWE-190 / CWE-191) Sink: `malloc` / `calloc` / `new[]` 参数含乘法。<br>`malloc(n * size)` 中若 `n * size` 溢出（如 n=0x100000001, size=4 → 实际分配 4 字节），<br>后续写入按 `n * size` 范围操作，直接堆溢出。这是无数 C/C++ CVE 的根源： |
+| `cpp-null-deref-after-malloc` | cpp/memory-safety.yaml | WARNING | Null Pointer Dereference | CWE-476 | c, cpp | Null Pointer Dereference (CWE-476) Sink: `malloc` / `calloc` 返回值未检查 NULL 即使用。<br>内存不足时 `malloc` 返回 NULL，直接 `p->field` / `*p` 解引用导致段错误（DoS）。<br>在内核态更可能导致 panic / 提权。 |
+| `cpp-off-by-one` | cpp/memory-safety.yaml | WARNING | Off-by-One | CWE-193 +1 | c, cpp | Off-by-One Error (CWE-193 / CWE-787) Sink: 循环条件用 `<=` 而非 `<`。<br>`for (i = 0; i <= n; i++) buf[i] = ...` 会写 `buf[n]`，多写一个元素。<br>若 `buf` 长度恰为 `n`，则越界写一个字节 —— 经典 off-by-one 溢出。 |
 | `cpp-sensitive-data-in-log` | cpp/sensitive-data-in-log.yaml | WARNING | Sensitive Data in Log | CWE-532 | c, cpp | Sensitive Data in Log (CWE-532) Sink: 日志中输出敏感信息。<br>printf / syslog / std::cout 输出含 password / secret / token 的字符串，<br>凭证会落入日志文件 / syslog 集中系统，放大泄露面。 |
+| `cpp-static-iv` | cpp/insecure-crypto-config.yaml | ERROR | Static IV | CWE-329 | c, cpp | Static / Hardcoded IV (CWE-329) Sink:<br>AES-CBC / CTR 模式使用硬编码字面量 IV。<br>IV 的安全性依赖每次加密都是随机不重复的。固定 IV 导致： |
+| `cpp-uninitialized-variable` | cpp/memory-safety.yaml | WARNING | Uninitialized Variable | CWE-457 | c, cpp | Uninitialized Variable (CWE-457) Sink: 栈上数组 / 缓冲区未初始化即传出。<br>`char buf[64];` 未赋值即 `send(sock, buf, 64)` 会把栈上残留数据（可能是<br>前一函数的密钥、指针、返回地址）发给攻击者，造成信息泄露。 |
+| `cpp-use-after-free` | cpp/memory-safety.yaml | ERROR | Use-After-Free | CWE-416 | c, cpp | Use-After-Free (CWE-416) Sink: 释放后继续访问指针。<br>`free(p)` / `delete p` 后内存可能被回收复用，再次访问 `p->field` / `p[i]` 会：<br>- 读到攻击者控制的数据（UAF 利用，IE / Chrome / Linux kernel 无数 CVE）； |
 | `cpp-weak-cryptography-ecb` | cpp/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-327 | c, cpp | Weak Cryptography (CWE-327) Sink: AES ECB 模式不具备语义安全。<br>相同明文块 → 相同密文块（ECB penguin），泄露明文模式。<br>修复建议：用 AES-GCM 或 AES-CBC + 随机 IV。 |
 | `cpp-weak-cryptography-hardcoded-key` | cpp/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-321 | cpp | Weak Cryptography (CWE-321) Sink: 硬编码密钥用于加密。<br>密钥写死在源码里，源码泄露即等价于密钥泄露（C/C++ 二进制反编译也易提取）。<br>该告警**无须污点链**，走 fast path 交给 BlueValidator 做静态定性。 |
 | `cpp-weak-cryptography-openssl` | cpp/weak-cryptography.yaml | ERROR | Weak Cryptography | CWE-327 +1 | c, cpp | Weak Cryptography (CWE-327 / CWE-328) Sink: OpenSSL 使用弱算法。<br>MD5 / SHA-1 / DES / RC4 已被破解或不再安全。<br>该告警**无须污点链**（算法由代码本地决定），走 fast path 交给 BlueValidator 做静态定性。 |

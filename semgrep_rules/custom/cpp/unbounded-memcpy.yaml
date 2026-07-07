@@ -1,0 +1,63 @@
+rules:
+  - id: cpp-buffer-overflow-memcpy
+    message: |
+      🚨 Buffer Overflow (CWE-120) Sink: `memcpy()` / `memmove()` 的长度参数接收非字面量。
+
+      若长度来自外部输入且超过目标缓冲区大小，`memcpy` 不做边界检查，直接溢出。
+      这是 C/C++ 中堆/栈溢出的最常见来源之一。
+
+      常见 bug 模式：
+        char buf[64];
+        memcpy(buf, src, user_len);    // 漏洞（user_len > 64 即溢出）
+        memmove(buf, src, user_len);   // 漏洞（同上）
+
+      修复建议：
+      1. 拷贝前校验 `user_len <= sizeof(buf)`；
+      2. C++ 用 `std::copy` / `std::vector` 替代裸 memcpy；
+      3. 用 `memcpy_s`（Windows）/ `explicit_bzero`（OpenBSD）等带边界版本；
+      4. 固定大小缓冲区配常量长度，动态分配配 `min(len, cap)`。
+    severity: ERROR
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Buffer Overflow"
+      confidence: HIGH
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/120.html
+    pattern-either:
+      - pattern: memcpy($DST, $SRC, $LEN)
+      - pattern: memmove($DST, $SRC, $LEN)
+      - pattern: bcopy($SRC, $DST, $LEN)
+      - pattern: _memcpy($DST, $SRC, $LEN)
+
+  - id: cpp-buffer-overflow-memset
+    message: |
+      🚨 Buffer Overflow (CWE-120) Sink: `memset()` 的长度参数接收非字面量。
+
+      若长度超过目标缓冲区大小，`memset` 会越界写入。
+
+      常见 bug 模式：
+        char buf[64];
+        memset(buf, 0, user_len);    // 漏洞（user_len > 64 即溢出）
+
+      修复建议：
+      1. 写入前校验 `user_len <= sizeof(buf)`；
+      2. C++ 用 `std::fill` / `std::array::fill` 替代裸 memset；
+      3. 清零敏感数据用 `explicit_bzero` / `SecureZeroMemory`（防编译器优化删除）。
+    severity: WARNING
+    languages: [c, cpp]
+    metadata:
+      cwe:
+        - "CWE-120: Buffer Copy without Checking Size of Input"
+      owasp: "A03:2021 - Injection"
+      vuln_class: "Buffer Overflow"
+      confidence: MEDIUM
+      taint_required: true
+      references:
+        - https://cwe.mitre.org/data/definitions/120.html
+    pattern-either:
+      - pattern: memset($DST, $VAL, $LEN)
+      - pattern: bzero($DST, $LEN)

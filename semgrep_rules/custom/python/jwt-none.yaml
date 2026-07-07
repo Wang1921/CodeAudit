@@ -1,0 +1,62 @@
+rules:
+  # ---------------- PyJWT: algorithms=['none'/'None'] ----------------
+  - id: python-jwt-none-algorithm
+    message: |
+      🚨 JWT with None / Unsigned Algorithm (CWE-347) Sink:
+      PyJWT 解码时允许 `none` / `None` 算法，即"无签名"JWT。
+
+      `alg: none` 意味着 token 无签名，任何人都能伪造合法 JWT。JWT 常被当认证令牌用，
+      绕过校验等于整站认证绕过。CVE-2015-9235（node-jsonwebtoken）等多次大规模爆过。
+
+      修复建议：
+      1. 固定算法白名单：`jwt.decode(token, key, algorithms=['HS256'])`，绝不包含 `'none'`；
+      2. **绝不**在 `algorithms` 列表里出现 `'none'` / `'None'`；
+      3. 服务端拒绝 header 声明 `alg:none` 的 token；
+      4. JWT 密钥用 HMAC SHA-256 以上或 RSA/ECDSA。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-347: Improper Verification of Cryptographic Signature"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "JWT None Algorithm"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/347.html
+        - https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+    pattern-either:
+      - pattern: jwt.decode($TOKEN, ..., algorithms=['none'])
+      - pattern: jwt.decode($TOKEN, ..., algorithms=['None'])
+      - pattern: jwt.decode($TOKEN, ..., algorithms=['none', ...])
+      - pattern: jwt.decode($TOKEN, ..., algorithms=['None', ...])
+      - pattern: jwt.decode($TOKEN, ..., algorithms=[..., 'none', ...])
+      - pattern: jwt.decode($TOKEN, ..., algorithms=[..., 'None', ...])
+
+  # ---------------- 旧版 PyJWT: verify=False ----------------
+  - id: python-jwt-no-verify
+    message: |
+      🚨 JWT Signature Verification Disabled (CWE-347) Sink:
+      `jwt.decode(token, verify=False)` 跳过签名校验。
+
+      旧版 PyJWT (< 2.0) 的 `verify=False` 参数等同于接受任意伪造 token，
+      攻击者可随意篡改 payload（role、user_id 等）实现越权。
+
+      修复建议：
+      1. 升级到 PyJWT >= 2.0（`verify` 参数已移除，强制验签）；
+      2. 必须传 `key` + `algorithms`：`jwt.decode(token, key, algorithms=['HS256'])`；
+      3. 密钥从配置中心 / 环境变量读取，绝不硬编码。
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe:
+        - "CWE-347: Improper Verification of Cryptographic Signature"
+      owasp: "A02:2021 - Cryptographic Failures"
+      vuln_class: "JWT None Algorithm"
+      confidence: HIGH
+      taint_required: false
+      references:
+        - https://cwe.mitre.org/data/definitions/347.html
+    pattern-either:
+      - pattern: jwt.decode($TOKEN, ..., verify=False)
+      - pattern: jwt.decode($TOKEN, ..., verify=False, ...)
