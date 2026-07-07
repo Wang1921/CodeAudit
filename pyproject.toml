@@ -62,7 +62,7 @@ packages = ["src", "src.agents"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-"*" = ["semgrep_rules/custom/*.yaml", "prompts/core/*.yaml"]
+"*" = ["semgrep_rules/custom/**/*.yaml", "prompts/core/*.yaml"]
 
 # ============================================================
 # Ruff 配置（不去中文 Unicode 噪声）

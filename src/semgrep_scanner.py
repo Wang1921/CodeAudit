@@ -499,4 +499,4 @@ class SemgrepScanner:
         """获取支持的语言列表"""
         if self._user_rules:
             return [p.stem for p in self._user_rules]
-        return sorted(f.stem for f in self.builtin_rules_dir.glob("*.yaml"))
+        return sorted(f.stem for f in self.builtin_rules_dir.rglob("*.yaml"))

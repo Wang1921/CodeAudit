@@ -163,80 +163,84 @@ CodeAudit/
 │       ├── config_validator.yaml   # 配置静态分析（taint_required=false 专用）
 │       ├── cross_service_prefilter.yaml
 │       └── retry.yaml
-├── semgrep_rules/                  # Semgrep 规则集合（~146 条 rule_id / 55 yaml，覆盖 Java/Python/C/C++）
+├── semgrep_rules/                  # Semgrep 规则集合（~146 条 rule_id / 66 yaml，覆盖 Java/Python/C/C++）
 │   └── custom/
-│       ├── spring-api.yaml         # Spring API 路由提取（非漏洞，12 条 rule）
-│       #  Java 走完整污点链 (taint_required: true)
-│       ├── sql-injection.yaml      # JDBC/JdbcTemplate/Hibernate/JPA/MyBatis 注解 + R2DBC + 链式 (5 rules)
-│       ├── mybatis-xml-sql-injection.yaml
-│       ├── command-injection.yaml  # Runtime/ProcessBuilder/Desktop/Commons Exec/JSch
-│       ├── code-injection.yaml     # OGNL/MVEL/Groovy/JEXL/ScriptEngine
-│       ├── path-traversal.yaml     # File/FileChannel/Paths/Path.of/Hadoop HDFS/Spring Resource/JSch SFTP/Apache VFS/Commons IO/Guava + SafeText 过滤排除
-│       ├── zip-slip.yaml           # ZipEntry/TarArchiveEntry
-│       ├── nosql-injection.yaml    # MongoDB/Cassandra/Neo4j/ElasticSearch
-│       ├── ldap-injection.yaml
-│       ├── xpath-injection.yaml
-│       ├── template-injection.yaml # Velocity/FreeMarker/Pebble/Thymeleaf/Mustache/StringSubstitutor
-│       ├── spel-injection.yaml
-│       ├── xxe.yaml                # DOM/SAX-StAX/Transform-Validate 拆 3 id
-│       ├── ssrf.yaml               # 拆 execution (HIGH) / construction (LOW + taint) 2 id
-│       ├── unsafe-deserialization.yaml  # ObjectInputStream/XStream/SnakeYAML/XMLDecoder/Jackson/Kryo/Hessian/FastJson
-│       ├── unsafe-reflection.yaml  # Class.forName/loadClass/Method.invoke/Field/Unsafe
-│       ├── jndi-injection.yaml
-│       ├── jdbc-url-tainted.yaml   # MySQL/H2/Postgres 协议级 RCE 入口
-│       ├── xss.yaml                # PrintWriter/ServletOutputStream/Model.addAttribute/ResponseEntity.body
-│       ├── open-redirect.yaml
-│       ├── unvalidated-forward.yaml  # RequestDispatcher.forward/include
-│       #  Java 无须污点链 (taint_required: false) — 走 fast path 到 ConfigValidator
-│       ├── weak-cryptography.yaml  # 弱算法/Mac/Signature/EC 短曲线/BC 弱密码/XOR 自定义
-│       ├── weak-random.yaml
-│       ├── insecure-crypto-config.yaml  # Static IV / Constant Salt / Insufficient Key Size (3 rules)
-│       ├── hardcoded-credentials.yaml
-│       ├── insecure-trust-manager.yaml  # 空 TrustManager / 恒真 HostnameVerifier / Allow-All / TrustAllStrategy
-│       ├── jwt-none.yaml           # auth0 Algorithm.none / jjwt parseClaimsJwt / Nimbus PlainJWT
-│       ├── insecure-cookie.yaml    # 显式 false / 缺失 setSecure (2 rules)
-│       ├── trust-boundary.yaml     # session.setAttribute 非字面量
-│       ├── insecure-temp-file.yaml
-│       ├── stack-trace-exposure.yaml
-│       ├── sensitive-data-in-log.yaml  # 关键字命中 + 容器对象启发式 (2 rules)
-│       └── sensitive-data-in-url.yaml
-│       #  Python 走完整污点链 (taint_required: true)
-│       ├── python-sql-injection.yaml      # DB-API cursor.execute / SQLAlchemy text/exec / 字符串拼接
-│       ├── python-command-injection.yaml  # os.system/popen + subprocess(shell=True) + pexpect
-│       ├── python-code-injection.yaml     # eval/exec/compile + importlib 动态导入
-│       ├── python-path-traversal.yaml     # open/os.* /shutil.* / pathlib + Zip Slip
-│       ├── python-ssrf.yaml               # requests/httpx/urllib/aiohttp
-│       ├── python-xxe.yaml                # xml.etree/lxml/sax/minidom + defusedxml 排除
-│       ├── python-unsafe-deserialization.yaml  # pickle/cPickle/yaml.load/marshal/jsonpickle
-│       ├── python-template-injection.yaml # Jinja2/Mako/Django SSTI
-│       ├── python-xss.yaml                # Markup/mark_safe/HttpResponse 裸写
-│       ├── python-open-redirect.yaml      # Flask/Django redirect / HttpResponseRedirect
-│       ├── python-ldap-injection.yaml     # python-ldap/ldap3 search_s filter
-│       ├── python-xpath-injection.yaml    # lxml xpath / ElementTree find
-│       ├── python-nosql-injection.yaml    # MongoDB $where/eval + Redis EVAL Lua
-│       #  Python 无须污点链 (taint_required: false)
-│       ├── python-weak-cryptography.yaml  # hashlib MD5/SHA1 + pycryptodome DES/RC4/Blowfish/ECB + 硬编码密钥
-│       ├── python-weak-random.yaml        # random.* (非 secrets/SystemRandom)
-│       ├── python-hardcoded-credentials.yaml  # password/secret/token 字面量赋值
-│       ├── python-insecure-temp-file.yaml # tempfile.mktemp + /tmp 固定路径
-│       ├── python-sensitive-data-in-log.yaml  # logging/print 含敏感关键字
-│       ├── python-stack-trace-exposure.yaml    # traceback.format_exc 返回响应
-│       #  Python 路由提取（非漏洞）
-│       ├── python-flask-api.yaml           # Flask @app.route / @app.get/post/put/delete
-│       ├── python-fastapi-api.yaml         # FastAPI @app.get/post + APIRouter
-│       └── python-django-api.yaml          # Django path/re_path + DRF @api_view
-│       #  C/C++ 走完整污点链 (taint_required: true)
-│       ├── cpp-command-injection.yaml     # system/popen/exec* + Windows CreateProcess
-│       ├── cpp-path-traversal.yaml        # fopen/open/stat/unlink/CreateFile + cpp17 filesystem
-│       ├── cpp-sql-injection.yaml         # mysql_query/PQexec/sqlite3_exec/ODBC/OCI
-│       ├── cpp-xxe.yaml                   # libxml2/pugixml/tinyxml
-│       #  C/C++ 无须污点链 (taint_required: false)
-│       ├── cpp-buffer-overflow.yaml       # strcpy/strcat/gets/sprintf/scanf 无边界
-│       ├── cpp-format-string.yaml         # printf/fprintf/sprintf/syslog 非字面量 fmt
-│       ├── cpp-weak-cryptography.yaml     # OpenSSL MD5/SHA1/DES/RC4/ECB + 硬编码密钥
-│       ├── cpp-hardcoded-credentials.yaml # std::string password = "..."
-│       ├── cpp-weak-random.yaml           # rand()/random()/srand()
-│       └── cpp-sensitive-data-in-log.yaml # printf/syslog/cout 含敏感关键字
+│       ├── java/                   # 34 yaml — 规则 id 带 java- 前缀
+│       │   ├── spring-api.yaml     # Spring API 路由提取（非漏洞，12 条 rule）
+│       │   #  走完整污点链 (taint_required: true)
+│       │   ├── sql-injection.yaml      # JDBC/JdbcTemplate/Hibernate/JPA/MyBatis 注解 + R2DBC + 链式 (5 rules)
+│       │   ├── mybatis-xml-sql-injection.yaml
+│       │   ├── command-injection.yaml  # Runtime/ProcessBuilder/Desktop/Commons Exec/JSch
+│       │   ├── code-injection.yaml     # OGNL/MVEL/Groovy/JEXL/ScriptEngine
+│       │   ├── path-traversal.yaml     # File/FileChannel/Paths/Path.of/Hadoop HDFS/Spring Resource/JSch SFTP/Apache VFS/Commons IO/Guava + SafeText 过滤排除
+│       │   ├── zip-slip.yaml           # ZipEntry/TarArchiveEntry
+│       │   ├── nosql-injection.yaml    # MongoDB/Cassandra/Neo4j/ElasticSearch
+│       │   ├── ldap-injection.yaml
+│       │   ├── xpath-injection.yaml
+│       │   ├── template-injection.yaml # Velocity/FreeMarker/Pebble/Thymeleaf/Mustache/StringSubstitutor
+│       │   ├── spel-injection.yaml
+│       │   ├── xxe.yaml                # DOM/SAX-StAX/Transform-Validate 拆 3 id
+│       │   ├── ssrf.yaml               # 拆 execution (HIGH) / construction (LOW + taint) 2 id
+│       │   ├── unsafe-deserialization.yaml  # ObjectInputStream/XStream/SnakeYAML/XMLDecoder/Jackson/Kryo/Hessian/FastJson
+│       │   ├── unsafe-reflection.yaml  # Class.forName/loadClass/Method.invoke/Field/Unsafe
+│       │   ├── unsafe-dynamic-class-loading.yaml
+│       │   ├── jndi-injection.yaml
+│       │   ├── jdbc-url-tainted.yaml   # MySQL/H2/Postgres 协议级 RCE 入口
+│       │   ├── xss.yaml                # PrintWriter/ServletOutputStream/Model.addAttribute/ResponseEntity.body
+│       │   ├── open-redirect.yaml
+│       │   ├── unvalidated-forward.yaml  # RequestDispatcher.forward/include
+│       │   #  无须污点链 (taint_required: false) — 走 fast path 到 ConfigValidator
+│       │   ├── weak-cryptography.yaml  # 弱算法/Mac/Signature/EC 短曲线/BC 弱密码/XOR 自定义
+│       │   ├── weak-random.yaml
+│       │   ├── insecure-crypto-config.yaml  # Static IV / Constant Salt / Insufficient Key Size (3 rules)
+│       │   ├── hardcoded-credentials.yaml
+│       │   ├── insecure-trust-manager.yaml  # 空 TrustManager / 恒真 HostnameVerifier / Allow-All / TrustAllStrategy
+│       │   ├── jwt-none.yaml           # auth0 Algorithm.none / jjwt parseClaimsJwt / Nimbus PlainJWT
+│       │   ├── insecure-cookie.yaml    # 显式 false / 缺失 setSecure (2 rules)
+│       │   ├── trust-boundary.yaml     # session.setAttribute 非字面量
+│       │   ├── insecure-temp-file.yaml
+│       │   ├── stack-trace-exposure.yaml
+│       │   ├── sensitive-data-in-log.yaml  # 关键字命中 + 容器对象启发式 (2 rules)
+│       │   └── sensitive-data-in-url.yaml
+│       ├── python/                 # 22 yaml — 规则 id 带 python- 前缀
+│       │   #  走完整污点链 (taint_required: true)
+│       │   ├── sql-injection.yaml      # DB-API cursor.execute / SQLAlchemy text/exec / 字符串拼接
+│       │   ├── command-injection.yaml  # os.system/popen + subprocess(shell=True) + pexpect
+│       │   ├── code-injection.yaml     # eval/exec/compile + importlib 动态导入
+│       │   ├── path-traversal.yaml     # open/os.* /shutil.* / pathlib + Zip Slip
+│       │   ├── ssrf.yaml               # requests/httpx/urllib/aiohttp
+│       │   ├── xxe.yaml                # xml.etree/lxml/sax/minidom + defusedxml 排除
+│       │   ├── unsafe-deserialization.yaml  # pickle/cPickle/yaml.load/marshal/jsonpickle
+│       │   ├── template-injection.yaml # Jinja2/Mako/Django SSTI
+│       │   ├── xss.yaml                # Markup/mark_safe/HttpResponse 裸写
+│       │   ├── open-redirect.yaml      # Flask/Django redirect / HttpResponseRedirect
+│       │   ├── ldap-injection.yaml     # python-ldap/ldap3 search_s filter
+│       │   ├── xpath-injection.yaml    # lxml xpath / ElementTree find
+│       │   ├── nosql-injection.yaml    # MongoDB $where/eval + Redis EVAL Lua
+│       │   #  无须污点链 (taint_required: false)
+│       │   ├── weak-cryptography.yaml  # hashlib MD5/SHA1 + pycryptodome DES/RC4/Blowfish/ECB + 硬编码密钥
+│       │   ├── weak-random.yaml        # random.* (非 secrets/SystemRandom)
+│       │   ├── hardcoded-credentials.yaml  # password/secret/token 字面量赋值
+│       │   ├── insecure-temp-file.yaml # tempfile.mktemp + /tmp 固定路径
+│       │   ├── sensitive-data-in-log.yaml  # logging/print 含敏感关键字
+│       │   ├── stack-trace-exposure.yaml    # traceback.format_exc 返回响应
+│       │   #  路由提取（非漏洞）
+│       │   ├── flask-api.yaml           # Flask @app.route / @app.get/post/put/delete
+│       │   ├── fastapi-api.yaml         # FastAPI @app.get/post + APIRouter
+│       │   └── django-api.yaml          # Django path/re_path + DRF @api_view
+│       └── cpp/                    # 10 yaml — 规则 id 带 cpp- 前缀
+│           #  走完整污点链 (taint_required: true)
+│           ├── command-injection.yaml     # system/popen/exec* + Windows CreateProcess
+│           ├── path-traversal.yaml        # fopen/open/stat/unlink/CreateFile + cpp17 filesystem
+│           ├── sql-injection.yaml         # mysql_query/PQexec/sqlite3_exec/ODBC/OCI
+│           ├── xxe.yaml                   # libxml2/pugixml/tinyxml
+│           #  无须污点链 (taint_required: false)
+│           ├── buffer-overflow.yaml       # strcpy/strcat/gets/sprintf/scanf 无边界
+│           ├── format-string.yaml         # printf/fprintf/sprintf/syslog 非字面量 fmt
+│           ├── weak-cryptography.yaml     # OpenSSL MD5/SHA1/DES/RC4/ECB + 硬编码密钥
+│           ├── hardcoded-credentials.yaml # std::string password = "..."
+│           ├── weak-random.yaml           # rand()/random()/srand()
+│           └── sensitive-data-in-log.yaml # printf/syslog/cout 含敏感关键字
 ├── skill/                          # Claude Code skill 形态（按角色独立分发）
 │   ├── reverse-tracer/             # 强制用 codegraph 读取代码
 │   ├── logic-auditor/
